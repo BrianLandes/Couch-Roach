@@ -20,3 +20,13 @@ final downloadsProvider =
     await Future<void>.delayed(_pollInterval);
   }
 });
+
+/// Whether the torrent daemon's Web API is reachable — drives the online/offline
+/// indicator on the Downloads screen. Polls a lightweight health ping.
+final daemonAliveProvider = StreamProvider.autoDispose<bool>((ref) async* {
+  final daemon = getIt<TorrentDaemon>();
+  while (true) {
+    yield await daemon.isAlive();
+    await Future<void>.delayed(_pollInterval);
+  }
+});

@@ -6,6 +6,39 @@ Map<String, dynamic> file(String name, int size, {double progress = 0}) =>
     {'name': name, 'size': size, 'progress': progress};
 
 void main() {
+  group('addResponseIsFailure', () {
+    test('accepts the newer 202 + pending JSON (the IA case)', () {
+      // Exact body qBittorrent 5.1+ returns while it resolves a URL/magnet.
+      const body =
+          '{"added_torrent_ids":[],"failure_count":0,"pending_count":1,"success_count":0}';
+      expect(addResponseIsFailure(202, body), isFalse);
+    });
+
+    test('accepts the older "Ok." 200 reply', () {
+      expect(addResponseIsFailure(200, 'Ok.'), isFalse);
+    });
+
+    test('treats a literal "Fails." as failure', () {
+      expect(addResponseIsFailure(200, 'Fails.'), isTrue);
+    });
+
+    test('treats JSON with a real failure and nothing accepted as failure', () {
+      const body =
+          '{"added_torrent_ids":[],"failure_count":1,"pending_count":0,"success_count":0}';
+      expect(addResponseIsFailure(200, body), isTrue);
+    });
+
+    test('accepts JSON that both failed one and accepted another', () {
+      const body =
+          '{"added_torrent_ids":["abc"],"failure_count":1,"pending_count":0,"success_count":1}';
+      expect(addResponseIsFailure(200, body), isFalse);
+    });
+
+    test('treats a non-2xx status as failure', () {
+      expect(addResponseIsFailure(403, 'Forbidden'), isTrue);
+    });
+  });
+
   group('pickPrimaryFile', () {
     test('returns null for an empty list', () {
       expect(pickPrimaryFile(const []), isNull);

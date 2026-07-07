@@ -19,6 +19,8 @@ class DownloadsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
     final async = ref.watch(downloadsProvider);
+    // null while the first ping is in flight; true/false once known.
+    final alive = ref.watch(daemonAliveProvider).asData?.value;
 
     return Scaffold(
       body: AmbientBackground(
@@ -38,6 +40,8 @@ class DownloadsScreen extends ConsumerWidget {
                     const AppBackButton(),
                     const SizedBox(width: AppSpacing.sm),
                     Text('Downloads', style: text.headlineMedium),
+                    const Spacer(),
+                    _DaemonStatusChip(alive: alive),
                   ],
                 ),
               ),
@@ -49,7 +53,7 @@ class DownloadsScreen extends ConsumerWidget {
                     'Downloads error — see the error log.',
                     color: AppColors.danger,
                   ),
-                  data: (torrents) => _list(torrents),
+                  data: (torrents) => _list(torrents, alive: alive),
                 ),
               ),
             ],
@@ -59,8 +63,11 @@ class DownloadsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _list(List<TorrentStatus> torrents) {
-    if (torrents.isEmpty) return const _EmptyState();
+  Widget _list(List<TorrentStatus> torrents, {required bool? alive}) {
+    if (torrents.isEmpty) {
+      // Distinguish "client isn't running" from "running but idle".
+      return _EmptyState(offline: alive == false);
+    }
 
     // Active downloads first (highest progress first), completed last.
     final sorted = [...torrents]..sort((a, b) {
@@ -201,8 +208,52 @@ class _StateChip extends StatelessWidget {
   }
 }
 
+/// Small online/offline pill for the torrent daemon. [alive] is null while the
+/// first health ping is still in flight.
+class _DaemonStatusChip extends StatelessWidget {
+  const _DaemonStatusChip({required this.alive});
+  final bool? alive;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = switch (alive) {
+      true => ('Client online', AppColors.success),
+      false => ('Client offline', AppColors.danger),
+      null => ('Checking…', AppColors.textSecondary),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: AppRadii.rPill,
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Text(label,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelMedium
+                  ?.copyWith(color: color)),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  const _EmptyState({this.offline = false});
+  final bool offline;
 
   @override
   Widget build(BuildContext context) {
@@ -213,13 +264,17 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_done_rounded,
+            Icon(offline ? Icons.cloud_off_rounded : Icons.cloud_done_rounded,
                 size: 44, color: AppColors.textTertiary),
             const SizedBox(height: AppSpacing.md),
-            Text('Nothing downloading', style: text.titleLarge),
+            Text(offline ? 'Torrent client offline' : 'Nothing downloading',
+                style: text.titleLarge),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'Anything the background client is fetching will show up here.',
+              offline
+                  ? "The background torrent client isn't reachable, so downloads "
+                      'are paused. Check the error log if this persists.'
+                  : 'Anything the background client is fetching will show up here.',
               style: text.bodyMedium?.copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,
             ),

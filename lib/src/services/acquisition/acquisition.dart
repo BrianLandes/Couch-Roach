@@ -41,6 +41,10 @@ abstract class TorrentDaemon {
   /// Snapshot of every torrent the daemon is managing — drives the Downloads
   /// activity screen. Returns [] if the daemon isn't reachable.
   Future<List<TorrentStatus>> listTorrents();
+
+  /// Whether the daemon's Web API is reachable right now (a health ping) — drives
+  /// the online/offline indicator. Never throws.
+  Future<bool> isAlive();
 }
 
 /// A live status line for one torrent in the daemon (from the qBittorrent

@@ -50,8 +50,7 @@ class QbittorrentDaemon implements TorrentDaemon {
           'tags': tag,
         },
       );
-      // qBittorrent replies "Ok." on success, "Fails." otherwise (200 for both).
-      if (res.statusCode != 200 || res.body.trim() != 'Ok.') {
+      if (addResponseIsFailure(res.statusCode, res.body)) {
         throw TorrentDaemonException(
           'add failed (${res.statusCode}: ${res.body.trim()}) for '
           '${handle.displayName ?? handle.magnetOrUrl}',
@@ -70,6 +69,18 @@ class QbittorrentDaemon implements TorrentDaemon {
   Future<List<TorrentStatus>> listTorrents() async {
     final list = await torrentsInfo();
     return list.map(parseTorrentStatus).toList(growable: false);
+  }
+
+  @override
+  Future<bool> isAlive() async {
+    try {
+      final res = await _http
+          .get(Uri.parse('$_api/app/version'))
+          .timeout(const Duration(seconds: 2));
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Poll until the tagged torrent appears (magnet metadata resolution can lag
@@ -201,6 +212,30 @@ Map<String, dynamic>? pickPrimaryFile(List<Map<String, dynamic>> files) {
   final pool = videos.isNotEmpty ? videos : files;
   pool.sort((a, b) => sizeOf(b).compareTo(sizeOf(a)));
   return pool.first;
+}
+
+/// Whether a `/torrents/add` response means the add failed. Handles both API
+/// shapes: older qBittorrent replies with the text `Ok.`/`Fails.` (200 for
+/// both); newer (≥5.1) replies with a 2xx (often **202 Accepted** while a
+/// URL/magnet is still resolving) and a JSON body of `*_count` fields. Treat as
+/// failure only on a non-2xx status, a literal `Fails.`, or JSON that reports a
+/// real failure with nothing accepted or pending. Pure + tested.
+bool addResponseIsFailure(int statusCode, String body) {
+  if (statusCode < 200 || statusCode >= 300) return true;
+  final trimmed = body.trim();
+  if (trimmed == 'Fails.') return true;
+  if (trimmed.startsWith('{')) {
+    try {
+      final j = jsonDecode(trimmed) as Map<String, dynamic>;
+      int count(String k) => (j[k] as num?)?.toInt() ?? 0;
+      final accepted = count('success_count') + count('pending_count') +
+          ((j['added_torrent_ids'] as List?)?.length ?? 0);
+      return count('failure_count') > 0 && accepted == 0;
+    } catch (_) {
+      return false; // unparseable but 2xx — let the tag poll decide
+    }
+  }
+  return false;
 }
 
 /// qBittorrent's sentinel ETA (100 days, in seconds) meaning "unknown/∞".

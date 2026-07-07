@@ -7,13 +7,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-Widget _app(List<TorrentStatus> torrents) {
+Widget _app(List<TorrentStatus> torrents, {bool alive = true}) {
   final router = GoRouter(
     routes: [GoRoute(path: '/', builder: (_, __) => const DownloadsScreen())],
   );
   return ProviderScope(
     overrides: [
       downloadsProvider.overrideWith((ref) => Stream.value(torrents)),
+      daemonAliveProvider.overrideWith((ref) => Stream.value(alive)),
     ],
     child: MaterialApp.router(theme: AppTheme.dark, routerConfig: router),
   );
@@ -38,12 +39,23 @@ TorrentStatus _torrent({
     );
 
 void main() {
-  testWidgets('shows the empty state when nothing is downloading',
+  testWidgets('shows the idle empty state when the client is online',
       (tester) async {
-    await tester.pumpWidget(_app(const []));
+    await tester.pumpWidget(_app(const [], alive: true));
     await tester.pumpAndSettle();
 
     expect(find.text('Nothing downloading'), findsOneWidget);
+    expect(find.text('Client online'), findsOneWidget);
+  });
+
+  testWidgets('shows an offline state + chip when the client is unreachable',
+      (tester) async {
+    await tester.pumpWidget(_app(const [], alive: false));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Torrent client offline'), findsOneWidget);
+    expect(find.text('Client offline'), findsOneWidget);
+    expect(find.text('Nothing downloading'), findsNothing);
   });
 
   testWidgets('renders a card with name, state, percent, and ETA',
