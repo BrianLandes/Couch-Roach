@@ -69,6 +69,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   final List<StreamSubscription<dynamic>> _subs = [];
   int _lastSavedSec = 0;
+  // Resume target applied on the first position tick — seeking right after
+  // open() is dropped because libmpv isn't ready to seek yet.
+  Duration? _pendingSeek;
   String? _error;
 
   @override
@@ -83,11 +86,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final id = widget.libraryItemId;
       if (id != null && start == Duration.zero) {
         final history = await _history.forItem(id);
-        if (history != null) {
+        if (history != null && history.resumePositionSec > 0) {
           start = Duration(seconds: history.resumePositionSec);
+          getIt<ErrorLogService>().info(
+            'Resuming "${widget.title}" at ${start.inSeconds}s',
+            source: 'PlayerScreen',
+          );
         }
       }
       _lastSavedSec = start.inSeconds;
+      _pendingSeek = start > Duration.zero ? start : null;
 
       _subs.add(_player.stream.position.listen(_onPosition));
       _subs.add(_player.stream.completed.listen((done) {
@@ -101,10 +109,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (mounted) setState(() => _error = message);
       }));
 
+      // Seek is applied on the first ready position tick (see _onPosition).
       await _player.open(Media(widget.filePath));
-      if (start > Duration.zero) {
-        await _player.seek(start);
-      }
     } catch (e, st) {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'PlayerScreen.open');
@@ -112,10 +118,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  // Throttle saves to roughly every 5s of progress so we don't hammer the DB.
   void _onPosition(Duration pos) {
+    // Apply the resume seek once the player is actually running and knows the
+    // duration — doing it earlier (right after open) is silently dropped.
+    final seek = _pendingSeek;
+    if (seek != null && _player.state.duration > Duration.zero) {
+      _pendingSeek = null;
+      _lastSavedSec = seek.inSeconds;
+      _player.seek(seek);
+      return;
+    }
+
+    // Throttle saves to roughly every 5s of progress so we don't hammer the DB.
     final id = widget.libraryItemId;
-    if (id == null) return;
+    if (id == null || _pendingSeek != null) return;
     if ((pos.inSeconds - _lastSavedSec).abs() < 5) return;
     _lastSavedSec = pos.inSeconds;
     _history.record(
