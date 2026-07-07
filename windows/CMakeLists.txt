@@ -75,6 +75,18 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
+# Bundle the vendored qBittorrent daemon next to the app exe, if present
+# (populated by tool/fetch_qbittorrent_windows.ps1 — run before this build).
+# QbittorrentProcess resolves it there at runtime. Guarded so a build without
+# the vendored binary still succeeds (it just falls back to a PATH lookup).
+set(QBITTORRENT_DIR "${CMAKE_SOURCE_DIR}/../third_party/qbittorrent")
+if(EXISTS "${QBITTORRENT_DIR}/win-x64/qbittorrent.exe")
+  install(PROGRAMS "${QBITTORRENT_DIR}/win-x64/qbittorrent.exe"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+  install(FILES "${QBITTORRENT_DIR}/LICENSE-qbittorrent.txt"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
+endif()
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 

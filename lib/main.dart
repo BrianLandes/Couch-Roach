@@ -12,6 +12,7 @@ import 'src/core/window/window_service.dart';
 import 'src/features/library/library_match_service.dart';
 import 'src/features/library/library_service.dart';
 import 'src/injection.dart';
+import 'src/services/acquisition/qbittorrent_process.dart';
 
 void main() {
   // Run everything inside a guarded zone so uncaught async errors are captured.
@@ -31,8 +32,19 @@ void main() {
       FlutterError.onError = log.onFlutterError;
       PlatformDispatcher.instance.onError = log.onPlatformError;
 
-      // Launch the TV window fullscreen (F11 toggles).
-      await initFullscreenWindow();
+      // Spawn the invisible qBittorrent-nox daemon and shut it down when the
+      // window closes. Non-fatal: if it can't start, the app still runs (local
+      // playback works; acquisition is just unavailable) — the failure is logged.
+      final daemon = getIt<QbittorrentProcess>();
+
+      // Launch the TV window fullscreen (F11 toggles). The close hook kills the
+      // daemon child before the app exits so nothing is orphaned.
+      await initFullscreenWindow(onClose: daemon.stop);
+
+      unawaited(daemon.start().catchError((Object e, StackTrace st) {
+        getIt<ErrorLogService>()
+            .logError(e, stackTrace: st, source: 'main.startDaemon');
+      }));
 
       // Hydrate the configured storage roots so scanning/placement see every disk.
       await getIt<StorageManager>().load();

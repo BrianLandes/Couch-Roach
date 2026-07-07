@@ -8,10 +8,20 @@ import 'package:window_manager/window_manager.dart';
 /// desktop". No-ops off desktop so tests and other platforms are unaffected.
 bool get _isDesktop => Platform.isWindows || Platform.isLinux;
 
-Future<void> initFullscreenWindow() async {
+/// Registered by [initFullscreenWindow] and invoked when the window is closing,
+/// so the caller can shut down child processes (the qBittorrent-nox daemon)
+/// before the app exits. No-op if unset.
+Future<void> Function()? _onCloseHook;
+
+Future<void> initFullscreenWindow({Future<void> Function()? onClose}) async {
   if (!_isDesktop) return;
+  _onCloseHook = onClose;
 
   await windowManager.ensureInitialized();
+  if (onClose != null) {
+    windowManager.addListener(_CouchRoachWindowListener());
+    await windowManager.setPreventClose(true);
+  }
   const options = WindowOptions(
     title: 'Couch Roach',
     // NB: do NOT set `fullScreen: true` here. Launching fullscreen leaves
@@ -65,6 +75,19 @@ Future<void> _repairAfterFullscreenExit() async {
   await Future<void>.delayed(const Duration(milliseconds: 200));
   await windowManager.restore();
   await windowManager.focus();
+}
+
+/// Runs the close hook (daemon shutdown) then lets the window actually close.
+/// We set `preventClose` so the child process is killed before the app dies;
+/// after the hook we `destroy()` to complete the close.
+class _CouchRoachWindowListener extends WindowListener {
+  @override
+  void onWindowClose() async {
+    final hook = _onCloseHook;
+    if (hook != null) await hook();
+    await windowManager.setPreventClose(false);
+    await windowManager.destroy();
+  }
 }
 
 Future<void> minimizeWindow() async {

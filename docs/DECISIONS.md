@@ -36,7 +36,7 @@ section ids in `CLAUDE.md`.
 | Play flow | **Stream-while-downloading** (sequential + first/last-piece), not download-then-play |
 | Recommendation depth | Start simple (concatenate + dedupe) — default |
 | Subtitle filename parsing | Dart regex — default |
-| Torrent daemon | qBittorrent-nox — default |
+| Torrent daemon | qBittorrent-nox (Linux); **Windows has no official nox — bundle the GUI `qbittorrent.exe` run hidden**, see §E |
 | TMDB matching in M1 | Scan + play with filename-derived titles in M1; **M2 back-fills `tmdb_id`** |
 
 ## New requirements (beyond the handoff)
@@ -123,6 +123,26 @@ scope** for **personal, single-machine, legal / public-domain use**.
   (seeders/quality/size); whether the resolver coexists with or precedes the
   Internet-Archive/Academic legal resolvers in the play flow.
 - Full research + packaging notes: **`docs/research/torrent-indexers.md`**.
+
+### E. Daemon binary sourcing / bundling (per platform)
+The daemon binary is **vendored on demand**, not committed — `third_party/qbittorrent/`
+is gitignored and populated by `tool/fetch_qbittorrent_{linux.sh,windows.ps1}` (pinned
+version + SHA-256). The runner CMake `install()` rules copy it next to the app executable
+(bundle root, **not** `lib/` on Linux — `Process.start` won't search the exe dir there);
+`QbittorrentProcess` resolves it at that path, falling back to PATH on dev machines.
+- **Linux:** a **fully static** `qbittorrent-nox` from `userdocs/qbittorrent-nox-static`
+  (no Qt/shared-lib deps) — clean single-file bundle.
+- **Windows:** there is **no official headless `qbittorrent-nox.exe`.** Chosen approach:
+  the fetch script downloads the official signed installer and extracts the
+  self-contained, statically-linked **GUI `qbittorrent.exe`**, which the app runs
+  **hidden** (config seeds `StartMinimized`/`MinimizeToTray`/`CloseToTray`) driven purely
+  by its WebUI. Caveat: this leaves a **tray icon** — not 100% invisible, but effectively
+  unseen on a fullscreen TV appliance. (A user-supplied real `qbittorrent-nox.exe` in the
+  bundle dir is preferred if present.) The Windows fetch runs as a step in the GitHub
+  Actions Windows build before `flutter build windows`.
+- **License:** the binary distribution is **GPLv3+** (source GPLv2+); the fetch scripts
+  also vendor `COPYING` as `LICENSE-qbittorrent.txt` next to the binary. Same obligation
+  will apply to the ffprobe and Jackett bundles.
 
 ## TV / kiosk UX
 - Must go **fullscreen**.

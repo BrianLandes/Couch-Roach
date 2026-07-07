@@ -52,6 +52,15 @@ jobs:
           }
           EOF
 
+      # Fetch + extract the qBittorrent daemon binary into third_party/ so the
+      # CMake install rule bundles it next to the app exe (7-Zip is preinstalled
+      # on windows-latest). No official headless nox.exe exists for Windows, so
+      # this extracts the GUI qbittorrent.exe from the official signed installer;
+      # the app runs it hidden via its WebUI. See tool/fetch_qbittorrent_windows.ps1.
+      - name: Vendor qBittorrent daemon
+        shell: pwsh
+        run: ./tool/fetch_qbittorrent_windows.ps1
+
       - name: Build Windows (${{ inputs.build_mode }})
         run: flutter build windows --${{ inputs.build_mode }} --dart-define-from-file=dart_define.json
 

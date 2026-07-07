@@ -25,6 +25,8 @@ import 'package:couch_roach/src/features/library/library_match_service.dart'
 import 'package:couch_roach/src/features/library/library_service.dart' as _i38;
 import 'package:couch_roach/src/features/library/media_scanner.dart' as _i842;
 import 'package:couch_roach/src/injection.dart' as _i481;
+import 'package:couch_roach/src/services/acquisition/qbittorrent_process.dart'
+    as _i312;
 import 'package:couch_roach/src/services/discovery/tmdb_client.dart' as _i819;
 import 'package:couch_roach/src/services/subtitles/movie_hasher.dart' as _i403;
 import 'package:couch_roach/src/services/subtitles/opensubtitles_client.dart'
@@ -57,6 +59,8 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i865.AppDatabase>(() => registerModule.database);
     gh.lazySingleton<_i519.Client>(() => registerModule.httpClient);
     gh.lazySingleton<_i403.MovieHasher>(() => _i403.OpenSubtitlesMovieHasher());
+    gh.lazySingleton<_i312.QbittorrentProcess>(
+        () => _i312.QbittorrentProcess(gh<_i657.ErrorLogService>()));
     gh.lazySingleton<_i1041.SubtitleSkipCheck>(
         () => _i1041.SubtitleSkipCheck(gh<_i657.ErrorLogService>()));
     gh.lazySingleton<_i1033.SubtitleClient>(() => _i1033.OpenSubtitlesClient(

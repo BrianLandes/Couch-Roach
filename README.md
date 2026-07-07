@@ -86,6 +86,37 @@ release configs — pick the Linux device in the status bar and press **F5**.
 > (`sudo apt install git-crypt`, then `git-crypt unlock /path/to/key`; see
 > [Secrets](#secrets)), or drop your own keys into a local `dart_define.json`.
 
+## Bundled binaries (torrent daemon)
+
+The app spawns qBittorrent as an invisible localhost child (see
+[`docs/DECISIONS.md`](docs/DECISIONS.md) §E). The binary is **vendored on demand**,
+not committed — `third_party/qbittorrent/` is gitignored and populated by a fetch
+script (pinned version + SHA-256, idempotent):
+
+```powershell
+# Windows: extracts the self-contained qbittorrent.exe from the official signed
+# installer (needs 7-Zip on PATH or at its default install location).
+./tool/fetch_qbittorrent_windows.ps1
+```
+
+```bash
+# Linux: downloads a fully static qbittorrent-nox (no Qt/shared-lib deps).
+./tool/fetch_qbittorrent_linux.sh
+```
+
+Run the script for your platform **once** before building; the runner CMake copies
+the binary next to the app executable, from where the app resolves it at runtime.
+The Windows CI build (`.github/workflows/windows-build.yml`) runs the fetch step
+automatically before `flutter build windows`.
+
+> **Dev note:** the app launches fine without this — the daemon just fails to start
+> (logged, non-fatal) and local playback still works. For acquisition to actually
+> function on a dev machine, either run the fetch script once (then `flutter run`
+> bundles it) or have `qbittorrent-nox` on your `PATH`. Windows has no official
+> headless nox, so the GUI `qbittorrent.exe` is bundled and run hidden (minimized
+> to tray) — a user-supplied real `qbittorrent-nox.exe` in the bundle dir is
+> preferred if present.
+
 ## Layout
 
 ```

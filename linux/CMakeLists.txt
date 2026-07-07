@@ -94,6 +94,19 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
+# Bundle the vendored qBittorrent-nox daemon at the bundle root, next to the app
+# executable (populated by tool/fetch_qbittorrent_linux.sh). QbittorrentProcess
+# resolves it there — it must sit beside the executable, NOT under lib/, because
+# Process.start on Linux won't search the exe's own directory. Guarded so a build
+# without the vendored binary still succeeds (falls back to a PATH lookup).
+set(QBITTORRENT_DIR "${CMAKE_SOURCE_DIR}/../third_party/qbittorrent")
+if(EXISTS "${QBITTORRENT_DIR}/linux-x64/qbittorrent-nox")
+  install(PROGRAMS "${QBITTORRENT_DIR}/linux-x64/qbittorrent-nox"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+  install(FILES "${QBITTORRENT_DIR}/LICENSE-qbittorrent.txt"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
+endif()
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 
