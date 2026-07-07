@@ -12,10 +12,10 @@ const _gb = 1024 * 1024 * 1024;
 /// touching real disks.
 class _StubSpaceManager extends ConfiguredStorageManager {
   _StubSpaceManager(
-    StorageRepository repo,
+    super.repo,
     this._free, {
     super.minFreeFloorBytes,
-  }) : super(repo);
+  });
 
   final Map<String, int?> _free;
 

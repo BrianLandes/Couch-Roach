@@ -55,8 +55,14 @@ class QbittorrentProcess {
       _process = await Process.start(
         executable,
         ['--profile=${profileDir.path}'],
-        // Detach stdio; qBittorrent is chatty and we don't surface it.
-        mode: ProcessStartMode.detachedWithStdio,
+        // inheritStdio — NOT a detached mode. A detached mode (detached /
+        // detachedWithStdio) makes `.exitCode` throw "Process is detached",
+        // which we rely on to detect an unexpected exit and to await shutdown in
+        // stop(). inheritStdio keeps exitCode + kill() while staying invisible:
+        // on Windows we run the GUI exe minimized to tray (seeded config), on
+        // Linux nox is headless, and inherited stdio just goes to the app's own
+        // (absent) console rather than needing to be drained.
+        mode: ProcessStartMode.inheritStdio,
       );
     } catch (e, st) {
       _log.logError(e, stackTrace: st, source: 'QbittorrentProcess.start');
@@ -77,17 +83,23 @@ class QbittorrentProcess {
     await _awaitReady();
   }
 
-  /// Kill the child process. Safe to call when nothing is running.
+  /// Kill the child process. Safe to call when nothing is running. Never
+  /// throws — this runs on window close, and a shutdown hiccup must not trap the
+  /// user in a window that won't close.
   Future<void> stop() async {
     final proc = _process;
     _process = null;
     if (proc == null) return;
-    proc.kill();
-    // Give it a moment to exit; escalate to SIGKILL if it lingers.
-    final exited = await proc.exitCode
-        .then((_) => true)
-        .timeout(const Duration(seconds: 5), onTimeout: () => false);
-    if (!exited) proc.kill(ProcessSignal.sigkill);
+    try {
+      proc.kill();
+      // Give it a moment to exit; escalate to SIGKILL if it lingers.
+      final exited = await proc.exitCode
+          .then((_) => true)
+          .timeout(const Duration(seconds: 5), onTimeout: () => false);
+      if (!exited) proc.kill(ProcessSignal.sigkill);
+    } catch (e, st) {
+      _log.logError(e, stackTrace: st, source: 'QbittorrentProcess.stop');
+    }
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
