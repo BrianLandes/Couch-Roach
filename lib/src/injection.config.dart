@@ -12,6 +12,8 @@
 import 'package:couch_roach/src/core/logging/error_log_service.dart' as _i657;
 import 'package:couch_roach/src/core/storage/storage_manager.dart' as _i883;
 import 'package:couch_roach/src/data/db/database.dart' as _i865;
+import 'package:couch_roach/src/data/repositories/library_repository.dart'
+    as _i877;
 import 'package:couch_roach/src/data/repositories/storage_repository.dart'
     as _i366;
 import 'package:couch_roach/src/features/library/media_scanner.dart' as _i842;
@@ -33,6 +35,8 @@ extension GetItInjectableX on _i174.GetIt {
     final registerModule = _$RegisterModule();
     gh.lazySingleton<_i657.ErrorLogService>(() => _i657.ErrorLogService());
     gh.lazySingleton<_i865.AppDatabase>(() => registerModule.database);
+    gh.lazySingleton<_i877.LibraryRepository>(
+        () => _i877.DriftLibraryRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i366.StorageRepository>(
         () => _i366.DriftStorageRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i883.StorageManager>(

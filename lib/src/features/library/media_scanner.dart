@@ -4,25 +4,7 @@ import 'package:injectable/injectable.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/storage/storage_manager.dart';
-
-/// A parsed candidate media file discovered on disk, before it's persisted.
-class ScannedFile {
-  ScannedFile({
-    required this.filePath,
-    required this.title,
-    required this.mediaType,
-    this.season,
-    this.episode,
-  });
-
-  final String filePath;
-  final String title;
-
-  /// 'tv' or 'movie'.
-  final String mediaType;
-  final int? season;
-  final int? episode;
-}
+import '../../data/repositories/library_repository.dart' show ScannedFile;
 
 /// Walks every configured storage root and turns video files into
 /// [ScannedFile]s using filename-derived titles. TMDB matching happens later

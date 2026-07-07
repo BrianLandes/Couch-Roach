@@ -38,6 +38,12 @@ class LibraryItems extends Table {
   /// otherwise fair game to hydrate and then reap (see DECISIONS: auto-cleanup).
   BoolColumn get keep => boolean().withDefault(const Constant(false))();
 
+  /// Set when a scan no longer finds the file on disk (deleted, or its disk is
+  /// offline). Flagged rather than deleted so watch history / keep survive a
+  /// transient disappearance (e.g. an unplugged disk); the reaper is the only
+  /// hard-deleter.
+  BoolColumn get missing => boolean().withDefault(const Constant(false))();
+
   DateTimeColumn get addedAt =>
       dateTime().withDefault(currentDateAndTime)();
 }
@@ -89,7 +95,20 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.addColumn(libraryItems, libraryItems.missing);
+          }
+        },
+        beforeOpen: (details) async {
+          // Enable cascade deletes (watch_history → library_items).
+          await customStatement('PRAGMA foreign_keys = ON');
+        },
+      );
 }
 
 LazyDatabase _openConnection() {

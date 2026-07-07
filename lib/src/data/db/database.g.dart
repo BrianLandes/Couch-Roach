@@ -100,6 +100,16 @@ class $LibraryItemsTable extends LibraryItems
       defaultConstraints:
           GeneratedColumn.constraintIsAlways('CHECK ("keep" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _missingMeta =
+      const VerificationMeta('missing');
+  @override
+  late final GeneratedColumn<bool> missing = GeneratedColumn<bool>(
+      'missing', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("missing" IN (0, 1))'),
+      defaultValue: const Constant(false));
   static const VerificationMeta _addedAtMeta =
       const VerificationMeta('addedAt');
   @override
@@ -123,6 +133,7 @@ class $LibraryItemsTable extends LibraryItems
         hasEmbeddedEnSub,
         managed,
         keep,
+        missing,
         addedAt
       ];
   @override
@@ -198,6 +209,10 @@ class $LibraryItemsTable extends LibraryItems
       context.handle(
           _keepMeta, keep.isAcceptableOrUnknown(data['keep']!, _keepMeta));
     }
+    if (data.containsKey('missing')) {
+      context.handle(_missingMeta,
+          missing.isAcceptableOrUnknown(data['missing']!, _missingMeta));
+    }
     if (data.containsKey('added_at')) {
       context.handle(_addedAtMeta,
           addedAt.isAcceptableOrUnknown(data['added_at']!, _addedAtMeta));
@@ -237,6 +252,8 @@ class $LibraryItemsTable extends LibraryItems
           .read(DriftSqlType.bool, data['${effectivePrefix}managed'])!,
       keep: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}keep'])!,
+      missing: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}missing'])!,
       addedAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}added_at'])!,
     );
@@ -272,6 +289,12 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
   /// watch (e.g. a movie to rewatch). Everything in the library folders is
   /// otherwise fair game to hydrate and then reap (see DECISIONS: auto-cleanup).
   final bool keep;
+
+  /// Set when a scan no longer finds the file on disk (deleted, or its disk is
+  /// offline). Flagged rather than deleted so watch history / keep survive a
+  /// transient disappearance (e.g. an unplugged disk); the reaper is the only
+  /// hard-deleter.
+  final bool missing;
   final DateTime addedAt;
   const LibraryItem(
       {required this.id,
@@ -287,6 +310,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       required this.hasEmbeddedEnSub,
       required this.managed,
       required this.keep,
+      required this.missing,
       required this.addedAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -316,6 +340,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     map['has_embedded_en_sub'] = Variable<bool>(hasEmbeddedEnSub);
     map['managed'] = Variable<bool>(managed);
     map['keep'] = Variable<bool>(keep);
+    map['missing'] = Variable<bool>(missing);
     map['added_at'] = Variable<DateTime>(addedAt);
     return map;
   }
@@ -345,6 +370,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       hasEmbeddedEnSub: Value(hasEmbeddedEnSub),
       managed: Value(managed),
       keep: Value(keep),
+      missing: Value(missing),
       addedAt: Value(addedAt),
     );
   }
@@ -366,6 +392,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       hasEmbeddedEnSub: serializer.fromJson<bool>(json['hasEmbeddedEnSub']),
       managed: serializer.fromJson<bool>(json['managed']),
       keep: serializer.fromJson<bool>(json['keep']),
+      missing: serializer.fromJson<bool>(json['missing']),
       addedAt: serializer.fromJson<DateTime>(json['addedAt']),
     );
   }
@@ -386,6 +413,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       'hasEmbeddedEnSub': serializer.toJson<bool>(hasEmbeddedEnSub),
       'managed': serializer.toJson<bool>(managed),
       'keep': serializer.toJson<bool>(keep),
+      'missing': serializer.toJson<bool>(missing),
       'addedAt': serializer.toJson<DateTime>(addedAt),
     };
   }
@@ -404,6 +432,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           bool? hasEmbeddedEnSub,
           bool? managed,
           bool? keep,
+          bool? missing,
           DateTime? addedAt}) =>
       LibraryItem(
         id: id ?? this.id,
@@ -419,6 +448,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
         hasEmbeddedEnSub: hasEmbeddedEnSub ?? this.hasEmbeddedEnSub,
         managed: managed ?? this.managed,
         keep: keep ?? this.keep,
+        missing: missing ?? this.missing,
         addedAt: addedAt ?? this.addedAt,
       );
   LibraryItem copyWithCompanion(LibraryItemsCompanion data) {
@@ -440,6 +470,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           : this.hasEmbeddedEnSub,
       managed: data.managed.present ? data.managed.value : this.managed,
       keep: data.keep.present ? data.keep.value : this.keep,
+      missing: data.missing.present ? data.missing.value : this.missing,
       addedAt: data.addedAt.present ? data.addedAt.value : this.addedAt,
     );
   }
@@ -460,6 +491,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           ..write('hasEmbeddedEnSub: $hasEmbeddedEnSub, ')
           ..write('managed: $managed, ')
           ..write('keep: $keep, ')
+          ..write('missing: $missing, ')
           ..write('addedAt: $addedAt')
           ..write(')'))
         .toString();
@@ -480,6 +512,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       hasEmbeddedEnSub,
       managed,
       keep,
+      missing,
       addedAt);
   @override
   bool operator ==(Object other) =>
@@ -498,6 +531,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           other.hasEmbeddedEnSub == this.hasEmbeddedEnSub &&
           other.managed == this.managed &&
           other.keep == this.keep &&
+          other.missing == this.missing &&
           other.addedAt == this.addedAt);
 }
 
@@ -515,6 +549,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
   final Value<bool> hasEmbeddedEnSub;
   final Value<bool> managed;
   final Value<bool> keep;
+  final Value<bool> missing;
   final Value<DateTime> addedAt;
   const LibraryItemsCompanion({
     this.id = const Value.absent(),
@@ -530,6 +565,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.hasEmbeddedEnSub = const Value.absent(),
     this.managed = const Value.absent(),
     this.keep = const Value.absent(),
+    this.missing = const Value.absent(),
     this.addedAt = const Value.absent(),
   });
   LibraryItemsCompanion.insert({
@@ -546,6 +582,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.hasEmbeddedEnSub = const Value.absent(),
     this.managed = const Value.absent(),
     this.keep = const Value.absent(),
+    this.missing = const Value.absent(),
     this.addedAt = const Value.absent(),
   })  : mediaType = Value(mediaType),
         title = Value(title),
@@ -564,6 +601,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     Expression<bool>? hasEmbeddedEnSub,
     Expression<bool>? managed,
     Expression<bool>? keep,
+    Expression<bool>? missing,
     Expression<DateTime>? addedAt,
   }) {
     return RawValuesInsertable({
@@ -580,6 +618,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       if (hasEmbeddedEnSub != null) 'has_embedded_en_sub': hasEmbeddedEnSub,
       if (managed != null) 'managed': managed,
       if (keep != null) 'keep': keep,
+      if (missing != null) 'missing': missing,
       if (addedAt != null) 'added_at': addedAt,
     });
   }
@@ -598,6 +637,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       Value<bool>? hasEmbeddedEnSub,
       Value<bool>? managed,
       Value<bool>? keep,
+      Value<bool>? missing,
       Value<DateTime>? addedAt}) {
     return LibraryItemsCompanion(
       id: id ?? this.id,
@@ -613,6 +653,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       hasEmbeddedEnSub: hasEmbeddedEnSub ?? this.hasEmbeddedEnSub,
       managed: managed ?? this.managed,
       keep: keep ?? this.keep,
+      missing: missing ?? this.missing,
       addedAt: addedAt ?? this.addedAt,
     );
   }
@@ -659,6 +700,9 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     if (keep.present) {
       map['keep'] = Variable<bool>(keep.value);
     }
+    if (missing.present) {
+      map['missing'] = Variable<bool>(missing.value);
+    }
     if (addedAt.present) {
       map['added_at'] = Variable<DateTime>(addedAt.value);
     }
@@ -681,6 +725,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
           ..write('hasEmbeddedEnSub: $hasEmbeddedEnSub, ')
           ..write('managed: $managed, ')
           ..write('keep: $keep, ')
+          ..write('missing: $missing, ')
           ..write('addedAt: $addedAt')
           ..write(')'))
         .toString();
@@ -1645,6 +1690,7 @@ typedef $$LibraryItemsTableCreateCompanionBuilder = LibraryItemsCompanion
   Value<bool> hasEmbeddedEnSub,
   Value<bool> managed,
   Value<bool> keep,
+  Value<bool> missing,
   Value<DateTime> addedAt,
 });
 typedef $$LibraryItemsTableUpdateCompanionBuilder = LibraryItemsCompanion
@@ -1662,6 +1708,7 @@ typedef $$LibraryItemsTableUpdateCompanionBuilder = LibraryItemsCompanion
   Value<bool> hasEmbeddedEnSub,
   Value<bool> managed,
   Value<bool> keep,
+  Value<bool> missing,
   Value<DateTime> addedAt,
 });
 
@@ -1713,6 +1760,9 @@ class $$LibraryItemsTableFilterComposer
 
   ColumnFilters<bool> get keep => $composableBuilder(
       column: $table.keep, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get missing => $composableBuilder(
+      column: $table.missing, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get addedAt => $composableBuilder(
       column: $table.addedAt, builder: (column) => ColumnFilters(column));
@@ -1767,6 +1817,9 @@ class $$LibraryItemsTableOrderingComposer
   ColumnOrderings<bool> get keep => $composableBuilder(
       column: $table.keep, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<bool> get missing => $composableBuilder(
+      column: $table.missing, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get addedAt => $composableBuilder(
       column: $table.addedAt, builder: (column) => ColumnOrderings(column));
 }
@@ -1819,6 +1872,9 @@ class $$LibraryItemsTableAnnotationComposer
   GeneratedColumn<bool> get keep =>
       $composableBuilder(column: $table.keep, builder: (column) => column);
 
+  GeneratedColumn<bool> get missing =>
+      $composableBuilder(column: $table.missing, builder: (column) => column);
+
   GeneratedColumn<DateTime> get addedAt =>
       $composableBuilder(column: $table.addedAt, builder: (column) => column);
 }
@@ -1862,6 +1918,7 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             Value<bool> hasEmbeddedEnSub = const Value.absent(),
             Value<bool> managed = const Value.absent(),
             Value<bool> keep = const Value.absent(),
+            Value<bool> missing = const Value.absent(),
             Value<DateTime> addedAt = const Value.absent(),
           }) =>
               LibraryItemsCompanion(
@@ -1878,6 +1935,7 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             hasEmbeddedEnSub: hasEmbeddedEnSub,
             managed: managed,
             keep: keep,
+            missing: missing,
             addedAt: addedAt,
           ),
           createCompanionCallback: ({
@@ -1894,6 +1952,7 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             Value<bool> hasEmbeddedEnSub = const Value.absent(),
             Value<bool> managed = const Value.absent(),
             Value<bool> keep = const Value.absent(),
+            Value<bool> missing = const Value.absent(),
             Value<DateTime> addedAt = const Value.absent(),
           }) =>
               LibraryItemsCompanion.insert(
@@ -1910,6 +1969,7 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             hasEmbeddedEnSub: hasEmbeddedEnSub,
             managed: managed,
             keep: keep,
+            missing: missing,
             addedAt: addedAt,
           ),
           withReferenceMapper: (p0) => p0
