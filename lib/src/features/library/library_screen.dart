@@ -8,6 +8,7 @@ import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
+import '../../widgets/fullscreen_toggle_button.dart';
 import '../player/player_screen.dart';
 import 'continue_watching_card.dart';
 import 'library_providers.dart';
@@ -156,6 +157,7 @@ class _Header extends StatelessWidget {
             label: const Text('Manage storage'),
           ),
           const SizedBox(width: AppSpacing.sm),
+          const FullscreenToggleButton(),
           const IconButton(
             onPressed: minimizeWindow,
             icon: Icon(Icons.remove_rounded),

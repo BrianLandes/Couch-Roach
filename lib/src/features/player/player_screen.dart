@@ -9,6 +9,7 @@ import '../../core/logging/error_log_service.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
 import '../../theme/theme.dart';
+import '../../widgets/fullscreen_toggle_button.dart';
 
 /// Everything the player needs to open a title. Passed via go_router `extra`
 /// (file paths don't belong in a URL).
@@ -182,10 +183,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (context.canPop()) context.pop();
   }
 
-  /// Controls theme with a back button in the top bar so it fades in/out with
-  /// the rest of the player UI.
+  /// Controls theme: back button in the top bar (fades with the UI), and a
+  /// fullscreen button that drives the OS window fullscreen (window_manager) so
+  /// it's in sync with how the app launches. media_kit's own fullscreen
+  /// (double-press + its button) is disabled to avoid a competing system.
   MaterialDesktopVideoControlsThemeData _controlsTheme() {
     return MaterialDesktopVideoControlsThemeData(
+      toggleFullscreenOnDoublePress: false,
       topButtonBar: [
         IconButton(
           onPressed: _back,
@@ -200,6 +204,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
               style: const TextStyle(color: Colors.white, fontSize: 18),
             ),
           ),
+      ],
+      bottomButtonBar: const [
+        MaterialDesktopPlayOrPauseButton(),
+        MaterialDesktopVolumeButton(),
+        MaterialDesktopPositionIndicator(),
+        Spacer(),
+        FullscreenToggleButton(color: Colors.white, iconSize: 28),
       ],
     );
   }
