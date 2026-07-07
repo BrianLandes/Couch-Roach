@@ -28,14 +28,22 @@ class SubtitleSkipCheck {
   }
 
   // ── 1. Sidecar ─────────────────────────────────────────────────────────────
-  static bool hasEnglishSidecar(String videoPath) {
+  static const _sidecarSuffixes = ['.en.srt', '.eng.srt', '.english.srt', '.srt'];
+
+  static bool hasEnglishSidecar(String videoPath) =>
+      englishSidecarPath(videoPath) != null;
+
+  /// The path of an existing English `.srt` sidecar next to [videoPath], or null
+  /// if there isn't one. Lets a caller reuse the sidecar it already has instead
+  /// of re-downloading.
+  static String? englishSidecarPath(String videoPath) {
     final dir = p.dirname(videoPath);
     final base = p.basenameWithoutExtension(videoPath);
-    const suffixes = ['.en.srt', '.eng.srt', '.english.srt', '.srt'];
-    for (final suffix in suffixes) {
-      if (File(p.join(dir, '$base$suffix')).existsSync()) return true;
+    for (final suffix in _sidecarSuffixes) {
+      final candidate = p.join(dir, '$base$suffix');
+      if (File(candidate).existsSync()) return candidate;
     }
-    return false;
+    return null;
   }
 
   // ── 2. ffprobe (null when unavailable → fall through) ──────────────────────

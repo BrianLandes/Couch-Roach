@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/window/window_service.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/watch_history_repository.dart';
@@ -19,6 +22,7 @@ import 'library_match_service.dart';
 import 'library_providers.dart';
 import 'library_service.dart';
 import 'library_tile.dart';
+import '../../services/subtitles/subtitle_service.dart';
 
 /// The landing page: a Continue Watching rail (when there's anything to resume)
 /// over the full library grid. It's the nav root, so it has no back button.
@@ -165,6 +169,12 @@ class _Header extends StatelessWidget {
                   : () async {
                       await library.rescan();
                       await getIt<LibraryMatchService>().matchUnmatched();
+                      // Kick the quota-aware subtitle queue in the background —
+                      // it downloads a few and records attempts so it never
+                      // hammers the daily quota on a big first scan.
+                      if (const AppConfig().hasOpenSubtitlesKey) {
+                        unawaited(getIt<SubtitleService>().processQueue());
+                      }
                     },
               icon: scanning
                   ? const SizedBox(

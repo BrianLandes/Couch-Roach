@@ -16,6 +16,8 @@ import 'package:couch_roach/src/data/repositories/library_repository.dart'
     as _i877;
 import 'package:couch_roach/src/data/repositories/storage_repository.dart'
     as _i366;
+import 'package:couch_roach/src/data/repositories/subtitle_attempts_repository.dart'
+    as _i806;
 import 'package:couch_roach/src/data/repositories/watch_history_repository.dart'
     as _i382;
 import 'package:couch_roach/src/features/library/library_match_service.dart'
@@ -27,8 +29,12 @@ import 'package:couch_roach/src/services/discovery/tmdb_client.dart' as _i819;
 import 'package:couch_roach/src/services/subtitles/movie_hasher.dart' as _i403;
 import 'package:couch_roach/src/services/subtitles/opensubtitles_client.dart'
     as _i1033;
+import 'package:couch_roach/src/services/subtitles/subtitle_fetch_service.dart'
+    as _i295;
 import 'package:couch_roach/src/services/subtitles/subtitle_searcher.dart'
     as _i559;
+import 'package:couch_roach/src/services/subtitles/subtitle_service.dart'
+    as _i754;
 import 'package:couch_roach/src/services/subtitles/subtitle_skip_check.dart'
     as _i1041;
 import 'package:get_it/get_it.dart' as _i174;
@@ -59,6 +65,8 @@ extension GetItInjectableX on _i174.GetIt {
         ));
     gh.lazySingleton<_i877.LibraryRepository>(
         () => _i877.DriftLibraryRepository(gh<_i865.AppDatabase>()));
+    gh.lazySingleton<_i806.SubtitleAttemptsRepository>(
+        () => _i806.DriftSubtitleAttemptsRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i559.SubtitleSearcher>(() => _i559.SubtitleSearcher(
           gh<_i403.MovieHasher>(),
           gh<_i1033.SubtitleClient>(),
@@ -76,6 +84,16 @@ extension GetItInjectableX on _i174.GetIt {
         ));
     gh.lazySingleton<_i842.MediaScanner>(
         () => _i842.MediaScanner(gh<_i883.StorageManager>()));
+    gh.lazySingleton<_i754.SubtitleService>(
+        () => _i295.OpenSubtitlesSubtitleService(
+              gh<_i1041.SubtitleSkipCheck>(),
+              gh<_i559.SubtitleSearcher>(),
+              gh<_i1033.SubtitleClient>(),
+              gh<_i806.SubtitleAttemptsRepository>(),
+              gh<_i877.LibraryRepository>(),
+              gh<_i519.Client>(),
+              gh<_i657.ErrorLogService>(),
+            ));
     gh.lazySingleton<_i495.LibraryMatchService>(() => _i495.LibraryMatchService(
           gh<_i877.LibraryRepository>(),
           gh<_i819.DiscoveryClient>(),
