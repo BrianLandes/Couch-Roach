@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:injectable/injectable.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/storage/storage_manager.dart';
@@ -26,6 +27,7 @@ class ScannedFile {
 /// Walks every configured storage root and turns video files into
 /// [ScannedFile]s using filename-derived titles. TMDB matching happens later
 /// (M2) — this is the M1 scanner (see DECISIONS: TMDB matching in M1).
+@lazySingleton
 class MediaScanner {
   MediaScanner(this._storage);
 

@@ -707,10 +707,7 @@ class $WatchHistoryTable extends WatchHistory
   @override
   late final GeneratedColumn<int> libraryItemId = GeneratedColumn<int>(
       'library_item_id', aliasedName, false,
-      type: DriftSqlType.int,
-      requiredDuringInsert: true,
-      defaultConstraints: GeneratedColumn.constraintIsAlways(
-          'REFERENCES library_items (id) ON DELETE CASCADE'));
+      type: DriftSqlType.int, requiredDuringInsert: true);
   static const VerificationMeta _resumePositionSecMeta =
       const VerificationMeta('resumePositionSec');
   @override
@@ -1069,10 +1066,7 @@ class $SubtitleAttemptsTable extends SubtitleAttempts
   @override
   late final GeneratedColumn<int> libraryItemId = GeneratedColumn<int>(
       'library_item_id', aliasedName, false,
-      type: DriftSqlType.int,
-      requiredDuringInsert: true,
-      defaultConstraints: GeneratedColumn.constraintIsAlways(
-          'REFERENCES library_items (id) ON DELETE CASCADE'));
+      type: DriftSqlType.int, requiredDuringInsert: true);
   static const VerificationMeta _statusMeta = const VerificationMeta('status');
   @override
   late final GeneratedColumn<String> status = GeneratedColumn<String>(
@@ -1634,25 +1628,6 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities =>
       [libraryItems, watchHistory, subtitleAttempts, storageLocations];
-  @override
-  StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
-        [
-          WritePropagation(
-            on: TableUpdateQuery.onTableName('library_items',
-                limitUpdateKind: UpdateKind.delete),
-            result: [
-              TableUpdate('watch_history', kind: UpdateKind.delete),
-            ],
-          ),
-          WritePropagation(
-            on: TableUpdateQuery.onTableName('library_items',
-                limitUpdateKind: UpdateKind.delete),
-            result: [
-              TableUpdate('subtitle_attempts', kind: UpdateKind.delete),
-            ],
-          ),
-        ],
-      );
 }
 
 typedef $$LibraryItemsTableCreateCompanionBuilder = LibraryItemsCompanion
@@ -1689,42 +1664,6 @@ typedef $$LibraryItemsTableUpdateCompanionBuilder = LibraryItemsCompanion
   Value<bool> keep,
   Value<DateTime> addedAt,
 });
-
-final class $$LibraryItemsTableReferences
-    extends BaseReferences<_$AppDatabase, $LibraryItemsTable, LibraryItem> {
-  $$LibraryItemsTableReferences(super.$_db, super.$_table, super.$_typedResult);
-
-  static MultiTypedResultKey<$WatchHistoryTable, List<WatchHistoryData>>
-      _watchHistoryRefsTable(_$AppDatabase db) =>
-          MultiTypedResultKey.fromTable(db.watchHistory,
-              aliasName: 'library_items__id__watch_history__library_item_id');
-
-  $$WatchHistoryTableProcessedTableManager get watchHistoryRefs {
-    final manager = $$WatchHistoryTableTableManager($_db, $_db.watchHistory)
-        .filter((f) => f.libraryItemId.id.sqlEquals($_itemColumn<int>('id')!));
-
-    final cache = $_typedResult.readTableOrNull(_watchHistoryRefsTable($_db));
-    return ProcessedTableManager(
-        manager.$state.copyWith(prefetchedData: cache));
-  }
-
-  static MultiTypedResultKey<$SubtitleAttemptsTable, List<SubtitleAttempt>>
-      _subtitleAttemptsRefsTable(_$AppDatabase db) =>
-          MultiTypedResultKey.fromTable(db.subtitleAttempts,
-              aliasName:
-                  'library_items__id__subtitle_attempts__library_item_id');
-
-  $$SubtitleAttemptsTableProcessedTableManager get subtitleAttemptsRefs {
-    final manager = $$SubtitleAttemptsTableTableManager(
-            $_db, $_db.subtitleAttempts)
-        .filter((f) => f.libraryItemId.id.sqlEquals($_itemColumn<int>('id')!));
-
-    final cache =
-        $_typedResult.readTableOrNull(_subtitleAttemptsRefsTable($_db));
-    return ProcessedTableManager(
-        manager.$state.copyWith(prefetchedData: cache));
-  }
-}
 
 class $$LibraryItemsTableFilterComposer
     extends Composer<_$AppDatabase, $LibraryItemsTable> {
@@ -1777,48 +1716,6 @@ class $$LibraryItemsTableFilterComposer
 
   ColumnFilters<DateTime> get addedAt => $composableBuilder(
       column: $table.addedAt, builder: (column) => ColumnFilters(column));
-
-  Expression<bool> watchHistoryRefs(
-      Expression<bool> Function($$WatchHistoryTableFilterComposer f) f) {
-    final $$WatchHistoryTableFilterComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.id,
-        referencedTable: $db.watchHistory,
-        getReferencedColumn: (t) => t.libraryItemId,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$WatchHistoryTableFilterComposer(
-              $db: $db,
-              $table: $db.watchHistory,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return f(composer);
-  }
-
-  Expression<bool> subtitleAttemptsRefs(
-      Expression<bool> Function($$SubtitleAttemptsTableFilterComposer f) f) {
-    final $$SubtitleAttemptsTableFilterComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.id,
-        referencedTable: $db.subtitleAttempts,
-        getReferencedColumn: (t) => t.libraryItemId,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$SubtitleAttemptsTableFilterComposer(
-              $db: $db,
-              $table: $db.subtitleAttempts,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return f(composer);
-  }
 }
 
 class $$LibraryItemsTableOrderingComposer
@@ -1924,48 +1821,6 @@ class $$LibraryItemsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get addedAt =>
       $composableBuilder(column: $table.addedAt, builder: (column) => column);
-
-  Expression<T> watchHistoryRefs<T extends Object>(
-      Expression<T> Function($$WatchHistoryTableAnnotationComposer a) f) {
-    final $$WatchHistoryTableAnnotationComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.id,
-        referencedTable: $db.watchHistory,
-        getReferencedColumn: (t) => t.libraryItemId,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$WatchHistoryTableAnnotationComposer(
-              $db: $db,
-              $table: $db.watchHistory,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return f(composer);
-  }
-
-  Expression<T> subtitleAttemptsRefs<T extends Object>(
-      Expression<T> Function($$SubtitleAttemptsTableAnnotationComposer a) f) {
-    final $$SubtitleAttemptsTableAnnotationComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.id,
-        referencedTable: $db.subtitleAttempts,
-        getReferencedColumn: (t) => t.libraryItemId,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$SubtitleAttemptsTableAnnotationComposer(
-              $db: $db,
-              $table: $db.subtitleAttempts,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return f(composer);
-  }
 }
 
 class $$LibraryItemsTableTableManager extends RootTableManager<
@@ -1977,10 +1832,12 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
     $$LibraryItemsTableAnnotationComposer,
     $$LibraryItemsTableCreateCompanionBuilder,
     $$LibraryItemsTableUpdateCompanionBuilder,
-    (LibraryItem, $$LibraryItemsTableReferences),
+    (
+      LibraryItem,
+      BaseReferences<_$AppDatabase, $LibraryItemsTable, LibraryItem>
+    ),
     LibraryItem,
-    PrefetchHooks Function(
-        {bool watchHistoryRefs, bool subtitleAttemptsRefs})> {
+    PrefetchHooks Function()> {
   $$LibraryItemsTableTableManager(_$AppDatabase db, $LibraryItemsTable table)
       : super(TableManagerState(
           db: db,
@@ -2056,51 +1913,9 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             addedAt: addedAt,
           ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (
-                    e.readTable(table),
-                    $$LibraryItemsTableReferences(db, table, e)
-                  ))
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: (
-              {watchHistoryRefs = false, subtitleAttemptsRefs = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [
-                if (watchHistoryRefs) db.watchHistory,
-                if (subtitleAttemptsRefs) db.subtitleAttempts
-              ],
-              addJoins: null,
-              getPrefetchedDataCallback: (items) async {
-                return [
-                  if (watchHistoryRefs)
-                    await $_getPrefetchedData<LibraryItem, $LibraryItemsTable, WatchHistoryData>(
-                        currentTable: table,
-                        referencedTable: $$LibraryItemsTableReferences
-                            ._watchHistoryRefsTable(db),
-                        managerFromTypedResult: (p0) =>
-                            $$LibraryItemsTableReferences(db, table, p0)
-                                .watchHistoryRefs,
-                        referencedItemsForCurrentItem:
-                            (item, referencedItems) => referencedItems
-                                .where((e) => e.libraryItemId == item.id),
-                        typedResults: items),
-                  if (subtitleAttemptsRefs)
-                    await $_getPrefetchedData<LibraryItem, $LibraryItemsTable,
-                            SubtitleAttempt>(
-                        currentTable: table,
-                        referencedTable: $$LibraryItemsTableReferences
-                            ._subtitleAttemptsRefsTable(db),
-                        managerFromTypedResult: (p0) =>
-                            $$LibraryItemsTableReferences(db, table, p0)
-                                .subtitleAttemptsRefs,
-                        referencedItemsForCurrentItem:
-                            (item, referencedItems) => referencedItems
-                                .where((e) => e.libraryItemId == item.id),
-                        typedResults: items)
-                ];
-              },
-            );
-          },
+          prefetchHooksCallback: null,
         ));
 }
 
@@ -2113,9 +1928,12 @@ typedef $$LibraryItemsTableProcessedTableManager = ProcessedTableManager<
     $$LibraryItemsTableAnnotationComposer,
     $$LibraryItemsTableCreateCompanionBuilder,
     $$LibraryItemsTableUpdateCompanionBuilder,
-    (LibraryItem, $$LibraryItemsTableReferences),
+    (
+      LibraryItem,
+      BaseReferences<_$AppDatabase, $LibraryItemsTable, LibraryItem>
+    ),
     LibraryItem,
-    PrefetchHooks Function({bool watchHistoryRefs, bool subtitleAttemptsRefs})>;
+    PrefetchHooks Function()>;
 typedef $$WatchHistoryTableCreateCompanionBuilder = WatchHistoryCompanion
     Function({
   Value<int> id,
@@ -2135,26 +1953,6 @@ typedef $$WatchHistoryTableUpdateCompanionBuilder = WatchHistoryCompanion
   Value<DateTime> lastWatchedAt,
 });
 
-final class $$WatchHistoryTableReferences extends BaseReferences<_$AppDatabase,
-    $WatchHistoryTable, WatchHistoryData> {
-  $$WatchHistoryTableReferences(super.$_db, super.$_table, super.$_typedResult);
-
-  static $LibraryItemsTable _libraryItemIdTable(_$AppDatabase db) =>
-      db.libraryItems
-          .createAlias('watch_history__library_item_id__library_items__id');
-
-  $$LibraryItemsTableProcessedTableManager get libraryItemId {
-    final $_column = $_itemColumn<int>('library_item_id')!;
-
-    final manager = $$LibraryItemsTableTableManager($_db, $_db.libraryItems)
-        .filter((f) => f.id.sqlEquals($_column));
-    final item = $_typedResult.readTableOrNull(_libraryItemIdTable($_db));
-    if (item == null) return manager;
-    return ProcessedTableManager(
-        manager.$state.copyWith(prefetchedData: [item]));
-  }
-}
-
 class $$WatchHistoryTableFilterComposer
     extends Composer<_$AppDatabase, $WatchHistoryTable> {
   $$WatchHistoryTableFilterComposer({
@@ -2166,6 +1964,9 @@ class $$WatchHistoryTableFilterComposer
   });
   ColumnFilters<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get libraryItemId => $composableBuilder(
+      column: $table.libraryItemId, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get resumePositionSec => $composableBuilder(
       column: $table.resumePositionSec,
@@ -2179,26 +1980,6 @@ class $$WatchHistoryTableFilterComposer
 
   ColumnFilters<DateTime> get lastWatchedAt => $composableBuilder(
       column: $table.lastWatchedAt, builder: (column) => ColumnFilters(column));
-
-  $$LibraryItemsTableFilterComposer get libraryItemId {
-    final $$LibraryItemsTableFilterComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.libraryItemId,
-        referencedTable: $db.libraryItems,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$LibraryItemsTableFilterComposer(
-              $db: $db,
-              $table: $db.libraryItems,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$WatchHistoryTableOrderingComposer
@@ -2213,6 +1994,10 @@ class $$WatchHistoryTableOrderingComposer
   ColumnOrderings<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get libraryItemId => $composableBuilder(
+      column: $table.libraryItemId,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get resumePositionSec => $composableBuilder(
       column: $table.resumePositionSec,
       builder: (column) => ColumnOrderings(column));
@@ -2226,26 +2011,6 @@ class $$WatchHistoryTableOrderingComposer
   ColumnOrderings<DateTime> get lastWatchedAt => $composableBuilder(
       column: $table.lastWatchedAt,
       builder: (column) => ColumnOrderings(column));
-
-  $$LibraryItemsTableOrderingComposer get libraryItemId {
-    final $$LibraryItemsTableOrderingComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.libraryItemId,
-        referencedTable: $db.libraryItems,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$LibraryItemsTableOrderingComposer(
-              $db: $db,
-              $table: $db.libraryItems,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$WatchHistoryTableAnnotationComposer
@@ -2260,6 +2025,9 @@ class $$WatchHistoryTableAnnotationComposer
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
+  GeneratedColumn<int> get libraryItemId => $composableBuilder(
+      column: $table.libraryItemId, builder: (column) => column);
+
   GeneratedColumn<int> get resumePositionSec => $composableBuilder(
       column: $table.resumePositionSec, builder: (column) => column);
 
@@ -2271,26 +2039,6 @@ class $$WatchHistoryTableAnnotationComposer
 
   GeneratedColumn<DateTime> get lastWatchedAt => $composableBuilder(
       column: $table.lastWatchedAt, builder: (column) => column);
-
-  $$LibraryItemsTableAnnotationComposer get libraryItemId {
-    final $$LibraryItemsTableAnnotationComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.libraryItemId,
-        referencedTable: $db.libraryItems,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$LibraryItemsTableAnnotationComposer(
-              $db: $db,
-              $table: $db.libraryItems,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$WatchHistoryTableTableManager extends RootTableManager<
@@ -2302,9 +2050,12 @@ class $$WatchHistoryTableTableManager extends RootTableManager<
     $$WatchHistoryTableAnnotationComposer,
     $$WatchHistoryTableCreateCompanionBuilder,
     $$WatchHistoryTableUpdateCompanionBuilder,
-    (WatchHistoryData, $$WatchHistoryTableReferences),
+    (
+      WatchHistoryData,
+      BaseReferences<_$AppDatabase, $WatchHistoryTable, WatchHistoryData>
+    ),
     WatchHistoryData,
-    PrefetchHooks Function({bool libraryItemId})> {
+    PrefetchHooks Function()> {
   $$WatchHistoryTableTableManager(_$AppDatabase db, $WatchHistoryTable table)
       : super(TableManagerState(
           db: db,
@@ -2348,47 +2099,9 @@ class $$WatchHistoryTableTableManager extends RootTableManager<
             lastWatchedAt: lastWatchedAt,
           ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (
-                    e.readTable(table),
-                    $$WatchHistoryTableReferences(db, table, e)
-                  ))
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: ({libraryItemId = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [],
-              addJoins: <
-                  T extends TableManagerState<
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic>>(state) {
-                if (libraryItemId) {
-                  state = state.withJoin(
-                    currentTable: table,
-                    currentColumn: table.libraryItemId,
-                    referencedTable:
-                        $$WatchHistoryTableReferences._libraryItemIdTable(db),
-                    referencedColumn: $$WatchHistoryTableReferences
-                        ._libraryItemIdTable(db)
-                        .id,
-                  ) as T;
-                }
-
-                return state;
-              },
-              getPrefetchedDataCallback: (items) async {
-                return [];
-              },
-            );
-          },
+          prefetchHooksCallback: null,
         ));
 }
 
@@ -2401,9 +2114,12 @@ typedef $$WatchHistoryTableProcessedTableManager = ProcessedTableManager<
     $$WatchHistoryTableAnnotationComposer,
     $$WatchHistoryTableCreateCompanionBuilder,
     $$WatchHistoryTableUpdateCompanionBuilder,
-    (WatchHistoryData, $$WatchHistoryTableReferences),
+    (
+      WatchHistoryData,
+      BaseReferences<_$AppDatabase, $WatchHistoryTable, WatchHistoryData>
+    ),
     WatchHistoryData,
-    PrefetchHooks Function({bool libraryItemId})>;
+    PrefetchHooks Function()>;
 typedef $$SubtitleAttemptsTableCreateCompanionBuilder
     = SubtitleAttemptsCompanion Function({
   Value<int> id,
@@ -2419,27 +2135,6 @@ typedef $$SubtitleAttemptsTableUpdateCompanionBuilder
   Value<DateTime> attemptedAt,
 });
 
-final class $$SubtitleAttemptsTableReferences extends BaseReferences<
-    _$AppDatabase, $SubtitleAttemptsTable, SubtitleAttempt> {
-  $$SubtitleAttemptsTableReferences(
-      super.$_db, super.$_table, super.$_typedResult);
-
-  static $LibraryItemsTable _libraryItemIdTable(_$AppDatabase db) =>
-      db.libraryItems
-          .createAlias('subtitle_attempts__library_item_id__library_items__id');
-
-  $$LibraryItemsTableProcessedTableManager get libraryItemId {
-    final $_column = $_itemColumn<int>('library_item_id')!;
-
-    final manager = $$LibraryItemsTableTableManager($_db, $_db.libraryItems)
-        .filter((f) => f.id.sqlEquals($_column));
-    final item = $_typedResult.readTableOrNull(_libraryItemIdTable($_db));
-    if (item == null) return manager;
-    return ProcessedTableManager(
-        manager.$state.copyWith(prefetchedData: [item]));
-  }
-}
-
 class $$SubtitleAttemptsTableFilterComposer
     extends Composer<_$AppDatabase, $SubtitleAttemptsTable> {
   $$SubtitleAttemptsTableFilterComposer({
@@ -2452,31 +2147,14 @@ class $$SubtitleAttemptsTableFilterComposer
   ColumnFilters<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<int> get libraryItemId => $composableBuilder(
+      column: $table.libraryItemId, builder: (column) => ColumnFilters(column));
+
   ColumnFilters<String> get status => $composableBuilder(
       column: $table.status, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get attemptedAt => $composableBuilder(
       column: $table.attemptedAt, builder: (column) => ColumnFilters(column));
-
-  $$LibraryItemsTableFilterComposer get libraryItemId {
-    final $$LibraryItemsTableFilterComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.libraryItemId,
-        referencedTable: $db.libraryItems,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$LibraryItemsTableFilterComposer(
-              $db: $db,
-              $table: $db.libraryItems,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$SubtitleAttemptsTableOrderingComposer
@@ -2491,31 +2169,15 @@ class $$SubtitleAttemptsTableOrderingComposer
   ColumnOrderings<int> get id => $composableBuilder(
       column: $table.id, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get libraryItemId => $composableBuilder(
+      column: $table.libraryItemId,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get status => $composableBuilder(
       column: $table.status, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<DateTime> get attemptedAt => $composableBuilder(
       column: $table.attemptedAt, builder: (column) => ColumnOrderings(column));
-
-  $$LibraryItemsTableOrderingComposer get libraryItemId {
-    final $$LibraryItemsTableOrderingComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.libraryItemId,
-        referencedTable: $db.libraryItems,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$LibraryItemsTableOrderingComposer(
-              $db: $db,
-              $table: $db.libraryItems,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$SubtitleAttemptsTableAnnotationComposer
@@ -2530,31 +2192,14 @@ class $$SubtitleAttemptsTableAnnotationComposer
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
 
+  GeneratedColumn<int> get libraryItemId => $composableBuilder(
+      column: $table.libraryItemId, builder: (column) => column);
+
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
 
   GeneratedColumn<DateTime> get attemptedAt => $composableBuilder(
       column: $table.attemptedAt, builder: (column) => column);
-
-  $$LibraryItemsTableAnnotationComposer get libraryItemId {
-    final $$LibraryItemsTableAnnotationComposer composer = $composerBuilder(
-        composer: this,
-        getCurrentColumn: (t) => t.libraryItemId,
-        referencedTable: $db.libraryItems,
-        getReferencedColumn: (t) => t.id,
-        builder: (joinBuilder,
-                {$addJoinBuilderToRootComposer,
-                $removeJoinBuilderFromRootComposer}) =>
-            $$LibraryItemsTableAnnotationComposer(
-              $db: $db,
-              $table: $db.libraryItems,
-              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
-              joinBuilder: joinBuilder,
-              $removeJoinBuilderFromRootComposer:
-                  $removeJoinBuilderFromRootComposer,
-            ));
-    return composer;
-  }
 }
 
 class $$SubtitleAttemptsTableTableManager extends RootTableManager<
@@ -2566,9 +2211,12 @@ class $$SubtitleAttemptsTableTableManager extends RootTableManager<
     $$SubtitleAttemptsTableAnnotationComposer,
     $$SubtitleAttemptsTableCreateCompanionBuilder,
     $$SubtitleAttemptsTableUpdateCompanionBuilder,
-    (SubtitleAttempt, $$SubtitleAttemptsTableReferences),
+    (
+      SubtitleAttempt,
+      BaseReferences<_$AppDatabase, $SubtitleAttemptsTable, SubtitleAttempt>
+    ),
     SubtitleAttempt,
-    PrefetchHooks Function({bool libraryItemId})> {
+    PrefetchHooks Function()> {
   $$SubtitleAttemptsTableTableManager(
       _$AppDatabase db, $SubtitleAttemptsTable table)
       : super(TableManagerState(
@@ -2605,47 +2253,9 @@ class $$SubtitleAttemptsTableTableManager extends RootTableManager<
             attemptedAt: attemptedAt,
           ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (
-                    e.readTable(table),
-                    $$SubtitleAttemptsTableReferences(db, table, e)
-                  ))
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
               .toList(),
-          prefetchHooksCallback: ({libraryItemId = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [],
-              addJoins: <
-                  T extends TableManagerState<
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic,
-                      dynamic>>(state) {
-                if (libraryItemId) {
-                  state = state.withJoin(
-                    currentTable: table,
-                    currentColumn: table.libraryItemId,
-                    referencedTable: $$SubtitleAttemptsTableReferences
-                        ._libraryItemIdTable(db),
-                    referencedColumn: $$SubtitleAttemptsTableReferences
-                        ._libraryItemIdTable(db)
-                        .id,
-                  ) as T;
-                }
-
-                return state;
-              },
-              getPrefetchedDataCallback: (items) async {
-                return [];
-              },
-            );
-          },
+          prefetchHooksCallback: null,
         ));
 }
 
@@ -2658,9 +2268,12 @@ typedef $$SubtitleAttemptsTableProcessedTableManager = ProcessedTableManager<
     $$SubtitleAttemptsTableAnnotationComposer,
     $$SubtitleAttemptsTableCreateCompanionBuilder,
     $$SubtitleAttemptsTableUpdateCompanionBuilder,
-    (SubtitleAttempt, $$SubtitleAttemptsTableReferences),
+    (
+      SubtitleAttempt,
+      BaseReferences<_$AppDatabase, $SubtitleAttemptsTable, SubtitleAttempt>
+    ),
     SubtitleAttempt,
-    PrefetchHooks Function({bool libraryItemId})>;
+    PrefetchHooks Function()>;
 typedef $$StorageLocationsTableCreateCompanionBuilder
     = StorageLocationsCompanion Function({
   Value<int> id,

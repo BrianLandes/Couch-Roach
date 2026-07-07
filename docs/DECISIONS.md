@@ -11,6 +11,24 @@ _Last updated: 2026-07-07_
 - Repo: `brianlandes/couch-roach`, dev branch `claude/home-media-center-handoff-68osi0`
 - Dart package name: `couch_roach`
 
+## Adopted stack conventions (from sibling project)
+For consistency with Brian's other Flutter app, Couch Roach uses the same
+patterns (see `CLAUDE.md`):
+- **injectable + get_it** — DI for services/singletons (`lib/src/injection.dart`).
+- **json_serializable** — DTOs for API JSON (drift handles local rows).
+- **flutter_riverpod** — UI state (`ProviderScope` at root).
+- **go_router** — navigation (`lib/src/router/app_router.dart`).
+- **drift** — local SQLite (no Supabase/Postgres/RLS; single-machine).
+- Codegen toolchain pinned to the analyzer-10 world: **drift < 2.32.0**
+  (2.32.1–2.34.0 have a codegen bug; the 2.34.2 fix needs analyzer 13 which
+  injectable_generator can't use yet). Resolved: drift 2.31.0, injectable_generator
+  2.12.1, json_serializable 6.14.0. Built on Flutter 3.44.5 / Dart 3.12.2.
+
+## Todoist
+Dev tasks live in the **Couch Roach** Todoist project (board view), id
+`6h3xW6q4HRmCPC3p`, sections Backlog/To Do/In Progress/Done. Full workflow +
+section ids in `CLAUDE.md`.
+
 ## Resolved §9 forks
 | Fork | Decision |
 |---|---|

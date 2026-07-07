@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 
-import 'features/library/library_screen.dart';
+import 'router/app_router.dart';
 
 /// Root of the app. Dark, 10-foot theme suitable for a TV. The whole app is
 /// meant to run fullscreen and be driven by an arrow-key remote, so focus
-/// traversal and large targets are first-class (see DECISIONS: TV / kiosk UX).
+/// traversal and large targets are first-class (see CLAUDE.md → Design system).
 class CouchRoachApp extends StatelessWidget {
   const CouchRoachApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     final base = ThemeData.dark(useMaterial3: true);
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'Couch Roach',
       debugShowCheckedModeBanner: false,
       theme: base.copyWith(
@@ -22,7 +22,7 @@ class CouchRoachApp extends StatelessWidget {
         // High-contrast focus ring for remote navigation.
         focusColor: const Color(0xFF7C4DFF),
       ),
-      home: const LibraryScreen(),
+      routerConfig: appRouter,
     );
   }
 }

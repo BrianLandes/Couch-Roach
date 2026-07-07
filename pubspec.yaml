@@ -18,7 +18,12 @@ dependencies:
   media_kit_libs_video: ^1.0.5
 
   # Local store — SQLite via drift (see DECISIONS: local store).
-  drift: ^2.16.0
+  # Pinned <2.32.0: drift_dev 2.32.1–2.34.0 have a codegen bug (call a sqlparser
+  # API that isn't present), and the 2.34.2 fix needs analyzer 13, which
+  # conflicts with injectable_generator (analyzer <11). Staying <2.32 keeps the
+  # whole codegen toolchain in one coherent analyzer world. Revisit once
+  # injectable_generator supports analyzer 13.
+  drift: ">=2.20.0 <2.32.0"
   sqlite3_flutter_libs: ^0.5.20
 
   # Filesystem / paths.
@@ -28,13 +33,29 @@ dependencies:
   # HTTP for TMDB + OpenSubtitles (Dart-only, no extra process).
   http: ^1.2.1
 
+  # Dependency injection — services/singletons register via injectable
+  # annotations; resolved through get_it. Container in lib/injection.dart.
+  get_it: ^8.0.0
+  injectable: ">=2.4.0 <2.13.0"
+
+  # JSON serialization for API DTOs (TMDB / OpenSubtitles).
+  json_annotation: ^4.9.0
+
+  # UI state.
+  flutter_riverpod: ^2.6.1
+
+  # Navigation.
+  go_router: ^14.6.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
 
-  # drift codegen — run: `dart run build_runner build`
-  drift_dev: ^2.16.0
+  # Codegen — run: `dart run build_runner build`
+  drift_dev: ">=2.20.0 <2.32.0" # keep matched to drift (see note above)
+  injectable_generator: ">=2.4.0 <2.13.0"
+  json_serializable: ">=6.7.0 <6.15.0"
   build_runner: ^2.4.9
 
 flutter:
