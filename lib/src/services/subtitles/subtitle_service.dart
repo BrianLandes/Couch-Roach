@@ -10,10 +10,3 @@ abstract class SubtitleService {
   /// one is present or was downloaded, else null (e.g. deferred by quota).
   Future<String?> ensureEnglish(String videoPath, {int? tmdbId, int? season, int? episode});
 }
-
-/// OpenSubtitles moviehash: filesize + sum of first & last 64 KB read as
-/// 8-byte little-endian u64, mod 2^64, as 16-char lowercase hex.
-/// Implemented in M3 via RandomAccessFile.
-abstract class MovieHasher {
-  Future<String> hash(String path);
-}
