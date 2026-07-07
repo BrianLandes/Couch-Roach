@@ -1,0 +1,4 @@
+# git-crypt: transparently encrypt local secret files at rest in the repo.
+# These are decrypted in your working tree once the repo is unlocked
+# (`git-crypt unlock <key>`); anyone without the key sees ciphertext.
+dart_define.json filter=git-crypt diff=git-crypt

@@ -301,9 +301,13 @@ These are load-bearing for this app specifically — don't violate them without 
   deleting the video and its `.en.srt` sidecar. A file pinned `keep = true` is never
   auto-deleted. Only touch files that are `completed` and past grace. See
   [lib/src/services/cleanup/watched_reaper.dart](lib/src/services/cleanup/watched_reaper.dart).
-- **Secrets via `--dart-define`.** API keys are read through `AppConfig`
-  ([lib/src/core/config/app_config.dart](lib/src/core/config/app_config.dart)); **never** commit
-  a key or hardcode one in source.
+- **Secrets via `--dart-define`.** API keys (TMDB, OpenSubtitles) are read through `AppConfig`
+  ([lib/src/core/config/app_config.dart](lib/src/core/config/app_config.dart)); **never**
+  hardcode a key in source. Local values live in `dart_define.json`, passed via
+  `--dart-define-from-file=dart_define.json`. That file **is** committed but **encrypted at rest
+  with git-crypt** (see `.gitattributes`) — never commit it as plaintext, and never commit the
+  git-crypt key itself (it lives in the password manager, not the repo). Setup/unlock steps are
+  in [README.md](README.md) § Secrets.
 - **The daemon is invisible.** The app spawns qBittorrent-nox as a child process bound to
   localhost on a fixed port and shuts it down on exit. The user launches one thing.
 - **`MediaKit.ensureInitialized()`** must run in `main()` before any player is created.
