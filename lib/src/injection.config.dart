@@ -24,6 +24,8 @@ import 'package:couch_roach/src/features/library/library_service.dart' as _i38;
 import 'package:couch_roach/src/features/library/media_scanner.dart' as _i842;
 import 'package:couch_roach/src/injection.dart' as _i481;
 import 'package:couch_roach/src/services/discovery/tmdb_client.dart' as _i819;
+import 'package:couch_roach/src/services/subtitles/opensubtitles_client.dart'
+    as _i1033;
 import 'package:get_it/get_it.dart' as _i174;
 import 'package:http/http.dart' as _i519;
 import 'package:injectable/injectable.dart' as _i526;
@@ -43,6 +45,10 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i657.ErrorLogService>(() => _i657.ErrorLogService());
     gh.lazySingleton<_i865.AppDatabase>(() => registerModule.database);
     gh.lazySingleton<_i519.Client>(() => registerModule.httpClient);
+    gh.lazySingleton<_i1033.SubtitleClient>(() => _i1033.OpenSubtitlesClient(
+          gh<_i519.Client>(),
+          gh<_i657.ErrorLogService>(),
+        ));
     gh.lazySingleton<_i877.LibraryRepository>(
         () => _i877.DriftLibraryRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i366.StorageRepository>(
