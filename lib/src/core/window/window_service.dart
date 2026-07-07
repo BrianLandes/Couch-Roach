@@ -44,8 +44,27 @@ bool _onKey(KeyEvent event) {
 
 Future<void> toggleFullscreen() async {
   if (!_isDesktop) return;
-  final full = await windowManager.isFullScreen();
-  await windowManager.setFullScreen(!full);
+  final wasFull = await windowManager.isFullScreen();
+  await windowManager.setFullScreen(!wasFull);
+  if (wasFull) {
+    // We just LEFT fullscreen. On Windows, setFullScreen(false) leaves the
+    // window unable to receive input (clicks pass through, can't focus) until
+    // it's re-activated. A minimize/restore cycle is what actually repairs it —
+    // the minimize button already recovers a working window this way — so do the
+    // same repair here rather than leaving a dead window on screen.
+    await _repairAfterFullscreenExit();
+  }
+}
+
+/// Force Windows to re-composite and re-activate the window after leaving
+/// fullscreen. A brief minimize→restore is the reliable repair (a plain focus()
+/// doesn't rebuild the hit-test regions). No-op on other platforms.
+Future<void> _repairAfterFullscreenExit() async {
+  if (!Platform.isWindows) return;
+  await windowManager.minimize();
+  await Future<void>.delayed(const Duration(milliseconds: 200));
+  await windowManager.restore();
+  await windowManager.focus();
 }
 
 Future<void> minimizeWindow() async {
