@@ -6,6 +6,7 @@ import '../../data/db/database.dart';
 import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
+import '../player/player_screen.dart';
 import 'library_providers.dart';
 import 'library_service.dart';
 import 'library_tile.dart';
@@ -124,11 +125,11 @@ class _LibraryGrid extends StatelessWidget {
           item: item,
           autofocus: i == 0, // give the remote a starting point
           onPressed: () {
-            // TODO(player): route to the player — wired in the next task
-            // ("Player route + launch playback from a library item").
-            ScaffoldMessenger.of(context)
-              ..hideCurrentSnackBar()
-              ..showSnackBar(SnackBar(content: Text('Selected "${item.title}"')));
+            // TODO(resume): pass startAt from watch_history once that lands.
+            context.push(
+              Routes.player,
+              extra: PlayerArgs(filePath: item.filePath, title: item.title),
+            );
           },
         );
       },
