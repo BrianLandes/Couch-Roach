@@ -4,6 +4,7 @@ import '../features/dev/style_showcase_page.dart';
 import '../features/discover/show_detail_screen.dart';
 import '../features/downloads/downloads_screen.dart';
 import '../features/library/library_screen.dart';
+import '../features/search/search_results_screen.dart';
 import '../features/player/player_screen.dart';
 import '../features/settings/storage_settings_screen.dart';
 
@@ -24,6 +25,9 @@ abstract class Routes {
 
   /// Live activity for the background torrent daemon (progress + ETA).
   static const downloads = '/downloads';
+
+  /// Internet Archive search results. Pass the query string as the route `extra`.
+  static const search = '/search';
 
   /// Living component gallery for the design system (dev/reference).
   static const styleShowcase = '/style';
@@ -59,6 +63,11 @@ final appRouter = GoRouter(
     GoRoute(
       path: Routes.downloads,
       builder: (context, state) => const DownloadsScreen(),
+    ),
+    GoRoute(
+      path: Routes.search,
+      builder: (context, state) =>
+          SearchResultsScreen(query: state.extra as String),
     ),
     GoRoute(
       path: Routes.styleShowcase,

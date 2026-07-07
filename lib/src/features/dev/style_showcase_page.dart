@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/focusable_card.dart';
+import '../../widgets/search_field.dart';
 
 /// Living component gallery for the liquid-glass design system. Reachable at
 /// [Routes.styleShowcase]. Use it as the palette when building UI, and **add new
@@ -179,6 +180,14 @@ class StyleShowcasePage extends StatelessWidget {
                   child: TextField(
                     decoration: InputDecoration(hintText: 'Search your library…'),
                   ),
+                ),
+              ),
+
+              _Section(
+                title: 'Search field',
+                child: SizedBox(
+                  width: 420,
+                  child: SearchField(onSubmitted: (_) {}),
                 ),
               ),
             ],

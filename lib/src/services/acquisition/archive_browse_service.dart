@@ -58,18 +58,33 @@ class ArchiveBrowseService {
 
   /// Top public-domain picks for the landing rail. Returns [] on failure so the
   /// rail just hides rather than erroring.
-  Future<List<ArchiveItem>> popularPicks({int limit = 15}) async {
+  Future<List<ArchiveItem>> popularPicks({int limit = 15}) =>
+      _query(curatedPicksQuery, rows: limit, source: 'popularPicks');
+
+  /// User-initiated Internet Archive search over movies. Unlike [popularPicks],
+  /// this is NOT restricted to curated collections — the user typed the query, so
+  /// it's title-scoped across IA's movies (empty query → no results). Returns []
+  /// on failure.
+  Future<List<ArchiveItem>> search(String text, {int limit = 30}) {
+    final query = archiveSearchQuery(text);
+    if (query == null) return Future.value(const []);
+    return _query(query, rows: limit, source: 'search');
+  }
+
+  /// Run an advanced-search query and parse the docs into [ArchiveItem]s.
+  Future<List<ArchiveItem>> _query(String q,
+      {required int rows, required String source}) async {
     final uri = Uri.https(_host, '/advancedsearch.php', {
-      'q': curatedPicksQuery,
+      'q': q,
       'fl[]': ['identifier', 'title', 'year', 'item_size'],
-      'rows': '$limit',
+      'rows': '$rows',
       'output': 'json',
       'sort[]': ['downloads desc'],
     });
     try {
       final res = await _http.get(uri);
       if (res.statusCode != 200) {
-        _log.warn('Internet Archive browse ${res.statusCode}',
+        _log.warn('Internet Archive $source ${res.statusCode}',
             source: 'ArchiveBrowseService');
         return const [];
       }
@@ -81,7 +96,7 @@ class ArchiveBrowseService {
           .whereType<ArchiveItem>()
           .toList(growable: false);
     } catch (e, st) {
-      _log.logError(e, stackTrace: st, source: 'ArchiveBrowseService.popularPicks');
+      _log.logError(e, stackTrace: st, source: 'ArchiveBrowseService.$source');
       return const [];
     }
   }
@@ -90,6 +105,17 @@ class ArchiveBrowseService {
 /// The advanced-search query for the curated picks (pure, exposed for testing).
 String get curatedPicksQuery =>
     'mediatype:(movies) AND collection:(${ArchiveBrowseService.curatedCollections.join(' OR ')})';
+
+/// Build a title-scoped movies search query from user [text], or null if the
+/// text has no searchable content. Strips Lucene metacharacters. Pure + tested.
+String? archiveSearchQuery(String text) {
+  final cleaned = text
+      .replaceAll(RegExp(r'[+\-&|!(){}\[\]^"~*?:\\/]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (cleaned.isEmpty) return null;
+  return 'title:($cleaned) AND mediatype:(movies)';
+}
 
 String? _firstString(Object? v) {
   if (v is String) return v;

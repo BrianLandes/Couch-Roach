@@ -46,6 +46,55 @@ void main() {
     });
   });
 
+  group('archiveSearchQuery', () {
+    test('builds a title-scoped movies query', () {
+      expect(archiveSearchQuery('Night of the Living Dead'),
+          'title:(Night of the Living Dead) AND mediatype:(movies)');
+    });
+    test('strips Lucene metacharacters', () {
+      expect(archiveSearchQuery('Fear & Loathing: (1998)'),
+          'title:(Fear Loathing 1998) AND mediatype:(movies)');
+    });
+    test('returns null for empty / whitespace-only text', () {
+      expect(archiveSearchQuery('   '), isNull);
+      expect(archiveSearchQuery('()'), isNull);
+    });
+  });
+
+  group('search', () {
+    test('queries advancedsearch and parses results', () async {
+      late Uri requested;
+      final c = MockClient((req) async {
+        requested = req.url;
+        return http.Response(
+          jsonEncode({
+            'response': {
+              'docs': [
+                {'identifier': 'notld', 'title': 'Night of the Living Dead'}
+              ]
+            }
+          }),
+          200,
+        );
+      });
+      final results =
+          await ArchiveBrowseService(c, ErrorLogService()).search('living dead');
+      expect(results.single.identifier, 'notld');
+      expect(requested.queryParameters['q'], contains('title:(living dead)'));
+    });
+
+    test('an empty query short-circuits to no results (no request)', () async {
+      var called = false;
+      final c = MockClient((_) async {
+        called = true;
+        return http.Response('[]', 200);
+      });
+      expect(await ArchiveBrowseService(c, ErrorLogService()).search('  '),
+          isEmpty);
+      expect(called, isFalse);
+    });
+  });
+
   group('popularPicks', () {
     ArchiveBrowseService service(MockClient c) =>
         ArchiveBrowseService(c, ErrorLogService());
