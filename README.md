@@ -10,31 +10,31 @@ libmpv (via `media_kit`) plays; a torrent daemon acquires. See
 
 ## Status
 
-Scaffold / M1 in progress. The Dart code is committed, but the native runner
-folders (`windows/`, `linux/`) are **not** — they must be generated with the
-Flutter toolchain (not installed in the cloud dev container).
+Scaffold complete. Native runner folders (`windows/`, `linux/`) are generated and
+committed, dependencies resolve, drift codegen output (`database.g.dart`) is
+committed, and `flutter analyze` is clean. Built with Flutter 3.44.5 / Dart 3.12.2.
 
 ## Setup (on your Windows machine)
 
 ```powershell
-# 1. Generate the native platform folders (adds windows/ & linux/; keeps the
-#    existing pubspec.yaml and lib/). Run from the repo root.
-flutter create --org com.couch --project-name couch_roach --platforms=windows,linux .
-
-# 2. Resolve dependencies (bump any versions the resolver complains about).
+# 1. Resolve dependencies.
 flutter pub get
 
-# 3. Generate drift's database code (creates lib/src/data/db/database.g.dart).
-dart run build_runner build --delete-conflicting-outputs
-
-# 4. Run.
-flutter run -d windows \
-  --dart-define=OPENSUBTITLES_API_KEY=your_key \
+# 2. Run. (Codegen output is committed; only re-run build_runner after you
+#    change the drift schema — see below.)
+flutter run -d windows ^
+  --dart-define=OPENSUBTITLES_API_KEY=your_key ^
   --dart-define=TMDB_API_KEY=your_key
 ```
 
-> `flutter create .` over this repo only adds missing files (the platform
-> runners); it won't overwrite `pubspec.yaml` or anything under `lib/`.
+Regenerate drift code after editing `lib/src/data/db/database.dart`:
+
+```powershell
+dart run build_runner build
+```
+
+> Android/macOS aren't set up (Windows-first, Linux later). Add them later with
+> `flutter create --platforms=android,macos .` if ever needed.
 
 ## Layout
 

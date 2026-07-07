@@ -1,7 +1,7 @@
-/// The acquisition boundary (HANDOFF §8). The app does not care where a magnet
-/// comes from — legal-source resolvers are provided; anything else is a
-/// swappable implementation with its own legal exposure. Keeping this as one
-/// small interface is the whole point: the play flow never touches trackers.
+// The acquisition boundary (HANDOFF §8). The app does not care where a magnet
+// comes from — legal-source resolvers are provided; anything else is a
+// swappable implementation with its own legal exposure. Keeping this as one
+// small interface is the whole point: the play flow never touches trackers.
 
 /// Minimal metadata the resolver needs to find a title.
 class ShowMeta {
