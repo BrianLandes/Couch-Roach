@@ -2,12 +2,16 @@ import 'package:go_router/go_router.dart';
 
 import '../features/dev/style_showcase_page.dart';
 import '../features/library/library_screen.dart';
+import '../features/settings/storage_settings_screen.dart';
 
 /// Route paths — one constant per screen. Never hardcode a path string at a
 /// call site; navigate with `context.go(Routes.x)` / `context.push(...)`.
 /// Register a new screen by adding a [GoRoute] here (see CLAUDE.md → Navigation).
 abstract class Routes {
   static const home = '/';
+
+  /// Manage the library folders content spreads across.
+  static const storageSettings = '/settings/storage';
 
   /// Living component gallery for the design system (dev/reference).
   static const styleShowcase = '/style';
@@ -18,6 +22,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: Routes.home,
       builder: (context, state) => const LibraryScreen(),
+    ),
+    GoRoute(
+      path: Routes.storageSettings,
+      builder: (context, state) => const StorageSettingsScreen(),
     ),
     GoRoute(
       path: Routes.styleShowcase,

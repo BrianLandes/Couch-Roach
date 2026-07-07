@@ -11,6 +11,8 @@
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:couch_roach/src/core/storage/storage_manager.dart' as _i883;
 import 'package:couch_roach/src/data/db/database.dart' as _i865;
+import 'package:couch_roach/src/data/repositories/storage_repository.dart'
+    as _i366;
 import 'package:couch_roach/src/features/library/media_scanner.dart' as _i842;
 import 'package:couch_roach/src/injection.dart' as _i481;
 import 'package:get_it/get_it.dart' as _i174;
@@ -29,8 +31,10 @@ extension GetItInjectableX on _i174.GetIt {
     );
     final registerModule = _$RegisterModule();
     gh.lazySingleton<_i865.AppDatabase>(() => registerModule.database);
+    gh.lazySingleton<_i366.StorageRepository>(
+        () => _i366.DriftStorageRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i883.StorageManager>(
-        () => registerModule.storageManager());
+        () => registerModule.storageManager(gh<_i366.StorageRepository>()));
     gh.lazySingleton<_i842.MediaScanner>(
         () => _i842.MediaScanner(gh<_i883.StorageManager>()));
     return this;

@@ -3,6 +3,7 @@ import 'package:injectable/injectable.dart';
 
 import 'core/storage/storage_manager.dart';
 import 'data/db/database.dart';
+import 'data/repositories/storage_repository.dart';
 
 import 'injection.config.dart';
 
@@ -21,8 +22,9 @@ abstract class RegisterModule {
   @lazySingleton
   AppDatabase get database => AppDatabase();
 
-  // Roots are loaded from the `storage_locations` table at runtime; start empty.
-  // TODO(storage): hydrate roots from the DB during startup.
+  // Backed by the storage_locations table; hydrated at startup via
+  // `getIt<StorageManager>().load()` in main().
   @lazySingleton
-  StorageManager storageManager() => ConfiguredStorageManager(const []);
+  StorageManager storageManager(StorageRepository repo) =>
+      ConfiguredStorageManager(repo);
 }

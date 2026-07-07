@@ -323,10 +323,10 @@ New features and non-trivial widgets should be accompanied by tests. Run everyth
 - **Widgets** — widget tests for components with significant conditional rendering; there's a
   baseline shell test in [test/widget_test.dart](test/widget_test.dart).
 
-> **Sandbox caveat:** running `flutter test` inside the Claude Code cloud container currently
-> fails while fetching the native `libsqlite3` binary (the proxy serves a different file than the
-> package's pinned checksum). This is environmental, not a code problem — tests run normally on a
-> real machine.
+> **Sandbox note:** `flutter test` runs in the Claude Code cloud container (drift's in-memory
+> `NativeDatabase` works there). Occasionally the first run fails while fetching the native
+> `libsqlite3` binary through the proxy (a checksum mismatch) — that's environmental, not a code
+> problem; retry, and it runs normally on a real machine regardless.
 
 ---
 

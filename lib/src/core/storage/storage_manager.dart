@@ -1,28 +1,28 @@
+import 'dart:async';
 import 'dart:io';
 
-/// A configured storage root (one per disk, typically).
-class StorageRoot {
-  const StorageRoot({
-    required this.path,
-    this.label,
-    this.enabled = true,
-    this.priority = 0,
-  });
+import '../../data/repositories/storage_repository.dart';
+import 'storage_root.dart';
 
-  final String path;
-  final String? label;
-  final bool enabled;
-  final int priority;
-}
+export 'storage_root.dart';
 
-/// Spreads content across multiple disks and answers "where should this file
-/// go / where does the library live" (see DECISIONS: multi-disk storage).
+/// Spreads content across multiple disks and answers "where does the library
+/// live / where should this download go" (see DECISIONS: multi-disk storage).
 ///
-/// The library scanner reads *all* enabled roots. New downloads pick a target
-/// by free space above a floor.
+/// Backed by the `storage_locations` table via [StorageRepository]. Call [load]
+/// once at startup; after that the cached [roots] stay in sync with the DB, and
+/// mutations ([addRoot] / [removeRoot] / [setEnabled]) persist.
 abstract class StorageManager {
-  /// All enabled roots, to be scanned for existing media.
+  /// Enabled roots, to be scanned for existing media. Synchronous — reads the
+  /// cache populated by [load]; empty until then.
   List<StorageRoot> get roots;
+
+  /// Load roots from the DB and start tracking changes. Await before scanning.
+  Future<void> load();
+
+  Future<void> addRoot({required String path, String? label});
+  Future<void> removeRoot(int id);
+  Future<void> setEnabled(int id, bool enabled);
 
   /// Choose a download target disk with enough free space for [estimatedBytes].
   /// Returns the root path, or null if none has room above the floor.
@@ -34,16 +34,36 @@ abstract class StorageManager {
 
 class ConfiguredStorageManager implements StorageManager {
   ConfiguredStorageManager(
-    this._roots, {
+    this._repo, {
     this.minFreeFloorBytes = 5 * 1024 * 1024 * 1024, // keep 5 GB headroom
   });
 
-  final List<StorageRoot> _roots;
+  final StorageRepository _repo;
   final int minFreeFloorBytes;
+
+  List<StorageRoot> _cached = const [];
+  StreamSubscription<List<StorageRoot>>? _sub;
+
+  @override
+  Future<void> load() async {
+    _cached = await _repo.getRoots();
+    _sub ??= _repo.watchRoots().listen((roots) => _cached = roots);
+  }
 
   @override
   List<StorageRoot> get roots =>
-      _roots.where((r) => r.enabled).toList(growable: false);
+      _cached.where((r) => r.enabled).toList(growable: false);
+
+  @override
+  Future<void> addRoot({required String path, String? label}) =>
+      _repo.addRoot(path: path, label: label);
+
+  @override
+  Future<void> removeRoot(int id) => _repo.removeRoot(id);
+
+  @override
+  Future<void> setEnabled(int id, bool enabled) =>
+      _repo.setEnabled(id, enabled);
 
   @override
   Future<String?> chooseTarget({required int estimatedBytes}) async {
@@ -66,6 +86,7 @@ class ConfiguredStorageManager implements StorageManager {
     // TODO(storage): Dart has no cross-platform free-space API. Implement via a
     // small platform channel — Win32 GetDiskFreeSpaceEx on Windows, statvfs on
     // Linux — or a maintained package. Until then, target selection is inert.
+    // (Tracked as the M4 "StorageManager free-space + chooseTarget" task.)
     if (!Directory(path).existsSync()) return null;
     return null;
   }

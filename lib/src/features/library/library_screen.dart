@@ -33,9 +33,20 @@ class LibraryScreen extends StatelessWidget {
                   style: text.bodyMedium?.copyWith(color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: AppSpacing.xl),
-                OutlinedButton(
-                  onPressed: () => context.push(Routes.styleShowcase),
-                  child: const Text('View style gallery'),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: () => context.push(Routes.storageSettings),
+                      icon: const Icon(Icons.folder_rounded),
+                      label: const Text('Manage storage'),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    OutlinedButton(
+                      onPressed: () => context.push(Routes.styleShowcase),
+                      child: const Text('Style gallery'),
+                    ),
+                  ],
                 ),
               ],
             ),
