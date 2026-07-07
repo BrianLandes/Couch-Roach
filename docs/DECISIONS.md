@@ -145,6 +145,12 @@ version + SHA-256). The runner CMake `install()` rules copy it next to the app e
   will apply to the ffprobe and Jackett bundles.
 
 ## TV / kiosk UX
+- **Tiles open a profile page, not the player** (2026-07-07). Activating any title
+  tile on the landing page (library, discovery, Internet Archive) goes to that
+  title's detail/profile page first — synopsis, year, season/episode list — and
+  playback is started from there, never straight from the tile. Show whatever the
+  source offers (TMDB when matched; the IA item's own metadata/files otherwise).
+  Full rule in `docs/STYLE.md` → 10-foot UX.
 - Must go **fullscreen**.
 - Input: a **remote that emits arrow keys** → D-pad / focus-traversal navigation
   is a first-class concern, built in from the start (Flutter `FocusableActionDetector`

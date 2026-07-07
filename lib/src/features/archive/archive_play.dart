@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/logging/error_log_service.dart';
 import '../../core/storage/storage_manager.dart';
+import '../../data/repositories/library_repository.dart';
 import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../services/acquisition/acquisition.dart';
@@ -13,20 +14,29 @@ import '../../services/acquisition/internet_archive_resolver.dart';
 import '../../theme/theme.dart';
 import '../player/player_screen.dart';
 
+/// A prepared Internet Archive playback: the streamable file plus the library
+/// item it was registered as (so the player records watch history / resume).
+typedef _Prepared = ({String filePath, int? libraryItemId});
+
 /// Download-and-watch an Internet Archive title: show a "preparing" dialog that
-/// adds the item's torrent, waits for enough buffer to stream, then opens the
-/// player on the primary video file. Cancelling leaves the download running in
-/// the background (it shows up on the Downloads screen).
+/// adds the item's torrent (reattaching if it's already downloading), waits for
+/// enough buffer to stream, registers it as a library item so it gets watch
+/// history + Continue Watching, then opens the player. Cancelling leaves the
+/// download running in the background (it shows up on the Downloads screen).
 Future<void> playArchiveItem(BuildContext context, ArchiveItem item) async {
-  final filePath = await showDialog<String>(
+  final prepared = await showDialog<_Prepared>(
     context: context,
     barrierDismissible: false,
     builder: (_) => _ArchivePreparingDialog(item: item),
   );
-  if (filePath == null || !context.mounted) return;
+  if (prepared == null || !context.mounted) return;
   context.push(
     Routes.player,
-    extra: PlayerArgs(filePath: filePath, title: item.title),
+    extra: PlayerArgs(
+      filePath: prepared.filePath,
+      title: item.title,
+      libraryItemId: prepared.libraryItemId,
+    ),
   );
 }
 
@@ -64,13 +74,30 @@ class _ArchivePreparingDialogState extends State<_ArchivePreparingDialog> {
           displayName: widget.item.title,
         ),
         savePath: savePath,
+        // Selecting the same title again reattaches instead of re-downloading.
+        dedupeKey: widget.item.identifier,
       );
       _progressSub = task.progress.listen((p) {
         if (mounted) setState(() => _progress = p);
       });
       await task.readyToStream();
       final file = await task.primaryFile;
-      if (mounted) Navigator.of(context).pop(file);
+
+      // Register the downloaded file as a library item so the player records
+      // watch history and it surfaces in Continue Watching (upsert dedupes on
+      // the unique file path — safe on replays).
+      final library = getIt<LibraryRepository>();
+      await library.upsert(ScannedFile(
+        filePath: file,
+        title: widget.item.title,
+        mediaType: 'movie',
+      ));
+      final libraryItemId = (await library.findByPath(file))?.id;
+
+      if (mounted) {
+        Navigator.of(context)
+            .pop((filePath: file, libraryItemId: libraryItemId));
+      }
     } catch (e, st) {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'ArchivePlay.prepare');

@@ -34,11 +34,21 @@ class QbittorrentDaemon implements TorrentDaemon {
     required String savePath,
     bool sequential = true,
     bool firstLastPiecePriority = true,
+    String? dedupeKey,
   }) async {
-    // Tag each add so we can find the resulting torrent's hash — the add
-    // endpoint doesn't return it, and a tag works for both magnets and .torrent
-    // URLs (unlike parsing the btih out of a magnet).
-    final tag = 'couchroach-${DateTime.now().microsecondsSinceEpoch}';
+    // A deterministic tag from the dedupe key both identifies the torrent's hash
+    // (the add endpoint doesn't return it) AND lets us detect an existing add.
+    // Without a key, a unique tag per add. Tags can't contain commas.
+    final tag = dedupeKey != null
+        ? 'cr-src-${dedupeKey.replaceAll(',', '_')}'
+        : 'couchroach-${DateTime.now().microsecondsSinceEpoch}';
+
+    // Reattach to an already-added torrent instead of adding a duplicate.
+    if (dedupeKey != null) {
+      final existing = await _taskForTag(tag);
+      if (existing != null) return existing;
+    }
+
     try {
       final res = await _http.post(
         Uri.parse('$_api/torrents/add'),
@@ -62,6 +72,18 @@ class QbittorrentDaemon implements TorrentDaemon {
     }
 
     final hash = await _resolveHashByTag(tag);
+    return QbittorrentTask(this, hash: hash, savePath: savePath);
+  }
+
+  /// A task for an already-added torrent bearing [tag], or null if none exists.
+  /// Reads the hash + save path from the daemon so streaming can resume.
+  Future<QbittorrentTask?> _taskForTag(String tag) async {
+    final list = await torrentsInfo(tag: tag);
+    if (list.isEmpty) return null;
+    final t = list.first;
+    final hash = t['hash'] as String?;
+    final savePath = t['save_path'] as String?;
+    if (hash == null || hash.isEmpty || savePath == null) return null;
     return QbittorrentTask(this, hash: hash, savePath: savePath);
   }
 

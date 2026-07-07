@@ -90,6 +90,14 @@ ways — plan for both, always:
   page is the root.
 - **Big targets, high contrast, legible from a couch.** Honor `minTouchTarget`.
 - **Continue Watching is the top rail** on the landing page.
+- **Tiles open a profile page, not the player.** Activating a title tile anywhere
+  (library, discovery, Internet Archive, Continue Watching aside) navigates to
+  that title's **detail/profile page** first — synopsis, year, poster, and a
+  season/episode list when it's a series — and playback starts from *there*, never
+  straight from a landing-page tile. Show whatever metadata the source provides
+  (TMDB when matched; the Internet Archive item's own description/files otherwise),
+  degrading gracefully when a source is sparse. (Continue Watching may still offer
+  a direct "resume" affordance, but the tile itself leads to the profile.)
 - Motion is soft and quick (≈150–200ms) — fluid, never flashy.
 
 ## Do / Don't

@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:couch_roach/src/core/logging/error_log_service.dart';
+import 'package:couch_roach/src/services/acquisition/acquisition.dart';
 import 'package:couch_roach/src/services/acquisition/qbittorrent_daemon.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -39,6 +42,57 @@ void main() {
 
     test('treats a non-2xx status as failure', () {
       expect(addResponseIsFailure(403, 'Forbidden'), isTrue);
+    });
+  });
+
+  group('add dedupe', () {
+    test('reattaches when a torrent for the dedupe key already exists', () async {
+      http.Request? post;
+      final client = MockClient((req) async {
+        if (req.method == 'POST') {
+          post = req;
+          return http.Response('Ok.', 200);
+        }
+        // GET /torrents/info?tag=... → the already-added torrent.
+        return http.Response(
+            jsonEncode([
+              {'hash': 'H', 'save_path': '/data'}
+            ]),
+            200);
+      });
+      final task = await QbittorrentDaemon(client, ErrorLogService()).add(
+        const TorrentHandle(magnetOrUrl: 'u'),
+        savePath: '/ignored',
+        dedupeKey: 'popeye_x',
+      ) as QbittorrentTask;
+
+      expect(post, isNull, reason: 'must not re-add an existing torrent');
+      expect(task.hash, 'H');
+      expect(task.savePath, '/data'); // reuses the existing save path
+    });
+
+    test('adds with a deterministic tag when none exists yet', () async {
+      var added = false;
+      http.Request? post;
+      final client = MockClient((req) async {
+        if (req.method == 'POST') {
+          added = true;
+          post = req;
+          return http.Response('Ok.', 200);
+        }
+        // Empty until the add lands, then the new torrent (for hash resolution).
+        return http.Response(
+            added ? jsonEncode([{'hash': 'NEW', 'save_path': '/x'}]) : '[]',
+            200);
+      });
+      final task = await QbittorrentDaemon(client, ErrorLogService()).add(
+        const TorrentHandle(magnetOrUrl: 'u'),
+        savePath: '/x',
+        dedupeKey: 'popeye_x',
+      ) as QbittorrentTask;
+
+      expect(post!.bodyFields['tags'], 'cr-src-popeye_x');
+      expect(task.hash, 'NEW');
     });
   });
 

@@ -31,11 +31,16 @@ abstract class AcquisitionResolver {
 /// (DECISIONS: stream-while-downloading).
 abstract class TorrentDaemon {
   /// Add a torrent configured for streaming. Returns a task handle.
+  ///
+  /// [dedupeKey], when given, makes the add idempotent: if a torrent for this key
+  /// was already added it reattaches to it (same download) instead of adding a
+  /// duplicate — so selecting the same title twice doesn't re-download or fail.
   Future<TorrentTask> add(
     TorrentHandle handle, {
     required String savePath,
     bool sequential = true,
     bool firstLastPiecePriority = true,
+    String? dedupeKey,
   });
 
   /// Snapshot of every torrent the daemon is managing — drives the Downloads
