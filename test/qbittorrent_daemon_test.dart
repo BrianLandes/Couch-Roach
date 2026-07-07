@@ -137,6 +137,41 @@ void main() {
     });
   });
 
+  group('downloadFully', () {
+    test('true for small files, false for large or unknown', () {
+      expect(QbittorrentTask.downloadFully(150 * 1024 * 1024), isTrue);
+      expect(QbittorrentTask.downloadFully(QbittorrentTask.smallFileThresholdBytes),
+          isTrue);
+      expect(QbittorrentTask.downloadFully(2 * 1024 * 1024 * 1024), isFalse);
+      expect(QbittorrentTask.downloadFully(0), isFalse); // unknown size
+    });
+  });
+
+  group('setSequentialDownload / setFirstLastPiecePrio', () {
+    test('toggles only when the current state differs from desired', () async {
+      final posts = <String>[];
+      // Torrent currently has seq_dl=true, f_l_piece_prio=true.
+      final client = MockClient((req) async {
+        if (req.method == 'POST') {
+          posts.add(req.url.path);
+          return http.Response('', 200);
+        }
+        return http.Response(
+            jsonEncode([{'seq_dl': true, 'f_l_piece_prio': true}]), 200);
+      });
+      final d = QbittorrentDaemon(client, ErrorLogService());
+
+      await d.setSequentialDownload('h', true); // already on → no toggle
+      await d.setFirstLastPiecePrio('h', false); // on → off → toggle once
+      await d.setSequentialDownload('h', false); // on → off → toggle once
+
+      expect(posts, [
+        '/api/v2/torrents/toggleFirstLastPiecePrio',
+        '/api/v2/torrents/toggleSequentialDownload',
+      ]);
+    });
+  });
+
   group('pieceRangeOf', () {
     test('parses a [first, last] pair', () {
       expect(pieceRangeOf([3, 9]), (3, 9));

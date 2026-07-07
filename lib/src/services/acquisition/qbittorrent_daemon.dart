@@ -225,6 +225,23 @@ class QbittorrentDaemon implements TorrentDaemon {
         'id': indices.join('|'),
         'priority': '$priority',
       }, 'setFilePriority');
+
+  /// Set sequential download on/off. The Web API only offers a *toggle*, so read
+  /// the current `seq_dl` state and flip only when it differs.
+  Future<void> setSequentialDownload(String hash, bool enabled) => _setToggle(
+      hash, 'seq_dl', enabled, '/torrents/toggleSequentialDownload');
+
+  /// Set first/last-piece priority on/off (toggle-only API, see above).
+  Future<void> setFirstLastPiecePrio(String hash, bool enabled) => _setToggle(
+      hash, 'f_l_piece_prio', enabled, '/torrents/toggleFirstLastPiecePrio');
+
+  Future<void> _setToggle(
+      String hash, String field, bool enabled, String togglePath) async {
+    final info = await torrentsInfo(hashes: hash);
+    final current = info.isNotEmpty ? (info.first[field] as bool? ?? false) : false;
+    if (current == enabled) return;
+    await _command(togglePath, {'hashes': hash}, 'setToggle');
+  }
 }
 
 /// A single added torrent, tracked by its info hash.
@@ -245,6 +262,14 @@ class QbittorrentTask implements TorrentTask {
   /// Head buffer downloaded before we start playing (~seconds of video).
   static const int _headBufferBytes = 16 * 1024 * 1024;
 
+  /// Files at or below this size are downloaded **fully** before playing rather
+  /// than streamed: they finish quickly, and streaming's benefit (start before
+  /// it's done) doesn't outweigh the tail-stall risk on a single-web-seed IA
+  /// torrent. Larger files still stream. Pure predicate exposed for testing.
+  static const int smallFileThresholdBytes = 300 * 1024 * 1024;
+  static bool downloadFully(int sizeBytes) =>
+      sizeBytes > 0 && sizeBytes <= smallFileThresholdBytes;
+
   _PrimaryFile? _primary;
 
   /// Resolve the primary video file (index, name, piece range) once, and focus
@@ -262,6 +287,7 @@ class QbittorrentTask implements TorrentTask {
         final primary = _PrimaryFile(
           index: index,
           name: chosen['name'] as String,
+          sizeBytes: (chosen['size'] as num?)?.toInt() ?? 0,
           firstPiece: range?.$1,
           lastPiece: range?.$2,
         );
@@ -301,12 +327,22 @@ class QbittorrentTask implements TorrentTask {
   @override
   Future<void> readyToStream() async {
     final primary = await _resolvePrimary();
-    final deadline = DateTime.now().add(const Duration(minutes: 5));
+    final deadline = DateTime.now().add(const Duration(minutes: 8));
 
-    // Fallback when the daemon doesn't expose piece ranges: wait for the file to
-    // be essentially complete (safe, if not truly streaming).
+    // Small files: download fully first. Streaming's tail-stall risk (a single
+    // IA web seed trickling the final pieces, which our first/last-piece wait
+    // then blocks on) isn't worth it when the file finishes quickly. Switch to a
+    // parallel download so qBittorrent pulls it as fast as the seed allows.
+    if (downloadFully(primary.sizeBytes)) {
+      await _daemon.setSequentialDownload(hash, false);
+      await _daemon.setFirstLastPiecePrio(hash, false);
+      return _awaitFileProgress(deadline, 0.999);
+    }
+
+    // Large files: stream. Fall back to near-complete when the daemon doesn't
+    // expose piece ranges.
     if (primary.firstPiece == null || primary.lastPiece == null) {
-      return _awaitFileNearlyComplete(deadline);
+      return _awaitFileProgress(deadline, 0.99);
     }
 
     final props = await _daemon.torrentProperties(hash);
@@ -326,14 +362,14 @@ class QbittorrentTask implements TorrentTask {
         'torrent $hash did not buffer enough to stream in time');
   }
 
-  Future<void> _awaitFileNearlyComplete(DateTime deadline) async {
+  Future<void> _awaitFileProgress(DateTime deadline, double target) async {
     while (DateTime.now().isBefore(deadline)) {
       final chosen = pickPrimaryFile(await _daemon.torrentFiles(hash));
-      if (((chosen?['progress'] as num?)?.toDouble() ?? 0) >= 0.99) return;
+      if (((chosen?['progress'] as num?)?.toDouble() ?? 0) >= target) return;
       await Future<void>.delayed(const Duration(seconds: 1));
     }
     throw TorrentDaemonException(
-        'torrent $hash did not buffer enough to stream in time');
+        'torrent $hash did not download enough to play in time');
   }
 
   @override
@@ -362,10 +398,12 @@ class _PrimaryFile {
   _PrimaryFile({
     required this.index,
     required this.name,
+    required this.sizeBytes,
     this.firstPiece,
     this.lastPiece,
   });
   final int index;
+  final int sizeBytes;
   final String name;
   final int? firstPiece;
   final int? lastPiece;

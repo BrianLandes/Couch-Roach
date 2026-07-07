@@ -155,7 +155,7 @@ class _ArchivePreparingDialogState extends State<_ArchivePreparingDialog> {
               ),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                'Buffering enough to start streaming…',
+                'Getting it ready to play…',
                 style:
                     text.bodySmall?.copyWith(color: AppColors.textTertiary),
               ),
