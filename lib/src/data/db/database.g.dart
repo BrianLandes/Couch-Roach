@@ -34,6 +34,18 @@ class $LibraryItemsTable extends LibraryItems
   late final GeneratedColumn<int> tmdbId = GeneratedColumn<int>(
       'tmdb_id', aliasedName, true,
       type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _tmdbNameMeta =
+      const VerificationMeta('tmdbName');
+  @override
+  late final GeneratedColumn<String> tmdbName = GeneratedColumn<String>(
+      'tmdb_name', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _tmdbPosterPathMeta =
+      const VerificationMeta('tmdbPosterPath');
+  @override
+  late final GeneratedColumn<String> tmdbPosterPath = GeneratedColumn<String>(
+      'tmdb_poster_path', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _seasonMeta = const VerificationMeta('season');
   @override
   late final GeneratedColumn<int> season = GeneratedColumn<int>(
@@ -124,6 +136,8 @@ class $LibraryItemsTable extends LibraryItems
         mediaType,
         title,
         tmdbId,
+        tmdbName,
+        tmdbPosterPath,
         season,
         episode,
         filePath,
@@ -164,6 +178,16 @@ class $LibraryItemsTable extends LibraryItems
     if (data.containsKey('tmdb_id')) {
       context.handle(_tmdbIdMeta,
           tmdbId.isAcceptableOrUnknown(data['tmdb_id']!, _tmdbIdMeta));
+    }
+    if (data.containsKey('tmdb_name')) {
+      context.handle(_tmdbNameMeta,
+          tmdbName.isAcceptableOrUnknown(data['tmdb_name']!, _tmdbNameMeta));
+    }
+    if (data.containsKey('tmdb_poster_path')) {
+      context.handle(
+          _tmdbPosterPathMeta,
+          tmdbPosterPath.isAcceptableOrUnknown(
+              data['tmdb_poster_path']!, _tmdbPosterPathMeta));
     }
     if (data.containsKey('season')) {
       context.handle(_seasonMeta,
@@ -234,6 +258,10 @@ class $LibraryItemsTable extends LibraryItems
           .read(DriftSqlType.string, data['${effectivePrefix}title'])!,
       tmdbId: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}tmdb_id']),
+      tmdbName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}tmdb_name']),
+      tmdbPosterPath: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}tmdb_poster_path']),
       season: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}season']),
       episode: attachedDatabase.typeMapping
@@ -272,6 +300,11 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
   final String mediaType;
   final String title;
   final int? tmdbId;
+
+  /// TMDB metadata cached on the row after matching (M2): the canonical title and
+  /// poster path (build the URL with TmdbImages). Null until matched.
+  final String? tmdbName;
+  final String? tmdbPosterPath;
   final int? season;
   final int? episode;
   final String filePath;
@@ -301,6 +334,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       required this.mediaType,
       required this.title,
       this.tmdbId,
+      this.tmdbName,
+      this.tmdbPosterPath,
       this.season,
       this.episode,
       required this.filePath,
@@ -320,6 +355,12 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     map['title'] = Variable<String>(title);
     if (!nullToAbsent || tmdbId != null) {
       map['tmdb_id'] = Variable<int>(tmdbId);
+    }
+    if (!nullToAbsent || tmdbName != null) {
+      map['tmdb_name'] = Variable<String>(tmdbName);
+    }
+    if (!nullToAbsent || tmdbPosterPath != null) {
+      map['tmdb_poster_path'] = Variable<String>(tmdbPosterPath);
     }
     if (!nullToAbsent || season != null) {
       map['season'] = Variable<int>(season);
@@ -352,6 +393,12 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       title: Value(title),
       tmdbId:
           tmdbId == null && nullToAbsent ? const Value.absent() : Value(tmdbId),
+      tmdbName: tmdbName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(tmdbName),
+      tmdbPosterPath: tmdbPosterPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(tmdbPosterPath),
       season:
           season == null && nullToAbsent ? const Value.absent() : Value(season),
       episode: episode == null && nullToAbsent
@@ -383,6 +430,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       mediaType: serializer.fromJson<String>(json['mediaType']),
       title: serializer.fromJson<String>(json['title']),
       tmdbId: serializer.fromJson<int?>(json['tmdbId']),
+      tmdbName: serializer.fromJson<String?>(json['tmdbName']),
+      tmdbPosterPath: serializer.fromJson<String?>(json['tmdbPosterPath']),
       season: serializer.fromJson<int?>(json['season']),
       episode: serializer.fromJson<int?>(json['episode']),
       filePath: serializer.fromJson<String>(json['filePath']),
@@ -404,6 +453,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       'mediaType': serializer.toJson<String>(mediaType),
       'title': serializer.toJson<String>(title),
       'tmdbId': serializer.toJson<int?>(tmdbId),
+      'tmdbName': serializer.toJson<String?>(tmdbName),
+      'tmdbPosterPath': serializer.toJson<String?>(tmdbPosterPath),
       'season': serializer.toJson<int?>(season),
       'episode': serializer.toJson<int?>(episode),
       'filePath': serializer.toJson<String>(filePath),
@@ -423,6 +474,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           String? mediaType,
           String? title,
           Value<int?> tmdbId = const Value.absent(),
+          Value<String?> tmdbName = const Value.absent(),
+          Value<String?> tmdbPosterPath = const Value.absent(),
           Value<int?> season = const Value.absent(),
           Value<int?> episode = const Value.absent(),
           String? filePath,
@@ -439,6 +492,9 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
         mediaType: mediaType ?? this.mediaType,
         title: title ?? this.title,
         tmdbId: tmdbId.present ? tmdbId.value : this.tmdbId,
+        tmdbName: tmdbName.present ? tmdbName.value : this.tmdbName,
+        tmdbPosterPath:
+            tmdbPosterPath.present ? tmdbPosterPath.value : this.tmdbPosterPath,
         season: season.present ? season.value : this.season,
         episode: episode.present ? episode.value : this.episode,
         filePath: filePath ?? this.filePath,
@@ -457,6 +513,10 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       mediaType: data.mediaType.present ? data.mediaType.value : this.mediaType,
       title: data.title.present ? data.title.value : this.title,
       tmdbId: data.tmdbId.present ? data.tmdbId.value : this.tmdbId,
+      tmdbName: data.tmdbName.present ? data.tmdbName.value : this.tmdbName,
+      tmdbPosterPath: data.tmdbPosterPath.present
+          ? data.tmdbPosterPath.value
+          : this.tmdbPosterPath,
       season: data.season.present ? data.season.value : this.season,
       episode: data.episode.present ? data.episode.value : this.episode,
       filePath: data.filePath.present ? data.filePath.value : this.filePath,
@@ -482,6 +542,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           ..write('mediaType: $mediaType, ')
           ..write('title: $title, ')
           ..write('tmdbId: $tmdbId, ')
+          ..write('tmdbName: $tmdbName, ')
+          ..write('tmdbPosterPath: $tmdbPosterPath, ')
           ..write('season: $season, ')
           ..write('episode: $episode, ')
           ..write('filePath: $filePath, ')
@@ -503,6 +565,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       mediaType,
       title,
       tmdbId,
+      tmdbName,
+      tmdbPosterPath,
       season,
       episode,
       filePath,
@@ -522,6 +586,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           other.mediaType == this.mediaType &&
           other.title == this.title &&
           other.tmdbId == this.tmdbId &&
+          other.tmdbName == this.tmdbName &&
+          other.tmdbPosterPath == this.tmdbPosterPath &&
           other.season == this.season &&
           other.episode == this.episode &&
           other.filePath == this.filePath &&
@@ -540,6 +606,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
   final Value<String> mediaType;
   final Value<String> title;
   final Value<int?> tmdbId;
+  final Value<String?> tmdbName;
+  final Value<String?> tmdbPosterPath;
   final Value<int?> season;
   final Value<int?> episode;
   final Value<String> filePath;
@@ -556,6 +624,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.mediaType = const Value.absent(),
     this.title = const Value.absent(),
     this.tmdbId = const Value.absent(),
+    this.tmdbName = const Value.absent(),
+    this.tmdbPosterPath = const Value.absent(),
     this.season = const Value.absent(),
     this.episode = const Value.absent(),
     this.filePath = const Value.absent(),
@@ -573,6 +643,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     required String mediaType,
     required String title,
     this.tmdbId = const Value.absent(),
+    this.tmdbName = const Value.absent(),
+    this.tmdbPosterPath = const Value.absent(),
     this.season = const Value.absent(),
     this.episode = const Value.absent(),
     required String filePath,
@@ -592,6 +664,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     Expression<String>? mediaType,
     Expression<String>? title,
     Expression<int>? tmdbId,
+    Expression<String>? tmdbName,
+    Expression<String>? tmdbPosterPath,
     Expression<int>? season,
     Expression<int>? episode,
     Expression<String>? filePath,
@@ -609,6 +683,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       if (mediaType != null) 'media_type': mediaType,
       if (title != null) 'title': title,
       if (tmdbId != null) 'tmdb_id': tmdbId,
+      if (tmdbName != null) 'tmdb_name': tmdbName,
+      if (tmdbPosterPath != null) 'tmdb_poster_path': tmdbPosterPath,
       if (season != null) 'season': season,
       if (episode != null) 'episode': episode,
       if (filePath != null) 'file_path': filePath,
@@ -628,6 +704,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       Value<String>? mediaType,
       Value<String>? title,
       Value<int?>? tmdbId,
+      Value<String?>? tmdbName,
+      Value<String?>? tmdbPosterPath,
       Value<int?>? season,
       Value<int?>? episode,
       Value<String>? filePath,
@@ -644,6 +722,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       mediaType: mediaType ?? this.mediaType,
       title: title ?? this.title,
       tmdbId: tmdbId ?? this.tmdbId,
+      tmdbName: tmdbName ?? this.tmdbName,
+      tmdbPosterPath: tmdbPosterPath ?? this.tmdbPosterPath,
       season: season ?? this.season,
       episode: episode ?? this.episode,
       filePath: filePath ?? this.filePath,
@@ -672,6 +752,12 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     }
     if (tmdbId.present) {
       map['tmdb_id'] = Variable<int>(tmdbId.value);
+    }
+    if (tmdbName.present) {
+      map['tmdb_name'] = Variable<String>(tmdbName.value);
+    }
+    if (tmdbPosterPath.present) {
+      map['tmdb_poster_path'] = Variable<String>(tmdbPosterPath.value);
     }
     if (season.present) {
       map['season'] = Variable<int>(season.value);
@@ -716,6 +802,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
           ..write('mediaType: $mediaType, ')
           ..write('title: $title, ')
           ..write('tmdbId: $tmdbId, ')
+          ..write('tmdbName: $tmdbName, ')
+          ..write('tmdbPosterPath: $tmdbPosterPath, ')
           ..write('season: $season, ')
           ..write('episode: $episode, ')
           ..write('filePath: $filePath, ')
@@ -1706,6 +1794,8 @@ typedef $$LibraryItemsTableCreateCompanionBuilder = LibraryItemsCompanion
   required String mediaType,
   required String title,
   Value<int?> tmdbId,
+  Value<String?> tmdbName,
+  Value<String?> tmdbPosterPath,
   Value<int?> season,
   Value<int?> episode,
   required String filePath,
@@ -1724,6 +1814,8 @@ typedef $$LibraryItemsTableUpdateCompanionBuilder = LibraryItemsCompanion
   Value<String> mediaType,
   Value<String> title,
   Value<int?> tmdbId,
+  Value<String?> tmdbName,
+  Value<String?> tmdbPosterPath,
   Value<int?> season,
   Value<int?> episode,
   Value<String> filePath,
@@ -1794,6 +1886,13 @@ class $$LibraryItemsTableFilterComposer
 
   ColumnFilters<int> get tmdbId => $composableBuilder(
       column: $table.tmdbId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get tmdbName => $composableBuilder(
+      column: $table.tmdbName, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get tmdbPosterPath => $composableBuilder(
+      column: $table.tmdbPosterPath,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get season => $composableBuilder(
       column: $table.season, builder: (column) => ColumnFilters(column));
@@ -1893,6 +1992,13 @@ class $$LibraryItemsTableOrderingComposer
   ColumnOrderings<int> get tmdbId => $composableBuilder(
       column: $table.tmdbId, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get tmdbName => $composableBuilder(
+      column: $table.tmdbName, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get tmdbPosterPath => $composableBuilder(
+      column: $table.tmdbPosterPath,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get season => $composableBuilder(
       column: $table.season, builder: (column) => ColumnOrderings(column));
 
@@ -1948,6 +2054,12 @@ class $$LibraryItemsTableAnnotationComposer
 
   GeneratedColumn<int> get tmdbId =>
       $composableBuilder(column: $table.tmdbId, builder: (column) => column);
+
+  GeneratedColumn<String> get tmdbName =>
+      $composableBuilder(column: $table.tmdbName, builder: (column) => column);
+
+  GeneratedColumn<String> get tmdbPosterPath => $composableBuilder(
+      column: $table.tmdbPosterPath, builder: (column) => column);
 
   GeneratedColumn<int> get season =>
       $composableBuilder(column: $table.season, builder: (column) => column);
@@ -2053,6 +2165,8 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             Value<String> mediaType = const Value.absent(),
             Value<String> title = const Value.absent(),
             Value<int?> tmdbId = const Value.absent(),
+            Value<String?> tmdbName = const Value.absent(),
+            Value<String?> tmdbPosterPath = const Value.absent(),
             Value<int?> season = const Value.absent(),
             Value<int?> episode = const Value.absent(),
             Value<String> filePath = const Value.absent(),
@@ -2070,6 +2184,8 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             mediaType: mediaType,
             title: title,
             tmdbId: tmdbId,
+            tmdbName: tmdbName,
+            tmdbPosterPath: tmdbPosterPath,
             season: season,
             episode: episode,
             filePath: filePath,
@@ -2087,6 +2203,8 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             required String mediaType,
             required String title,
             Value<int?> tmdbId = const Value.absent(),
+            Value<String?> tmdbName = const Value.absent(),
+            Value<String?> tmdbPosterPath = const Value.absent(),
             Value<int?> season = const Value.absent(),
             Value<int?> episode = const Value.absent(),
             required String filePath,
@@ -2104,6 +2222,8 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             mediaType: mediaType,
             title: title,
             tmdbId: tmdbId,
+            tmdbName: tmdbName,
+            tmdbPosterPath: tmdbPosterPath,
             season: season,
             episode: episode,
             filePath: filePath,

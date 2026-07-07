@@ -11,6 +11,7 @@ import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
 import '../player/player_screen.dart';
 import 'continue_watching_card.dart';
+import 'library_match_service.dart';
 import 'library_providers.dart';
 import 'library_service.dart';
 import 'library_tile.dart';
@@ -139,7 +140,12 @@ class _Header extends StatelessWidget {
           ValueListenableBuilder<bool>(
             valueListenable: library.scanning,
             builder: (context, scanning, _) => OutlinedButton.icon(
-              onPressed: scanning ? null : () => library.rescan(),
+              onPressed: scanning
+                  ? null
+                  : () async {
+                      await library.rescan();
+                      await getIt<LibraryMatchService>().matchUnmatched();
+                    },
               icon: scanning
                   ? const SizedBox(
                       width: 16,

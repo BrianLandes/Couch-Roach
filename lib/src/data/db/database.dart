@@ -18,6 +18,12 @@ class LibraryItems extends Table {
   TextColumn get title => text()();
 
   IntColumn get tmdbId => integer().nullable()();
+
+  /// TMDB metadata cached on the row after matching (M2): the canonical title and
+  /// poster path (build the URL with TmdbImages). Null until matched.
+  TextColumn get tmdbName => text().nullable()();
+  TextColumn get tmdbPosterPath => text().nullable()();
+
   IntColumn get season => integer().nullable()();
   IntColumn get episode => integer().nullable()();
 
@@ -95,13 +101,17 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onUpgrade: (m, from, to) async {
           if (from < 2) {
             await m.addColumn(libraryItems, libraryItems.missing);
+          }
+          if (from < 3) {
+            await m.addColumn(libraryItems, libraryItems.tmdbName);
+            await m.addColumn(libraryItems, libraryItems.tmdbPosterPath);
           }
         },
         beforeOpen: (details) async {

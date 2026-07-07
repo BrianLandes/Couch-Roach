@@ -9,6 +9,7 @@ import 'src/app.dart';
 import 'src/core/logging/error_log_service.dart';
 import 'src/core/storage/storage_manager.dart';
 import 'src/core/window/window_service.dart';
+import 'src/features/library/library_match_service.dart';
 import 'src/features/library/library_service.dart';
 import 'src/injection.dart';
 
@@ -38,8 +39,11 @@ void main() {
 
       runApp(const ProviderScope(child: CouchRoachApp()));
 
-      // Kick off an initial library scan in the background — don't block the UI.
-      unawaited(getIt<LibraryService>().rescan());
+      // Kick off an initial library scan in the background, then match against
+      // TMDB — neither blocks the UI (posters pop in as they resolve).
+      unawaited(getIt<LibraryService>()
+          .rescan()
+          .then((_) => getIt<LibraryMatchService>().matchUnmatched()));
     },
     (error, stack) {
       // Last-resort sink for anything the handlers above didn't catch.

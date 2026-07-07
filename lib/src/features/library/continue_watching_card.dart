@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../theme/theme.dart';
 import '../../widgets/focusable_card.dart';
+import '../../widgets/poster_art.dart';
 
 /// A landscape card in the Continue Watching rail: placeholder art, title,
 /// SxxExx, time remaining, and a resume progress bar.
@@ -18,14 +19,6 @@ class ContinueWatchingCard extends StatelessWidget {
   final VoidCallback? onPressed;
   final bool autofocus;
 
-  static const _gradients = <List<Color>>[
-    [Color(0xFF2B1B5A), AppColors.primary],
-    [Color(0xFF10313A), AppColors.secondary],
-    [Color(0xFF3A1030), AppColors.tertiary],
-    [Color(0xFF06212A), AppColors.success],
-    [Color(0xFF1A1140), AppColors.primaryBright],
-  ];
-
   String _fmt(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60);
@@ -38,7 +31,7 @@ class ContinueWatchingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final item = entry.item;
-    final colors = _gradients[item.title.hashCode.abs() % _gradients.length];
+    final title = item.tmdbName ?? item.title;
 
     final badge = item.season != null && item.episode != null
         ? 'S${item.season} · E${item.episode}'
@@ -60,15 +53,7 @@ class ContinueWatchingCard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: colors,
-                    ),
-                  ),
-                ),
+                PosterArt(posterPath: item.tmdbPosterPath, seed: title),
                 const DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -88,7 +73,7 @@ class ContinueWatchingCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        item.title,
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: text.titleMedium,

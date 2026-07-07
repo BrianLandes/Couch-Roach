@@ -14,8 +14,8 @@ import '../../data/tmdb/tv_show_summary.dart';
 /// comes from [AppConfig]. Failures are logged and return empty/null so callers
 /// degrade gracefully rather than throw into the UI.
 abstract class DiscoveryClient {
-  Future<List<TvShowSummary>> searchTv(String query);
-  Future<List<MovieSummary>> searchMovies(String query);
+  Future<List<TvShowSummary>> searchTv(String query, {int? year});
+  Future<List<MovieSummary>> searchMovies(String query, {int? year});
   Future<TvShowDetails?> tvDetails(int tmdbId);
   Future<SeasonDetails?> seasonDetails(int tmdbId, int seasonNumber);
   Future<List<TvShowSummary>> trendingTv();
@@ -69,12 +69,24 @@ class TmdbClient implements DiscoveryClient {
   }
 
   @override
-  Future<List<TvShowSummary>> searchTv(String query) async =>
-      _results(await _get('/search/tv', {'query': query}), TvShowSummary.fromJson);
+  Future<List<TvShowSummary>> searchTv(String query, {int? year}) async =>
+      _results(
+        await _get('/search/tv', {
+          'query': query,
+          if (year != null) 'first_air_date_year': '$year',
+        }),
+        TvShowSummary.fromJson,
+      );
 
   @override
-  Future<List<MovieSummary>> searchMovies(String query) async =>
-      _results(await _get('/search/movie', {'query': query}), MovieSummary.fromJson);
+  Future<List<MovieSummary>> searchMovies(String query, {int? year}) async =>
+      _results(
+        await _get('/search/movie', {
+          'query': query,
+          if (year != null) 'year': '$year',
+        }),
+        MovieSummary.fromJson,
+      );
 
   @override
   Future<TvShowDetails?> tvDetails(int tmdbId) async {

@@ -50,6 +50,17 @@ abstract class LibraryRepository {
   Future<List<LibraryItem>> getAll();
   Future<LibraryItem?> findByPath(String path);
 
+  /// Present items not yet matched to a TMDB id (for back-fill).
+  Future<List<LibraryItem>> unmatched();
+
+  /// Record a TMDB match: id, canonical name, and poster path.
+  Future<void> setTmdbMatch({
+    required int id,
+    required int tmdbId,
+    String? name,
+    String? posterPath,
+  });
+
   /// Hard-deletes the row and cascades its `watch_history` — a deliberate
   /// "forget this title entirely". NOT for a file that merely disappeared: for
   /// a gone/offline file use [markMissingUnder], which keeps the row and its
@@ -152,5 +163,28 @@ class DriftLibraryRepository implements LibraryRepository {
   Future<void> removeByPath(String path) async {
     await (_db.delete(_db.libraryItems)..where((t) => t.filePath.equals(path)))
         .go();
+  }
+
+  @override
+  Future<List<LibraryItem>> unmatched() {
+    return (_db.select(_db.libraryItems)
+          ..where((t) => t.tmdbId.isNull() & t.missing.equals(false)))
+        .get();
+  }
+
+  @override
+  Future<void> setTmdbMatch({
+    required int id,
+    required int tmdbId,
+    String? name,
+    String? posterPath,
+  }) async {
+    await (_db.update(_db.libraryItems)..where((t) => t.id.equals(id))).write(
+      LibraryItemsCompanion(
+        tmdbId: Value(tmdbId),
+        tmdbName: Value(name),
+        tmdbPosterPath: Value(posterPath),
+      ),
+    );
   }
 }
