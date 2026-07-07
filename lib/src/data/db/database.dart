@@ -28,10 +28,15 @@ class LibraryItems extends Table {
   BoolColumn get hasEmbeddedEnSub =>
       boolean().withDefault(const Constant(false))();
 
-  /// True when the app acquired this file (torrent). Only managed files are
-  /// eligible for auto-cleanup — pre-existing library files are never deleted
-  /// automatically (see DECISIONS: auto-cleanup safety model).
+  /// Provenance: true when the app acquired this file (torrent), false when it
+  /// was already sitting in a library folder. Informational — cleanup eligibility
+  /// is driven by library-folder membership + [keep], not this flag.
   BoolColumn get managed => boolean().withDefault(const Constant(false))();
+
+  /// User-pinned "keep around": exempt from auto-cleanup even after a full
+  /// watch (e.g. a movie to rewatch). Everything in the library folders is
+  /// otherwise fair game to hydrate and then reap (see DECISIONS: auto-cleanup).
+  BoolColumn get keep => boolean().withDefault(const Constant(false))();
 
   DateTimeColumn get addedAt =>
       dateTime().withDefault(currentDateAndTime)();

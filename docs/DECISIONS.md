@@ -34,16 +34,20 @@ The TV PC has **3 physical disks**; content must spread across them by free spac
   Marked TODO in `StorageManager`.
 
 ### B. Auto-cleanup after watch
-Delete a file after a **full play-through + grace period**.
-- **Safety model (default):** the reaper only deletes files flagged
-  `managed = true` (i.e. acquired by the app). Pre-existing scanned library files
-  are **never** auto-deleted unless a folder is explicitly opted in.
+The **library folders are the app's to manage.** Anything that lands in them is
+hydrated (TMDB metadata + subtitles) and then reaped after watching. This is the
+managed zone — there is no separate "app-downloaded only" gate.
+- **Lifecycle:** file appears in a library folder → hydrate (metadata + subs) →
+  watchable → auto-delete after a full play-through + grace period.
 - Trigger: `watch_history.completed == true` AND `last_watched_at` older than the
   grace period. Deletes the video + its `.en.srt` sidecar, removes the row.
+- **Exception:** a file pinned `keep = true` (a movie to rewatch) is never
+  auto-deleted. `keep` is a column on the `library` table; the UI needs a
+  "keep around" toggle.
+- The `managed` column stays as provenance (downloaded vs pre-existing) but no
+  longer gates cleanup.
 - Runs on startup and periodically. See `lib/src/services/cleanup/`.
-- **OPEN QUESTION (Brian):** confirm the safety model above, the grace-period
-  length (default proposed: 7 days), and whether cleanup should also apply to
-  files you already own or strictly to app-downloaded content.
+- **Still open:** grace-period length (default proposed: **7 days**).
 
 ## TV / kiosk UX
 - Must go **fullscreen**.
