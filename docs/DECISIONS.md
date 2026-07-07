@@ -73,6 +73,13 @@ managed zone — there is no separate "app-downloaded only" gate.
   is a first-class concern, built in from the start (Flutter `FocusableActionDetector`
   / focus traversal, large 10-foot targets).
 
+## Visual style — "Liquid Glass"
+Slick/simple/modern, iOS-Liquid-Glass-inspired: translucent frosted surfaces over
+a dark ambient glow, iridescent periwinkle→cyan accents, bright cyan focus rings.
+Baseline is built: tokens in `lib/src/theme/`, `GlassSurface` + `AmbientBackground`
+helpers, `AppTheme.dark`, and a component gallery at `Routes.styleShowcase`
+(`/style`). Full guide: `docs/STYLE.md`. Rule: use tokens, never hardcode.
+
 ## Secrets
 - Injected via `--dart-define` (or a gitignored `config` file); nothing secret in git.
 - **OpenSubtitles.com** Api-Key: Brian has one.

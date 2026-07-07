@@ -287,21 +287,28 @@ These are load-bearing for this app specifically — don't violate them without 
 
 ---
 
-## Design system — 10-foot / TV UX
+## Design system — "Liquid Glass", 10-foot / TV UX
 
-This app runs **fullscreen on a TV**, driven by a **remote that emits arrow keys**. That shapes
-everything:
+Full guide in **[docs/STYLE.md](docs/STYLE.md)**. The look is **liquid glass**:
+translucent frosted surfaces floating over a dark, softly-glowing ambient background, with
+bright focus rings for the remote.
 
-- **Focus-first.** Every interactive element must be reachable and clearly highlighted via D-pad
-  traversal — use `FocusableActionDetector` / `FocusTraversalGroup` and a high-contrast focus
-  ring. Test navigation with arrow keys only, no pointer.
-- **Big targets, high contrast, legible at distance.** Generous sizing and spacing; dark theme
-  by default (set in [lib/src/app.dart](lib/src/app.dart)).
-- **Continue Watching is the top rail** on the landing page — it's the highest-value surface.
+- **Use the tokens — never hardcode.** All colors/spacing/radii/type live in
+  [lib/src/theme/](lib/src/theme/) (`AppColors`, `AppSpacing`, `AppRadii`, `AppTypography`,
+  `AppGlass`, `AppTheme`); import the [theme barrel](lib/src/theme/theme.dart). No raw hex,
+  magic sizes, or font names in widgets. Prefer `Theme.of(context).textTheme.…`.
+- **Glass over glow.** Wrap foreground content in `GlassSurface` (not a plain `Card`), and put
+  an `AmbientBackground` behind each screen so the blur has color to refract. Glass on a flat
+  black void reads dead.
+- **Focus-first.** Every interactive element must be D-pad reachable with a bright cyan focus
+  ring + glow (`AppColors.focus` / `focusGlow`); see `_FocusableGlassTile` in the gallery. Test
+  with arrow keys only. Honor `AppSpacing.minTouchTarget`.
+- **Continue Watching is the top rail** on the landing page — the highest-value surface.
 
-There's no brand design system yet (this isn't a branded product). As shared UI lands, extract
-tokens (colors, spacing, type ramp) into `lib/src/theme/` rather than scattering magic values in
-widgets.
+There's a **living component gallery** at
+[lib/src/features/dev/style_showcase_page.dart](lib/src/features/dev/style_showcase_page.dart)
+(route `Routes.styleShowcase`, `/style`). Use it as the palette when building UI, and **add each
+new shared widget to it** so the reference stays current.
 
 ---
 

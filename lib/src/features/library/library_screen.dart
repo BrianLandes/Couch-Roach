@@ -1,30 +1,45 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../router/app_router.dart';
+import '../../theme/theme.dart';
 
 /// M1 placeholder landing screen. Will become the two-rail landing
 /// (Continue Watching + For You) in M2. For now it's the app shell entry point
-/// and a home for the library grid once the scanner is wired to the DB.
+/// and shows the liquid-glass baseline.
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
     return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Couch Roach',
-              style: Theme.of(context).textTheme.displaySmall,
+      body: AmbientBackground(
+        child: Center(
+          child: GlassSurface(
+            padding: const EdgeInsets.all(AppSpacing.xxl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Couch Roach', style: text.displaySmall),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Home Media Center',
+                  style: text.titleMedium?.copyWith(color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                Text(
+                  'M1 scaffold — library scan + player next.',
+                  style: text.bodyMedium?.copyWith(color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                OutlinedButton(
+                  onPressed: () => context.push(Routes.styleShowcase),
+                  child: const Text('View style gallery'),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Home Media Center',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 24),
-            const Text('M1 scaffold — library scan + player next.'),
-          ],
+          ),
         ),
       ),
     );
