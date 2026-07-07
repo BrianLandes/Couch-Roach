@@ -80,6 +80,15 @@ Baseline is built: tokens in `lib/src/theme/`, `GlassSurface` + `AmbientBackgrou
 helpers, `AppTheme.dark`, and a component gallery at `Routes.styleShowcase`
 (`/style`). Full guide: `docs/STYLE.md`. Rule: use tokens, never hardcode.
 
+## Error logging
+No remote backend (unlike the sibling projects' Supabase error table), so errors
+go to a **local text log**: `<app-support>/logs/couch_roach.log` (rotates at
+~5 MB). `ErrorLogService` (`lib/src/core/logging/`) is the single sink every
+system opts into via `getIt<ErrorLogService>().logError(e, stackTrace:, source:)`;
+`main()` also routes uncaught framework/async errors to it (FlutterError.onError,
+PlatformDispatcher.onError, guarded zone). The path is shown in the Storage
+settings screen. On Windows the file lands under `%APPDATA%\com.couch\couch_roach\logs\`.
+
 ## Secrets
 - Injected via `--dart-define` (or a gitignored `config` file); nothing secret in git.
 - **OpenSubtitles.com** Api-Key: Brian has one.

@@ -9,6 +9,7 @@
 // coverage:ignore-file
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
+import 'package:couch_roach/src/core/logging/error_log_service.dart' as _i657;
 import 'package:couch_roach/src/core/storage/storage_manager.dart' as _i883;
 import 'package:couch_roach/src/data/db/database.dart' as _i865;
 import 'package:couch_roach/src/data/repositories/storage_repository.dart'
@@ -30,6 +31,7 @@ extension GetItInjectableX on _i174.GetIt {
       environmentFilter,
     );
     final registerModule = _$RegisterModule();
+    gh.lazySingleton<_i657.ErrorLogService>(() => _i657.ErrorLogService());
     gh.lazySingleton<_i865.AppDatabase>(() => registerModule.database);
     gh.lazySingleton<_i366.StorageRepository>(
         () => _i366.DriftStorageRepository(gh<_i865.AppDatabase>()));

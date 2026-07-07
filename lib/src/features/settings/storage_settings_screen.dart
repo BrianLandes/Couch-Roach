@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/logging/error_log_service.dart';
 import '../../core/storage/storage_manager.dart';
 import '../../injection.dart';
 import '../../theme/theme.dart';
@@ -37,9 +38,16 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
       setState(() => _error = "That folder doesn't exist on this machine.");
       return;
     }
-    await _storage.addRoot(path: path);
-    _controller.clear();
-    setState(() => _error = null);
+    try {
+      await _storage.addRoot(path: path);
+      _controller.clear();
+      setState(() => _error = null);
+    } catch (e, st) {
+      // Opt in to the central error log, and surface a message to the user.
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'StorageSettings.add');
+      setState(() => _error = "Couldn't add that folder — see the error log.");
+    }
   }
 
   @override
@@ -134,6 +142,22 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                             ),
                         ],
                       ),
+              ),
+
+              const SizedBox(height: AppSpacing.xxl),
+              const Divider(),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Error log',
+                style: text.labelMedium?.copyWith(
+                  color: AppColors.textTertiary,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              SelectableText(
+                getIt<ErrorLogService>().logFilePath ?? 'initializing…',
+                style: text.bodyMedium?.copyWith(color: AppColors.textSecondary),
               ),
             ],
           ),

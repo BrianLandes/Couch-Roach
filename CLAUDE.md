@@ -252,9 +252,26 @@ All navigation goes through **go_router**. Routes are declared in one place —
 
 Any operation that can fail (network calls, DB access, file I/O, spawning the daemon) must both
 **surface the failure to the user** (an error state / snackbar in the 10-foot UI) and **log it**
-with context (at minimum the screen and the operation that failed). Capture any
-`BuildContext`-derived objects (`ScaffoldMessenger`, `GoRouter`) before an `await` when the
-widget may be unmounted by the time the call returns.
+through `ErrorLogService`
+([lib/src/core/logging/error_log_service.dart](lib/src/core/logging/error_log_service.dart)) —
+the single sink every system opts into:
+
+```dart
+try {
+  await risky();
+} catch (e, st) {
+  getIt<ErrorLogService>().logError(e, stackTrace: st, source: 'PlayerScreen.play');
+  // …then show the user an error state.
+}
+```
+
+It appends human-readable entries to a local text log at `<app-support>/logs/couch_roach.log`
+(shown in the Storage settings screen — there's no remote backend). Uncaught framework/async
+errors are captured automatically: `main()` installs `FlutterError.onError`,
+`PlatformDispatcher.onError`, and a guarded zone that all route here. Always pass a `source`
+(`Class.operation`) so entries are traceable. Capture any `BuildContext`-derived objects
+(`ScaffoldMessenger`, `GoRouter`) before an `await` when the widget may be unmounted by the time
+the call returns.
 
 ---
 
