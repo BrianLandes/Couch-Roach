@@ -84,9 +84,14 @@ class _CouchRoachWindowListener extends WindowListener {
   @override
   void onWindowClose() async {
     final hook = _onCloseHook;
-    if (hook != null) await hook();
-    await windowManager.setPreventClose(false);
-    await windowManager.destroy();
+    // Always complete the close, even if the shutdown hook throws — otherwise
+    // preventClose stays on and the window can't be closed.
+    try {
+      if (hook != null) await hook();
+    } finally {
+      await windowManager.setPreventClose(false);
+      await windowManager.destroy();
+    }
   }
 }
 
