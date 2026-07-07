@@ -74,16 +74,12 @@ extension GetItInjectableX on _i174.GetIt {
         ));
     gh.lazySingleton<_i366.StorageRepository>(
         () => _i366.DriftStorageRepository(gh<_i865.AppDatabase>()));
-    gh.lazySingleton<_i883.StorageManager>(
-        () => registerModule.storageManager(gh<_i366.StorageRepository>()));
     gh.lazySingleton<_i382.WatchHistoryRepository>(
         () => _i382.DriftWatchHistoryRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i819.DiscoveryClient>(() => _i819.TmdbClient(
           gh<_i519.Client>(),
           gh<_i657.ErrorLogService>(),
         ));
-    gh.lazySingleton<_i842.MediaScanner>(
-        () => _i842.MediaScanner(gh<_i883.StorageManager>()));
     gh.lazySingleton<_i754.SubtitleService>(
         () => _i295.OpenSubtitlesSubtitleService(
               gh<_i1041.SubtitleSkipCheck>(),
@@ -94,11 +90,17 @@ extension GetItInjectableX on _i174.GetIt {
               gh<_i519.Client>(),
               gh<_i657.ErrorLogService>(),
             ));
+    gh.lazySingleton<_i883.StorageManager>(() => registerModule.storageManager(
+          gh<_i366.StorageRepository>(),
+          gh<_i657.ErrorLogService>(),
+        ));
     gh.lazySingleton<_i495.LibraryMatchService>(() => _i495.LibraryMatchService(
           gh<_i877.LibraryRepository>(),
           gh<_i819.DiscoveryClient>(),
           gh<_i657.ErrorLogService>(),
         ));
+    gh.lazySingleton<_i842.MediaScanner>(
+        () => _i842.MediaScanner(gh<_i883.StorageManager>()));
     gh.lazySingleton<_i38.LibraryService>(() => _i38.LibraryService(
           gh<_i842.MediaScanner>(),
           gh<_i877.LibraryRepository>(),

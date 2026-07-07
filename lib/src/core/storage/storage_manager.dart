@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import '../../data/repositories/storage_repository.dart';
+import '../logging/error_log_service.dart';
+import 'disk_space.dart';
 import 'storage_root.dart';
 
 export 'storage_root.dart';
@@ -36,10 +38,12 @@ class ConfiguredStorageManager implements StorageManager {
   ConfiguredStorageManager(
     this._repo, {
     this.minFreeFloorBytes = 5 * 1024 * 1024 * 1024, // keep 5 GB headroom
-  });
+    ErrorLogService? log,
+  }) : _log = log;
 
   final StorageRepository _repo;
   final int minFreeFloorBytes;
+  final ErrorLogService? _log;
 
   List<StorageRoot> _cached = const [];
   StreamSubscription<List<StorageRoot>>? _sub;
@@ -83,11 +87,12 @@ class ConfiguredStorageManager implements StorageManager {
 
   @override
   Future<int?> freeSpaceBytes(String path) async {
-    // TODO(storage): Dart has no cross-platform free-space API. Implement via a
-    // small platform channel — Win32 GetDiskFreeSpaceEx on Windows, statvfs on
-    // Linux — or a maintained package. Until then, target selection is inert.
-    // (Tracked as the M4 "StorageManager free-space + chooseTarget" task.)
     if (!Directory(path).existsSync()) return null;
-    return null;
+    try {
+      return await freeDiskSpaceBytes(path);
+    } catch (e, st) {
+      _log?.logError(e, stackTrace: st, source: 'StorageManager.freeSpaceBytes');
+      return null;
+    }
   }
 }

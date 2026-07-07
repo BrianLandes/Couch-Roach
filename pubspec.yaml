@@ -30,6 +30,10 @@ dependencies:
   path: ^1.9.0
   path_provider: ^2.1.3
 
+  # dart:ffi helpers (Utf16, calloc) — used to call Win32 GetDiskFreeSpaceExW
+  # for free-space probing without any native runner code.
+  ffi: ^2.1.0
+
   # HTTP for TMDB + OpenSubtitles (Dart-only, no extra process).
   http: ^1.2.1
 

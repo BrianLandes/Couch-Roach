@@ -2,6 +2,7 @@ import 'package:get_it/get_it.dart';
 import 'package:http/http.dart' as http;
 import 'package:injectable/injectable.dart';
 
+import 'core/logging/error_log_service.dart';
 import 'core/storage/storage_manager.dart';
 import 'data/db/database.dart';
 import 'data/repositories/storage_repository.dart';
@@ -30,6 +31,6 @@ abstract class RegisterModule {
   // Backed by the storage_locations table; hydrated at startup via
   // `getIt<StorageManager>().load()` in main().
   @lazySingleton
-  StorageManager storageManager(StorageRepository repo) =>
-      ConfiguredStorageManager(repo);
+  StorageManager storageManager(StorageRepository repo, ErrorLogService log) =>
+      ConfiguredStorageManager(repo, log: log);
 }
