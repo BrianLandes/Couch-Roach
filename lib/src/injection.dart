@@ -1,4 +1,5 @@
 import 'package:get_it/get_it.dart';
+import 'package:http/http.dart' as http;
 import 'package:injectable/injectable.dart';
 
 import 'core/storage/storage_manager.dart';
@@ -21,6 +22,10 @@ void configureDependencies() => getIt.init();
 abstract class RegisterModule {
   @lazySingleton
   AppDatabase get database => AppDatabase();
+
+  /// Shared HTTP client for the API clients (TMDB, later OpenSubtitles).
+  @lazySingleton
+  http.Client get httpClient => http.Client();
 
   // Backed by the storage_locations table; hydrated at startup via
   // `getIt<StorageManager>().load()` in main().

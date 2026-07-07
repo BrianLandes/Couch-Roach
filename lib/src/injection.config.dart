@@ -21,7 +21,9 @@ import 'package:couch_roach/src/data/repositories/watch_history_repository.dart'
 import 'package:couch_roach/src/features/library/library_service.dart' as _i38;
 import 'package:couch_roach/src/features/library/media_scanner.dart' as _i842;
 import 'package:couch_roach/src/injection.dart' as _i481;
+import 'package:couch_roach/src/services/discovery/tmdb_client.dart' as _i819;
 import 'package:get_it/get_it.dart' as _i174;
+import 'package:http/http.dart' as _i519;
 import 'package:injectable/injectable.dart' as _i526;
 
 extension GetItInjectableX on _i174.GetIt {
@@ -38,6 +40,7 @@ extension GetItInjectableX on _i174.GetIt {
     final registerModule = _$RegisterModule();
     gh.lazySingleton<_i657.ErrorLogService>(() => _i657.ErrorLogService());
     gh.lazySingleton<_i865.AppDatabase>(() => registerModule.database);
+    gh.lazySingleton<_i519.Client>(() => registerModule.httpClient);
     gh.lazySingleton<_i877.LibraryRepository>(
         () => _i877.DriftLibraryRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i366.StorageRepository>(
@@ -46,6 +49,10 @@ extension GetItInjectableX on _i174.GetIt {
         () => registerModule.storageManager(gh<_i366.StorageRepository>()));
     gh.lazySingleton<_i382.WatchHistoryRepository>(
         () => _i382.DriftWatchHistoryRepository(gh<_i865.AppDatabase>()));
+    gh.lazySingleton<_i819.DiscoveryClient>(() => _i819.TmdbClient(
+          gh<_i519.Client>(),
+          gh<_i657.ErrorLogService>(),
+        ));
     gh.lazySingleton<_i842.MediaScanner>(
         () => _i842.MediaScanner(gh<_i883.StorageManager>()));
     gh.lazySingleton<_i38.LibraryService>(() => _i38.LibraryService(

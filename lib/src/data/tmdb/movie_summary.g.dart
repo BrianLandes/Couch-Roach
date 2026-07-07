@@ -1,29 +1,28 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'tv_show_summary.dart';
+part of 'movie_summary.dart';
 
 // **************************************************************************
 // JsonSerializableGenerator
 // **************************************************************************
 
-TvShowSummary _$TvShowSummaryFromJson(Map<String, dynamic> json) =>
-    TvShowSummary(
+MovieSummary _$MovieSummaryFromJson(Map<String, dynamic> json) => MovieSummary(
       tmdbId: (json['id'] as num).toInt(),
-      name: json['name'] as String,
+      title: json['title'] as String,
       overview: json['overview'] as String? ?? '',
       posterPath: json['poster_path'] as String?,
       backdropPath: json['backdrop_path'] as String?,
-      firstAirDate: json['first_air_date'] as String?,
+      releaseDate: json['release_date'] as String?,
       voteAverage: (json['vote_average'] as num?)?.toDouble(),
     );
 
-Map<String, dynamic> _$TvShowSummaryToJson(TvShowSummary instance) =>
+Map<String, dynamic> _$MovieSummaryToJson(MovieSummary instance) =>
     <String, dynamic>{
       'id': instance.tmdbId,
-      'name': instance.name,
+      'title': instance.title,
       'overview': instance.overview,
       'poster_path': instance.posterPath,
       'backdrop_path': instance.backdropPath,
-      'first_air_date': instance.firstAirDate,
+      'release_date': instance.releaseDate,
       'vote_average': instance.voteAverage,
     };
