@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 
 import '../features/dev/style_showcase_page.dart';
+import '../features/discover/show_detail_screen.dart';
 import '../features/library/library_screen.dart';
 import '../features/player/player_screen.dart';
 import '../features/settings/storage_settings_screen.dart';
@@ -13,6 +14,9 @@ abstract class Routes {
 
   /// Embedded player. Pass a [PlayerArgs] as the route `extra`.
   static const player = '/player';
+
+  /// TMDB show detail. Pass a [ShowDetailArgs] as the route `extra`.
+  static const showDetail = '/show';
 
   /// Manage the library folders content spreads across.
   static const storageSettings = '/settings/storage';
@@ -38,6 +42,11 @@ final appRouter = GoRouter(
           startAt: args.startAt,
         );
       },
+    ),
+    GoRoute(
+      path: Routes.showDetail,
+      builder: (context, state) =>
+          ShowDetailScreen(args: state.extra as ShowDetailArgs),
     ),
     GoRoute(
       path: Routes.storageSettings,

@@ -53,6 +53,9 @@ abstract class LibraryRepository {
   /// Present items not yet matched to a TMDB id (for back-fill).
   Future<List<LibraryItem>> unmatched();
 
+  /// All present local files matched to a show (for episode availability).
+  Future<List<LibraryItem>> localEpisodes(int tmdbId);
+
   /// Record a TMDB match: id, canonical name, and poster path.
   Future<void> setTmdbMatch({
     required int id,
@@ -169,6 +172,13 @@ class DriftLibraryRepository implements LibraryRepository {
   Future<List<LibraryItem>> unmatched() {
     return (_db.select(_db.libraryItems)
           ..where((t) => t.tmdbId.isNull() & t.missing.equals(false)))
+        .get();
+  }
+
+  @override
+  Future<List<LibraryItem>> localEpisodes(int tmdbId) {
+    return (_db.select(_db.libraryItems)
+          ..where((t) => t.tmdbId.equals(tmdbId) & t.missing.equals(false)))
         .get();
   }
 

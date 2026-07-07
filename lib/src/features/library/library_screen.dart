@@ -5,10 +5,14 @@ import 'package:go_router/go_router.dart';
 import '../../core/window/window_service.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/watch_history_repository.dart';
+import '../../data/tmdb/tv_show_summary.dart';
 import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
+import '../discover/discover_poster_card.dart';
+import '../discover/discover_providers.dart';
+import '../discover/show_detail_screen.dart';
 import '../player/player_screen.dart';
 import 'continue_watching_card.dart';
 import 'library_match_service.dart';
@@ -25,6 +29,7 @@ class LibraryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final continueAsync = ref.watch(continueWatchingProvider);
     final itemsAsync = ref.watch(libraryItemsProvider);
+    final trending = ref.watch(trendingTvProvider).asData?.value ?? const [];
     final resumable = continueAsync.asData?.value ?? const [];
 
     return Scaffold(
@@ -35,6 +40,8 @@ class LibraryScreen extends ConsumerWidget {
               const SliverToBoxAdapter(child: _Header()),
               if (resumable.isNotEmpty)
                 SliverToBoxAdapter(child: _ContinueWatchingRail(entries: resumable)),
+              if (trending.isNotEmpty)
+                SliverToBoxAdapter(child: _WhatToWatchRail(shows: trending)),
               ..._librarySlivers(context, itemsAsync,
                   autofocusFirst: resumable.isEmpty),
             ],
@@ -198,6 +205,41 @@ class _ContinueWatchingRail extends StatelessWidget {
                 entry: entry,
                 autofocus: i == 0,
                 onPressed: () => _openPlayer(context, entry.item),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WhatToWatchRail extends StatelessWidget {
+  const _WhatToWatchRail({required this.shows});
+  final List<TvShowSummary> shows;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = shows.take(10).toList(growable: false);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('What to Watch Next'),
+        SizedBox(
+          height: 240,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
+            itemCount: top.length,
+            separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.lg),
+            itemBuilder: (context, i) {
+              final show = top[i];
+              return DiscoverPosterCard(
+                show: show,
+                onPressed: () => context.push(
+                  Routes.showDetail,
+                  extra: ShowDetailArgs(tmdbId: show.tmdbId, name: show.name),
+                ),
               );
             },
           ),
