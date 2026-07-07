@@ -1,0 +1,72 @@
+name: Windows build
+
+# Manual trigger only — Actions tab → "Windows build" → Run workflow.
+# No push/PR triggers on purpose; this is a build-on-demand pipeline for now.
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: "Build mode"
+        type: choice
+        default: release
+        options:
+          - release
+          - profile
+          - debug
+
+env:
+  FLUTTER_VERSION: "3.44.5"
+
+jobs:
+  build:
+    runs-on: windows-latest # VS 2022 + MSVC C++ toolchain preinstalled
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # dart_define.json is git-crypt-encrypted in the repo, so CI can't read it.
+      # Reconstruct it from repository secrets instead of unlocking git-crypt.
+      # Add these under Settings → Secrets and variables → Actions:
+      #   TMDB_API_KEY, OPENSUBTITLES_API_KEY
+      - name: Write dart_define.json from secrets
+        shell: bash
+        run: |
+          cat > dart_define.json <<EOF
+          {
+            "TMDB_API_KEY": "${{ secrets.TMDB_API_KEY }}",
+            "OPENSUBTITLES_API_KEY": "${{ secrets.OPENSUBTITLES_API_KEY }}"
+          }
+          EOF
+
+      - name: Build Windows (${{ inputs.build_mode }})
+        run: flutter build windows --${{ inputs.build_mode }} --dart-define-from-file=dart_define.json
+
+      # The .exe won't run on its own — it needs the sibling DLLs and data\
+      # folder. Zip the whole Release dir so the artifact is a runnable bundle.
+      - name: Package build output
+        shell: bash
+        run: |
+          OUT_DIR="build/windows/x64/runner/${{ inputs.build_mode == 'release' && 'Release' || inputs.build_mode == 'profile' && 'Profile' || 'Debug' }}"
+          echo "Packaging $OUT_DIR"
+          ls -la "$OUT_DIR"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: couch-roach-windows-${{ inputs.build_mode }}
+          path: build/windows/x64/runner/${{ inputs.build_mode == 'release' && 'Release' || inputs.build_mode == 'profile' && 'Profile' || 'Debug' }}/
+          if-no-files-found: error

@@ -43,6 +43,49 @@ dart run build_runner build
 > Android/macOS aren't set up (Windows-first, Linux later). Add them later with
 > `flutter create --platforms=android,macos .` if ever needed.
 
+## Setup (on a Linux machine)
+
+The Linux desktop build compiles native plugin code (media_kit/libmpv, the ALSA
+`volume_controller`, and sqlite3), so a handful of system `-dev` packages and a
+linker must be present before the first build. On a fresh Debian/Ubuntu/Zorin
+machine, install the toolchain and libraries up front:
+
+```bash
+# Base Flutter Linux desktop toolchain (GTK, CMake, ninja, pkg-config).
+sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+
+# App-specific native deps discovered by the build:
+#   libasound2-dev  -> ALSA headers (volume_controller plugin)
+#   libmpv-dev, mpv -> libmpv, the actual player behind media_kit
+#   lld-18, clang-18, build-essential -> LLVM linker (ld.lld) + C/C++ toolchain
+#     for the native-assets build step. Match the llvm version the error names
+#     (e.g. lld-18 for `/usr/lib/llvm-18/bin`).
+sudo apt-get install -y libasound2-dev libmpv-dev mpv lld-18 clang-18 build-essential
+```
+
+Then the usual flow. After installing system libs, do a clean build so CMake
+re-detects them:
+
+```bash
+flutter clean && flutter pub get
+flutter run -d linux --dart-define-from-file=dart_define.json
+```
+
+In VS Code, the committed `.vscode/launch.json` provides Linux debug/profile/
+release configs — pick the Linux device in the status bar and press **F5**.
+
+**Symptom → fix** for the errors seen on first build:
+
+| CMake / build error | Missing package |
+| ------------------- | --------------- |
+| `Could NOT find ALSA (missing: ALSA_LIBRARY ALSA_INCLUDE_DIR)` | `libasound2-dev` |
+| `Failed to find any of [ld.lld, ld] in ... /usr/lib/llvm-18/bin` | `lld-18` (match the llvm version in the path) |
+| libmpv / mpv not found at link time | `libmpv-dev`, `mpv` |
+
+> Secrets work the same as on Windows — unlock `dart_define.json` with git-crypt
+> (`sudo apt install git-crypt`, then `git-crypt unlock /path/to/key`; see
+> [Secrets](#secrets)), or drop your own keys into a local `dart_define.json`.
+
 ## Layout
 
 ```
