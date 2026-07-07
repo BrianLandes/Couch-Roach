@@ -4,13 +4,23 @@ import 'package:flutter/material.dart';
 import '../data/tmdb/tmdb_images.dart';
 import '../theme/theme.dart';
 
-/// A poster background: the TMDB image when matched, otherwise a deterministic
-/// placeholder gradient (stable per title). Falls back to the gradient on load
-/// error too, so a flaky network never leaves a blank tile.
+/// A poster background: a network image when available, otherwise a
+/// deterministic placeholder gradient (stable per title). Falls back to the
+/// gradient on load error too, so a flaky network never leaves a blank tile.
+///
+/// Pass a TMDB [posterPath] (resolved to a TMDB image URL) or a ready-made
+/// [imageUrl] (e.g. an Internet Archive thumbnail); [imageUrl] wins if both are
+/// given.
 class PosterArt extends StatelessWidget {
-  const PosterArt({super.key, required this.posterPath, required this.seed});
+  const PosterArt({
+    super.key,
+    this.posterPath,
+    required this.seed,
+    this.imageUrl,
+  });
 
   final String? posterPath;
+  final String? imageUrl;
   final String seed;
 
   static const _gradients = <List<Color>>[
@@ -34,7 +44,7 @@ class PosterArt extends StatelessWidget {
       ),
     );
 
-    final url = TmdbImages.poster(posterPath);
+    final url = imageUrl ?? TmdbImages.poster(posterPath);
     if (url == null) return fallback;
 
     return CachedNetworkImage(

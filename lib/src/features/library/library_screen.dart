@@ -13,6 +13,10 @@ import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
+import '../archive/archive_play.dart';
+import '../archive/archive_poster_card.dart';
+import '../archive/archive_providers.dart';
+import '../../services/acquisition/archive_browse_service.dart';
 import '../discover/discover_poster_card.dart';
 import '../discover/discover_providers.dart';
 import '../discover/show_detail_screen.dart';
@@ -35,6 +39,7 @@ class LibraryScreen extends ConsumerWidget {
     final itemsAsync = ref.watch(libraryItemsProvider);
     final trending = ref.watch(trendingTvProvider).asData?.value ?? const [];
     final recommended = ref.watch(recommendedProvider).asData?.value ?? const [];
+    final archivePicks = ref.watch(archivePicksProvider).asData?.value ?? const [];
     final resumable = continueAsync.asData?.value ?? const [];
 
     return Scaffold(
@@ -58,6 +63,10 @@ class LibraryScreen extends ConsumerWidget {
                     label: 'What to Watch Next',
                     shows: trending,
                   ),
+                ),
+              if (archivePicks.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: _ArchiveRail(items: archivePicks),
                 ),
               ..._librarySlivers(context, itemsAsync,
                   autofocusFirst: resumable.isEmpty),
@@ -286,6 +295,37 @@ class _DiscoverRail extends StatelessWidget {
                   Routes.showDetail,
                   extra: ShowDetailArgs(tmdbId: show.tmdbId, name: show.name),
                 ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ArchiveRail extends StatelessWidget {
+  const _ArchiveRail({required this.items});
+  final List<ArchiveItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('Free to Watch · Public-Domain Classics'),
+        SizedBox(
+          height: 240,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.lg),
+            itemBuilder: (context, i) {
+              final item = items[i];
+              return ArchivePosterCard(
+                item: item,
+                onPressed: () => playArchiveItem(context, item),
               );
             },
           ),
