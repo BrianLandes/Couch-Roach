@@ -1,0 +1,194 @@
+import 'dart:io';
+
+import 'package:couch_roach/src/core/logging/error_log_service.dart';
+import 'package:couch_roach/src/data/opensubtitles/download_response.dart';
+import 'package:couch_roach/src/data/opensubtitles/subtitle_result.dart';
+import 'package:couch_roach/src/services/subtitles/movie_hasher.dart';
+import 'package:couch_roach/src/services/subtitles/opensubtitles_client.dart';
+import 'package:couch_roach/src/services/subtitles/subtitle_searcher.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+SubtitleResult _res(
+  String id, {
+  int downloads = 0,
+  bool trusted = false,
+  bool hi = false,
+  bool withFile = true,
+}) {
+  return SubtitleResult(
+    id: id,
+    attributes: SubtitleAttributes(
+      downloadCount: downloads,
+      fromTrusted: trusted,
+      hearingImpaired: hi,
+      files: withFile ? [SubtitleFile(fileId: int.parse(id))] : const [],
+    ),
+  );
+}
+
+/// Records each search call and replays canned responses in order.
+class _FakeClient implements SubtitleClient {
+  _FakeClient(this._responses);
+  final List<List<SubtitleResult>> _responses;
+  final List<Map<String, Object?>> calls = [];
+  var _i = 0;
+
+  @override
+  Future<List<SubtitleResult>> search({
+    String? moviehash,
+    String? query,
+    int? tmdbId,
+    int? season,
+    int? episode,
+    String language = 'en',
+  }) async {
+    calls.add({
+      'moviehash': moviehash,
+      'query': query,
+      'tmdbId': tmdbId,
+      'season': season,
+      'episode': episode,
+    });
+    return _i < _responses.length ? _responses[_i++] : const [];
+  }
+
+  @override
+  Future<DownloadResponse?> requestDownload(int fileId) async => null;
+}
+
+class _FakeHasher implements MovieHasher {
+  @override
+  Future<String> hash(String path) async => 'deadbeefdeadbeef';
+}
+
+class _ThrowingHasher implements MovieHasher {
+  @override
+  Future<String> hash(String path) async => throw const FileSystemException('nope');
+}
+
+void main() {
+  final log = ErrorLogService();
+
+  group('pickBest', () {
+    test('returns null on empty', () {
+      expect(SubtitleSearcher.pickBest(const []), isNull);
+    });
+
+    test('skips results with no downloadable file', () {
+      final only = _res('1', downloads: 999, withFile: false);
+      expect(SubtitleSearcher.pickBest([only]), isNull);
+    });
+
+    test('ranks by download count', () {
+      final best = SubtitleSearcher.pickBest([
+        _res('1', downloads: 10),
+        _res('2', downloads: 5000),
+        _res('3', downloads: 300),
+      ]);
+      expect(best!.id, '2');
+    });
+
+    test('a trusted uploader beats a modestly-more-downloaded stranger', () {
+      final best = SubtitleSearcher.pickBest([
+        _res('1', downloads: 300),
+        _res('2', downloads: 100, trusted: true),
+      ]);
+      expect(best!.id, '2'); // 100 + 500 boost > 300
+    });
+
+    test('an overwhelmingly popular sub still beats a trusted one', () {
+      final best = SubtitleSearcher.pickBest([
+        _res('1', downloads: 50000),
+        _res('2', downloads: 100, trusted: true),
+      ]);
+      expect(best!.id, '1');
+    });
+
+    test('prefers non-hearing-impaired by default as a tiebreaker', () {
+      final best = SubtitleSearcher.pickBest([
+        _res('1', downloads: 100, hi: true),
+        _res('2', downloads: 100, hi: false),
+      ]);
+      expect(best!.id, '2');
+    });
+
+    test('honors preferHearingImpaired', () {
+      final best = SubtitleSearcher.pickBest(
+        [
+          _res('1', downloads: 100, hi: true),
+          _res('2', downloads: 100, hi: false),
+        ],
+        preferHearingImpaired: true,
+      );
+      expect(best!.id, '1');
+    });
+  });
+
+  group('findBest orchestration', () {
+    test('uses the hash search when it returns hits', () async {
+      final client = _FakeClient([
+        [_res('1', downloads: 10)],
+      ]);
+      final searcher = SubtitleSearcher(_FakeHasher(), client, log);
+      final best = await searcher.findBest('/movies/Film.mkv');
+      expect(best!.id, '1');
+      expect(client.calls, hasLength(1));
+      expect(client.calls.single['moviehash'], 'deadbeefdeadbeef');
+    });
+
+    test('falls back to tmdb_id + season/episode when hash is empty', () async {
+      final client = _FakeClient([
+        const [], // hash miss
+        [_res('7', downloads: 20)], // fallback hit
+      ]);
+      final searcher = SubtitleSearcher(_FakeHasher(), client, log);
+      final best = await searcher.findBest(
+        '/tv/Show.S02E05.mkv',
+        tmdbId: 1234,
+        season: 2,
+        episode: 5,
+      );
+      expect(best!.id, '7');
+      expect(client.calls, hasLength(2));
+      final fallback = client.calls[1];
+      expect(fallback['moviehash'], isNull);
+      expect(fallback['tmdbId'], 1234);
+      expect(fallback['season'], 2);
+      expect(fallback['episode'], 5);
+    });
+
+    test('parses filename for the query when there is no tmdb id', () async {
+      final client = _FakeClient([
+        const [], // hash miss
+        [_res('9', downloads: 5)],
+      ]);
+      final searcher = SubtitleSearcher(_FakeHasher(), client, log);
+      final best = await searcher.findBest('/tv/Cool.Show.S01E02.720p.mkv');
+      expect(best!.id, '9');
+      final fallback = client.calls[1];
+      expect(fallback['query'], 'Cool Show');
+      expect(fallback['season'], 1);
+      expect(fallback['episode'], 2);
+      expect(fallback['tmdbId'], isNull);
+    });
+
+    test('a hasher failure degrades to the fallback search', () async {
+      final client = _FakeClient([
+        [_res('4', downloads: 1)], // this would be the fallback response
+      ]);
+      final searcher = SubtitleSearcher(_ThrowingHasher(), client, log);
+      final best = await searcher.findBest('/tv/Show.S01E01.mkv');
+      expect(best!.id, '4');
+      // Hash threw before a request, so the first (and only) call is the
+      // filename fallback.
+      expect(client.calls.single['moviehash'], isNull);
+      expect(client.calls.single['query'], 'Show');
+    });
+
+    test('returns null when everything comes up empty', () async {
+      final client = _FakeClient([const [], const []]);
+      final searcher = SubtitleSearcher(_FakeHasher(), client, log);
+      expect(await searcher.findBest('/tv/Unknown.S01E01.mkv'), isNull);
+    });
+  });
+}

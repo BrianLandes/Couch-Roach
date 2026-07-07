@@ -27,6 +27,8 @@ import 'package:couch_roach/src/services/discovery/tmdb_client.dart' as _i819;
 import 'package:couch_roach/src/services/subtitles/movie_hasher.dart' as _i403;
 import 'package:couch_roach/src/services/subtitles/opensubtitles_client.dart'
     as _i1033;
+import 'package:couch_roach/src/services/subtitles/subtitle_searcher.dart'
+    as _i559;
 import 'package:couch_roach/src/services/subtitles/subtitle_skip_check.dart'
     as _i1041;
 import 'package:get_it/get_it.dart' as _i174;
@@ -57,6 +59,11 @@ extension GetItInjectableX on _i174.GetIt {
         ));
     gh.lazySingleton<_i877.LibraryRepository>(
         () => _i877.DriftLibraryRepository(gh<_i865.AppDatabase>()));
+    gh.lazySingleton<_i559.SubtitleSearcher>(() => _i559.SubtitleSearcher(
+          gh<_i403.MovieHasher>(),
+          gh<_i1033.SubtitleClient>(),
+          gh<_i657.ErrorLogService>(),
+        ));
     gh.lazySingleton<_i366.StorageRepository>(
         () => _i366.DriftStorageRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i883.StorageManager>(
