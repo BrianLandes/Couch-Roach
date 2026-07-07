@@ -57,6 +57,25 @@ void main() {
     expect(row.resumePositionSec, 0);
   });
 
+  test('recentlyWatchedTmdbIds returns distinct matched shows', () async {
+    final e1 = await seedItem('/tv/s1e1.mkv');
+    final e2 = await seedItem('/tv/s1e2.mkv');
+    final e3 = await seedItem('/tv/s2e1.mkv');
+    await library.setTmdbMatch(id: e1, tmdbId: 100);
+    await library.setTmdbMatch(id: e2, tmdbId: 100); // same show
+    await library.setTmdbMatch(id: e3, tmdbId: 200);
+
+    await history.record(libraryItemId: e1, position: const Duration(seconds: 10));
+    await history.record(libraryItemId: e3, position: const Duration(seconds: 10));
+    await history.record(libraryItemId: e2, position: const Duration(seconds: 10));
+
+    // Unmatched/unwatched shows excluded; ids deduped (drift stores time at
+    // second resolution, so assert the set rather than intra-second order).
+    final ids = await history.recentlyWatchedTmdbIds(limit: 5);
+    expect(ids.toSet(), {100, 200});
+    expect(ids.length, 2);
+  });
+
   test('watch history survives the file disappearing (flag, not delete)', () async {
     final id = await seedItem('/disk1/a.mkv');
     await history.record(

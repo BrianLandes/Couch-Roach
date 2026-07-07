@@ -33,6 +33,9 @@ dependencies:
   # HTTP for TMDB + OpenSubtitles (Dart-only, no extra process).
   http: ^1.2.1
 
+  # Disk-cached network images (TMDB posters persist across launches).
+  cached_network_image: ^3.4.1
+
   # Dependency injection — services/singletons register via injectable
   # annotations; resolved through get_it. Container in lib/injection.dart.
   get_it: ^8.0.0
