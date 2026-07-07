@@ -14,7 +14,13 @@ Future<void> initFullscreenWindow() async {
   await windowManager.ensureInitialized();
   const options = WindowOptions(
     title: 'Couch Roach',
-    fullScreen: true,
+    // NB: do NOT set `fullScreen: true` here. Launching fullscreen leaves
+    // window_manager's internal state out of sync with the Win32 window style
+    // on Windows, so the first *exit* from fullscreen produces a broken frame
+    // (window visible but click-through / unfocusable). Instead we come up
+    // windowed and toggle fullscreen on explicitly below, which keeps the
+    // enter/exit bookkeeping consistent.
+    //
     // Normal title bar so windowed mode (F11) still has OS controls; fullscreen
     // hides it anyway.
     titleBarStyle: TitleBarStyle.normal,
@@ -22,6 +28,7 @@ Future<void> initFullscreenWindow() async {
   await windowManager.waitUntilReadyToShow(options, () async {
     await windowManager.show();
     await windowManager.focus();
+    await windowManager.setFullScreen(true);
   });
 
   HardwareKeyboard.instance.addHandler(_onKey);
@@ -43,5 +50,10 @@ Future<void> toggleFullscreen() async {
 
 Future<void> minimizeWindow() async {
   if (!_isDesktop) return;
+  // Windows won't minimize a window that's still in the fullscreen state, so
+  // drop to windowed first — otherwise the button silently does nothing.
+  if (await windowManager.isFullScreen()) {
+    await windowManager.setFullScreen(false);
+  }
   await windowManager.minimize();
 }

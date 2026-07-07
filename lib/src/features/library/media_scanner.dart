@@ -19,6 +19,16 @@ class MediaScanner {
     '.mkv', '.mp4', '.avi', '.mov', '.m4v', '.webm', '.ts', '.wmv', '.flv',
   };
 
+  // Directories we never descend into: OS-managed junk that's unreadable anyway
+  // (Windows recycle bin, restore metadata) or filesystem bookkeeping. Anything
+  // starting with `$` (e.g. `$RECYCLE.BIN`, `$Recycle.Bin`) is skipped too.
+  static const _skipDirNames = {
+    'system volume information',
+    'lost+found',
+    '.trash-1000',
+    '#recycle',
+  };
+
   // Show.Name.S01E02.1080p... / Show Name - S01E02 / Show.1x02
   static final _tvPattern = RegExp(
     r'^(?<title>.+?)[\s._-]+[sS](?<season>\d{1,2})[\s._-]*[eE](?<episode>\d{1,3})',
@@ -36,15 +46,39 @@ class MediaScanner {
 
   /// Walk a single root. Used by the reconcile-per-root scan so an offline disk
   /// only affects its own rows.
+  ///
+  /// Recurses one directory at a time (rather than `list(recursive: true)`) so a
+  /// single unreadable subdirectory — a permission-denied `$RECYCLE.BIN`,
+  /// `System Volume Information`, etc. at a drive root — is skipped instead of
+  /// aborting the whole scan.
   Stream<ScannedFile> scanRoot(String rootPath) async* {
-    final dir = Directory(rootPath);
-    if (!dir.existsSync()) return;
-    await for (final entity in dir.list(recursive: true, followLinks: false)) {
-      if (entity is! File) continue;
-      final ext = p.extension(entity.path).toLowerCase();
-      if (!_videoExtensions.contains(ext)) continue;
-      yield _parse(entity.path);
+    final root = Directory(rootPath);
+    if (!root.existsSync()) return;
+
+    final stack = <Directory>[root];
+    while (stack.isNotEmpty) {
+      final dir = stack.removeLast();
+      final subdirs = <Directory>[];
+      try {
+        await for (final entity in dir.list(followLinks: false)) {
+          if (entity is Directory) {
+            if (!_isSkippableDir(entity.path)) subdirs.add(entity);
+          } else if (entity is File) {
+            final ext = p.extension(entity.path).toLowerCase();
+            if (_videoExtensions.contains(ext)) yield _parse(entity.path);
+          }
+        }
+      } on FileSystemException {
+        continue; // unreadable directory — skip it, keep walking the rest
+      }
+      stack.addAll(subdirs);
     }
+  }
+
+  static bool _isSkippableDir(String dirPath) {
+    final name = p.basename(dirPath);
+    if (name.startsWith(r'$')) return true; // $RECYCLE.BIN, $Recycle.Bin, …
+    return _skipDirNames.contains(name.toLowerCase());
   }
 
   ScannedFile _parse(String filePath) {
