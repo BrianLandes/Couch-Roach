@@ -1,0 +1,41 @@
+name: couch_roach
+description: "Home Media Center — a single-machine, one-click desktop media shell."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+# NOTE: version constraints are starting points — run `flutter pub get` and
+# bump anything the resolver complains about. See README.md → Setup.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Playback — libmpv embedded in-process (see HANDOFF §4.5).
+  media_kit: ^1.1.10
+  media_kit_video: ^1.2.4
+  media_kit_libs_video: ^1.0.5
+
+  # Local store — SQLite via drift (see DECISIONS: local store).
+  drift: ^2.16.0
+  sqlite3_flutter_libs: ^0.5.20
+
+  # Filesystem / paths.
+  path: ^1.9.0
+  path_provider: ^2.1.3
+
+  # HTTP for TMDB + OpenSubtitles (Dart-only, no extra process).
+  http: ^1.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+  # drift codegen — run: `dart run build_runner build`
+  drift_dev: ^2.16.0
+  build_runner: ^2.4.9
+
+flutter:
+  uses-material-design: true

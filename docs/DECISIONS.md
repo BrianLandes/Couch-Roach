@@ -1,0 +1,62 @@
+# Resolved Decisions & Deltas
+
+Live record of decisions made against `HANDOFF.md`. Read this first when
+resuming — the container is ephemeral, so this file is the source of truth for
+"what did we decide."
+
+_Last updated: 2026-07-07_
+
+## Project identity
+- App id / org: **`com.couch.roach`**
+- Repo: `brianlandes/couch-roach`, dev branch `claude/home-media-center-handoff-68osi0`
+- Dart package name: `couch_roach`
+
+## Resolved §9 forks
+| Fork | Decision |
+|---|---|
+| Local store | **SQLite via drift** (not flat JSON) |
+| Play flow | **Stream-while-downloading** (sequential + first/last-piece), not download-then-play |
+| Recommendation depth | Start simple (concatenate + dedupe) — default |
+| Subtitle filename parsing | Dart regex — default |
+| Torrent daemon | qBittorrent-nox — default |
+| TMDB matching in M1 | Scan + play with filename-derived titles in M1; **M2 back-fills `tmdb_id`** |
+
+## New requirements (beyond the handoff)
+
+### A. Multi-disk storage
+The TV PC has **3 physical disks**; content must spread across them by free space.
+- The library **scanner reads all configured roots** (across all disks), not one.
+- New downloads pick a **target disk by available free space** (above a floor).
+- Modeled by `StorageManager` + a `storage_locations` table (root path, label,
+  enabled, priority). See `lib/src/core/storage/`.
+- Open impl detail: cross-platform free-space query. Dart has no built-in; likely
+  a tiny platform channel (Win32 `GetDiskFreeSpaceEx`) or a maintained package.
+  Marked TODO in `StorageManager`.
+
+### B. Auto-cleanup after watch
+Delete a file after a **full play-through + grace period**.
+- **Safety model (default):** the reaper only deletes files flagged
+  `managed = true` (i.e. acquired by the app). Pre-existing scanned library files
+  are **never** auto-deleted unless a folder is explicitly opted in.
+- Trigger: `watch_history.completed == true` AND `last_watched_at` older than the
+  grace period. Deletes the video + its `.en.srt` sidecar, removes the row.
+- Runs on startup and periodically. See `lib/src/services/cleanup/`.
+- **OPEN QUESTION (Brian):** confirm the safety model above, the grace-period
+  length (default proposed: 7 days), and whether cleanup should also apply to
+  files you already own or strictly to app-downloaded content.
+
+## TV / kiosk UX
+- Must go **fullscreen**.
+- Input: a **remote that emits arrow keys** → D-pad / focus-traversal navigation
+  is a first-class concern, built in from the start (Flutter `FocusableActionDetector`
+  / focus traversal, large 10-foot targets).
+
+## Secrets
+- Injected via `--dart-define` (or a gitignored `config` file); nothing secret in git.
+- **OpenSubtitles.com** Api-Key: Brian has one.
+- **TMDB** key: Brian will obtain (needed at M2).
+
+## Environment note
+- Flutter SDK is **not** installed in the Claude Code cloud container, so
+  `flutter create` (which generates the native `windows/` & `linux/` runner
+  folders) must be run on Brian's Windows machine. See `README.md` → Setup.
