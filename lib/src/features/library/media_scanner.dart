@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:injectable/injectable.dart';
 import 'package:path/path.dart' as p;
 
+import '../../core/media/video_extensions.dart';
 import '../../core/storage/storage_manager.dart';
 import '../../data/repositories/library_repository.dart' show ScannedFile;
 
@@ -15,9 +16,7 @@ class MediaScanner {
 
   final StorageManager _storage;
 
-  static const _videoExtensions = {
-    '.mkv', '.mp4', '.avi', '.mov', '.m4v', '.webm', '.ts', '.wmv', '.flv',
-  };
+  static const _videoExtensions = kVideoExtensions;
 
   // Directories we never descend into: OS-managed junk that's unreadable anyway
   // (Windows recycle bin, restore metadata) or filesystem bookkeeping. Anything

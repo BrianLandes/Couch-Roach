@@ -25,6 +25,9 @@ import 'package:couch_roach/src/features/library/library_match_service.dart'
 import 'package:couch_roach/src/features/library/library_service.dart' as _i38;
 import 'package:couch_roach/src/features/library/media_scanner.dart' as _i842;
 import 'package:couch_roach/src/injection.dart' as _i481;
+import 'package:couch_roach/src/services/acquisition/acquisition.dart' as _i156;
+import 'package:couch_roach/src/services/acquisition/qbittorrent_daemon.dart'
+    as _i791;
 import 'package:couch_roach/src/services/acquisition/qbittorrent_process.dart'
     as _i312;
 import 'package:couch_roach/src/services/discovery/tmdb_client.dart' as _i819;
@@ -78,6 +81,10 @@ extension GetItInjectableX on _i174.GetIt {
         ));
     gh.lazySingleton<_i366.StorageRepository>(
         () => _i366.DriftStorageRepository(gh<_i865.AppDatabase>()));
+    gh.lazySingleton<_i156.TorrentDaemon>(() => _i791.QbittorrentDaemon(
+          gh<_i519.Client>(),
+          gh<_i657.ErrorLogService>(),
+        ));
     gh.lazySingleton<_i382.WatchHistoryRepository>(
         () => _i382.DriftWatchHistoryRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i819.DiscoveryClient>(() => _i819.TmdbClient(
