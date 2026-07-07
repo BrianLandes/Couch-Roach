@@ -7,6 +7,7 @@ import '../../core/logging/error_log_service.dart';
 import '../../core/storage/storage_manager.dart';
 import '../../injection.dart';
 import '../../theme/theme.dart';
+import '../../widgets/app_back_button.dart';
 import 'storage_providers.dart';
 
 /// Manage the library folders content spreads across (one per disk, typically).
@@ -63,11 +64,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
             children: [
               Row(
                 children: [
-                  IconButton(
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    iconSize: 28,
-                  ),
+                  const AppBackButton(),
                   const SizedBox(width: AppSpacing.sm),
                   Text('Storage locations', style: text.headlineMedium),
                 ],

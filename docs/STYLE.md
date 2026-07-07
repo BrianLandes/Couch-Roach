@@ -73,10 +73,21 @@ soft; buttons are pill-shaped, panels are `lg`.
 
 ## 10-foot / remote UX (load-bearing)
 
-- **Focus is first-class.** Every interactive element must be D-pad reachable and
-  show a **bright cyan focus ring + glow** (`AppColors.focus` / `focusGlow`) —
-  see `_FocusableGlassTile` in the gallery for the pattern. Test with arrow keys
-  only, no pointer.
+The remote is used **like a mouse** on Windows/Linux, so the app is driven both
+ways — plan for both, always:
+
+- **Dual input: focus *and* pointer.** Every interactive element must respond to
+  **both** arrow-key/D-pad focus **and** the pointer — highlight on focus **or**
+  hover, activate on Enter/Space **or** click. Reach for `FocusableCard`
+  (`lib/src/widgets/focusable_card.dart`) instead of re-implementing it per widget.
+- **Bright cyan focus ring + glow** (`AppColors.focus` / `focusGlow`) on the
+  focused/hovered element. Test with arrow keys only *and* with the mouse.
+- **Focus follows scroll.** Arrowing to an item that's partly or fully off-screen
+  must scroll it **fully into view** (`Scrollable.ensureVisible` on focus — built
+  into `FocusableCard`).
+- **Back button on every screen except the landing page.** Use `AppBackButton`
+  (`lib/src/widgets/app_back_button.dart`) — it pops the nav stack. The landing
+  page is the root.
 - **Big targets, high contrast, legible from a couch.** Honor `minTouchTarget`.
 - **Continue Watching is the top rail** on the landing page.
 - Motion is soft and quick (≈150–200ms) — fluid, never flashy.

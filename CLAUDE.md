@@ -317,9 +317,17 @@ bright focus rings for the remote.
 - **Glass over glow.** Wrap foreground content in `GlassSurface` (not a plain `Card`), and put
   an `AmbientBackground` behind each screen so the blur has color to refract. Glass on a flat
   black void reads dead.
-- **Focus-first.** Every interactive element must be D-pad reachable with a bright cyan focus
-  ring + glow (`AppColors.focus` / `focusGlow`); see `_FocusableGlassTile` in the gallery. Test
-  with arrow keys only. Honor `AppSpacing.minTouchTarget`.
+- **Dual input — focus *and* pointer.** The remote acts like a mouse, so every interactive
+  element must work with **both** arrow-key/D-pad focus **and** the pointer: highlight on focus
+  **or** hover, and activate on Enter/Space **or** click. Use `FocusableCard`
+  ([lib/src/widgets/focusable_card.dart](lib/src/widgets/focusable_card.dart)) rather than
+  hand-rolling this. Bright cyan focus ring + glow (`AppColors.focus` / `focusGlow`); honor
+  `AppSpacing.minTouchTarget`.
+- **Focus follows scroll.** Moving the selection to an off-screen item must scroll it *fully*
+  into view (`Scrollable.ensureVisible` on focus — `FocusableCard` does this).
+- **Back button on every screen except the landing page.** Use `AppBackButton`
+  ([lib/src/widgets/app_back_button.dart](lib/src/widgets/app_back_button.dart)); it pops the
+  nav stack (`context.pop()`). The landing page is the root and has none.
 - **Continue Watching is the top rail** on the landing page — the highest-value surface.
 
 There's a **living component gallery** at

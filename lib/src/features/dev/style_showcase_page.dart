@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
+import '../../widgets/app_back_button.dart';
+import '../../widgets/focusable_card.dart';
 
 /// Living component gallery for the liquid-glass design system. Reachable at
 /// [Routes.styleShowcase]. Use it as the palette when building UI, and **add new
@@ -17,10 +19,19 @@ class StyleShowcasePage extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.screenPadding),
             children: [
-              Text('Couch Roach', style: text.displaySmall),
-              Text(
-                'Liquid Glass — component gallery',
-                style: text.titleMedium?.copyWith(color: AppColors.textSecondary),
+              Row(
+                children: [
+                  const AppBackButton(),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text('Couch Roach', style: text.displaySmall),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 52),
+                child: Text(
+                  'Liquid Glass — component gallery',
+                  style: text.titleMedium?.copyWith(color: AppColors.textSecondary),
+                ),
               ),
               const SizedBox(height: AppSpacing.xl),
 
@@ -135,13 +146,27 @@ class StyleShowcasePage extends StatelessWidget {
               ),
 
               _Section(
-                title: 'Focus (remote / D-pad)',
+                title: 'Focus & hover (remote / mouse)',
                 child: Row(
                   children: List.generate(
                     4,
                     (i) => Padding(
                       padding: const EdgeInsets.only(right: AppSpacing.lg),
-                      child: _FocusableGlassTile(label: 'Tile ${i + 1}'),
+                      child: SizedBox(
+                        width: 150,
+                        height: 96,
+                        child: FocusableCard(
+                          onPressed: () {},
+                          child: GlassSurface(
+                            child: Center(
+                              child: Text(
+                                'Tile ${i + 1}',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -252,43 +277,3 @@ class _Pill extends StatelessWidget {
   }
 }
 
-/// Demonstrates the focus ring every D-pad-reachable tile should use.
-class _FocusableGlassTile extends StatefulWidget {
-  const _FocusableGlassTile({required this.label});
-  final String label;
-
-  @override
-  State<_FocusableGlassTile> createState() => _FocusableGlassTileState();
-}
-
-class _FocusableGlassTileState extends State<_FocusableGlassTile> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return FocusableActionDetector(
-      onShowFocusHighlight: (v) => setState(() => _focused = v),
-      actions: {
-        ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) => null),
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        width: 150,
-        height: 96,
-        decoration: BoxDecoration(
-          borderRadius: AppRadii.rLg,
-          border: Border.all(
-            color: _focused ? AppColors.focus : AppColors.glassStroke,
-            width: _focused ? 2 : 1,
-          ),
-          color: AppColors.glassFill,
-          boxShadow: _focused
-              ? const [BoxShadow(color: AppColors.focusGlow, blurRadius: 24, spreadRadius: 1)]
-              : null,
-        ),
-        alignment: Alignment.center,
-        child: Text(widget.label, style: Theme.of(context).textTheme.titleMedium),
-      ),
-    );
-  }
-}

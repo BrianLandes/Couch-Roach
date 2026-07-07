@@ -41,4 +41,26 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 1));
   });
+
+  testWidgets('renders a tile per library item', (tester) async {
+    final repo = getIt<LibraryRepository>();
+    await repo.upsert(
+        const ScannedFile(filePath: '/m/dune.mkv', title: 'Dune', mediaType: 'movie'));
+    await repo.upsert(const ScannedFile(
+        filePath: '/tv/show.S01E01.mkv',
+        title: 'The Show',
+        mediaType: 'tv',
+        season: 1,
+        episode: 1));
+
+    await tester.pumpWidget(const ProviderScope(child: CouchRoachApp()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dune'), findsOneWidget);
+    expect(find.text('The Show'), findsOneWidget);
+    expect(find.text('S1 · E1'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
 }
