@@ -27,16 +27,23 @@ class MediaScanner {
     r'^(?<title>.+?)[\s._-]+(?<season>\d{1,2})x(?<episode>\d{1,3})',
   );
 
+  /// Walk every enabled root.
   Stream<ScannedFile> scan() async* {
     for (final root in _storage.roots) {
-      final dir = Directory(root.path);
-      if (!dir.existsSync()) continue;
-      await for (final entity in dir.list(recursive: true, followLinks: false)) {
-        if (entity is! File) continue;
-        final ext = p.extension(entity.path).toLowerCase();
-        if (!_videoExtensions.contains(ext)) continue;
-        yield _parse(entity.path);
-      }
+      yield* scanRoot(root.path);
+    }
+  }
+
+  /// Walk a single root. Used by the reconcile-per-root scan so an offline disk
+  /// only affects its own rows.
+  Stream<ScannedFile> scanRoot(String rootPath) async* {
+    final dir = Directory(rootPath);
+    if (!dir.existsSync()) return;
+    await for (final entity in dir.list(recursive: true, followLinks: false)) {
+      if (entity is! File) continue;
+      final ext = p.extension(entity.path).toLowerCase();
+      if (!_videoExtensions.contains(ext)) continue;
+      yield _parse(entity.path);
     }
   }
 

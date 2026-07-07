@@ -1,0 +1,12 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../data/db/database.dart';
+import '../../data/repositories/library_repository.dart';
+import '../../injection.dart';
+
+/// Live list of present (non-missing) library items, fed by the drift watch
+/// query so screens update as scans land and files come and go. Kept alive (not
+/// autoDispose) — it's the app's central library feed, watched across screens.
+final libraryItemsProvider = StreamProvider<List<LibraryItem>>(
+  (ref) => getIt<LibraryRepository>().watchPresent(),
+);
