@@ -49,6 +49,11 @@ abstract class LibraryRepository {
 
   Future<List<LibraryItem>> getAll();
   Future<LibraryItem?> findByPath(String path);
+
+  /// Hard-deletes the row and cascades its `watch_history` — a deliberate
+  /// "forget this title entirely". NOT for a file that merely disappeared: for
+  /// a gone/offline file use [markMissingUnder], which keeps the row and its
+  /// watch history so "what I watched / where I left off" survives the delete.
   Future<void> removeByPath(String path);
 }
 

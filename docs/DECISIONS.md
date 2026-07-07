@@ -64,6 +64,14 @@ managed zone — there is no separate "app-downloaded only" gate.
   "keep around" toggle.
 - The `managed` column stays as provenance (downloaded vs pre-existing) but no
   longer gates cleanup.
+- **Watch records outlive the file.** Deleting a video — by the reaper, or the
+  user deleting it off disk manually — must NOT remove the `library` row or its
+  `watch_history`. A gone file flags the row `missing` (via `markMissingUnder`)
+  and the resume/`completed` history is preserved, so "what I watched / where I
+  left off" survives. The row is the durable record; only its bytes are freed.
+  Only a deliberate "forget this title" (`removeByPath`) drops the row + history.
+  (Cross-file durability across a delete→re-download to a *different* path is an
+  M2 enhancement, once watch history can key off `tmdb_id`.)
 - Runs on startup and periodically. See `lib/src/services/cleanup/`.
 - **Still open:** grace-period length (default proposed: **7 days**).
 
