@@ -34,6 +34,7 @@ final appRouter = GoRouter(
         return PlayerScreen(
           filePath: args.filePath,
           title: args.title,
+          libraryItemId: args.libraryItemId,
           startAt: args.startAt,
         );
       },

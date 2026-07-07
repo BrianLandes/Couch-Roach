@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../core/logging/error_log_service.dart';
+import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
 import '../../theme/theme.dart';
 
@@ -15,37 +16,37 @@ class PlayerArgs {
   const PlayerArgs({
     required this.filePath,
     this.title,
+    this.libraryItemId,
     this.startAt = Duration.zero,
   });
 
   final String filePath;
   final String? title;
+
+  /// When set, the player resumes from and records watch history for this item.
+  final int? libraryItemId;
+
+  /// Explicit start position; when zero and [libraryItemId] is set, the saved
+  /// resume position is used instead.
   final Duration startAt;
 }
 
-/// Embedded libmpv playback surface. Opens a local (or later streamed) file,
-/// seeks to a resume position, and reports position/completion via callbacks so
-/// the caller can persist watch history (wired in the resume-tracking task).
-/// Codecs/containers/subtitles/controls are libmpv's job — we don't build them.
+/// Embedded libmpv playback surface. Resumes from saved position, persists
+/// progress + completion to watch history, and reports errors. Codecs,
+/// containers, subtitles, and controls are libmpv's job — we don't build them.
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({
     super.key,
     required this.filePath,
     this.title,
+    this.libraryItemId,
     this.startAt = Duration.zero,
-    this.onProgress,
-    this.onCompleted,
   });
 
   final String filePath;
   final String? title;
+  final int? libraryItemId;
   final Duration startAt;
-
-  /// Called with the latest position + duration (on tick and on exit).
-  final void Function(Duration position, Duration duration)? onProgress;
-
-  /// Called when playback reaches (near) the end.
-  final VoidCallback? onCompleted;
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -56,7 +57,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // Hardware acceleration is disabled: with GPU rendering, some Windows setups
   // decode fine but render a solid-color (e.g. blue) frame. CPU rendering is the
-  // reliable path. TODO(perf): expose this as a setting and re-try HW accel for
+  // reliable path. TODO(perf): expose as a setting and re-try HW accel for
   // high-res content once we can detect the failure.
   late final VideoController _controller = VideoController(
     _player,
@@ -64,7 +65,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         const VideoControllerConfiguration(enableHardwareAcceleration: false),
   );
 
+  WatchHistoryRepository get _history => getIt<WatchHistoryRepository>();
+
   final List<StreamSubscription<dynamic>> _subs = [];
+  int _lastSavedSec = 0;
   String? _error;
 
   @override
@@ -75,11 +79,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _open() async {
     try {
-      _subs.add(_player.stream.position.listen(
-        (pos) => widget.onProgress?.call(pos, _player.state.duration),
-      ));
+      var start = widget.startAt;
+      final id = widget.libraryItemId;
+      if (id != null && start == Duration.zero) {
+        final history = await _history.forItem(id);
+        if (history != null) {
+          start = Duration(seconds: history.resumePositionSec);
+        }
+      }
+      _lastSavedSec = start.inSeconds;
+
+      _subs.add(_player.stream.position.listen(_onPosition));
       _subs.add(_player.stream.completed.listen((done) {
-        if (done) widget.onCompleted?.call();
+        if (done) _markCompleted();
       }));
       _subs.add(_player.stream.error.listen((message) {
         getIt<ErrorLogService>().logError(
@@ -90,8 +102,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }));
 
       await _player.open(Media(widget.filePath));
-      if (widget.startAt > Duration.zero) {
-        await _player.seek(widget.startAt);
+      if (start > Duration.zero) {
+        await _player.seek(start);
       }
     } catch (e, st) {
       getIt<ErrorLogService>()
@@ -100,10 +112,49 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  // Throttle saves to roughly every 5s of progress so we don't hammer the DB.
+  void _onPosition(Duration pos) {
+    final id = widget.libraryItemId;
+    if (id == null) return;
+    if ((pos.inSeconds - _lastSavedSec).abs() < 5) return;
+    _lastSavedSec = pos.inSeconds;
+    _history.record(
+      libraryItemId: id,
+      position: pos,
+      duration: _player.state.duration,
+    );
+  }
+
+  void _markCompleted() {
+    final id = widget.libraryItemId;
+    if (id == null) return;
+    _history.record(
+      libraryItemId: id,
+      position: Duration.zero,
+      duration: _player.state.duration,
+      completed: true,
+    );
+  }
+
+  // Save the final position on exit; count "watched to the end" (>= 95%) as
+  // completed so the reaper and Continue Watching treat it right.
+  void _persistFinal() {
+    final id = widget.libraryItemId;
+    if (id == null) return;
+    final pos = _player.state.position;
+    final dur = _player.state.duration;
+    final nearEnd = dur.inSeconds > 0 && pos.inSeconds >= dur.inSeconds * 0.95;
+    _history.record(
+      libraryItemId: id,
+      position: pos,
+      duration: dur,
+      completed: nearEnd,
+    );
+  }
+
   @override
   void dispose() {
-    // Report final position before tearing down so resume is accurate.
-    widget.onProgress?.call(_player.state.position, _player.state.duration);
+    _persistFinal();
     for (final s in _subs) {
       s.cancel();
     }

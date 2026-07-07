@@ -124,13 +124,14 @@ class _LibraryGrid extends StatelessWidget {
         return LibraryTile(
           item: item,
           autofocus: i == 0, // give the remote a starting point
-          onPressed: () {
-            // TODO(resume): pass startAt from watch_history once that lands.
-            context.push(
-              Routes.player,
-              extra: PlayerArgs(filePath: item.filePath, title: item.title),
-            );
-          },
+          onPressed: () => context.push(
+            Routes.player,
+            extra: PlayerArgs(
+              filePath: item.filePath,
+              title: item.title,
+              libraryItemId: item.id,
+            ),
+          ),
         );
       },
     );

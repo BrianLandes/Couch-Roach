@@ -16,6 +16,8 @@ import 'package:couch_roach/src/data/repositories/library_repository.dart'
     as _i877;
 import 'package:couch_roach/src/data/repositories/storage_repository.dart'
     as _i366;
+import 'package:couch_roach/src/data/repositories/watch_history_repository.dart'
+    as _i382;
 import 'package:couch_roach/src/features/library/library_service.dart' as _i38;
 import 'package:couch_roach/src/features/library/media_scanner.dart' as _i842;
 import 'package:couch_roach/src/injection.dart' as _i481;
@@ -42,6 +44,8 @@ extension GetItInjectableX on _i174.GetIt {
         () => _i366.DriftStorageRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i883.StorageManager>(
         () => registerModule.storageManager(gh<_i366.StorageRepository>()));
+    gh.lazySingleton<_i382.WatchHistoryRepository>(
+        () => _i382.DriftWatchHistoryRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i842.MediaScanner>(
         () => _i842.MediaScanner(gh<_i883.StorageManager>()));
     gh.lazySingleton<_i38.LibraryService>(() => _i38.LibraryService(
