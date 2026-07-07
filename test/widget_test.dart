@@ -4,6 +4,7 @@ import 'package:couch_roach/src/core/storage/storage_manager.dart';
 import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/data/repositories/library_repository.dart';
 import 'package:couch_roach/src/data/repositories/storage_repository.dart';
+import 'package:couch_roach/src/data/repositories/watch_history_repository.dart';
 import 'package:couch_roach/src/features/library/library_service.dart';
 import 'package:couch_roach/src/features/library/media_scanner.dart';
 import 'package:couch_roach/src/injection.dart';
@@ -21,6 +22,8 @@ void main() {
       ..registerSingleton<AppDatabase>(db)
       ..registerSingleton<StorageRepository>(DriftStorageRepository(db))
       ..registerSingleton<LibraryRepository>(DriftLibraryRepository(db))
+      ..registerSingleton<WatchHistoryRepository>(
+          DriftWatchHistoryRepository(db))
       ..registerLazySingleton<StorageManager>(
           () => ConfiguredStorageManager(getIt<StorageRepository>()))
       ..registerLazySingleton<MediaScanner>(
@@ -59,6 +62,28 @@ void main() {
     expect(find.text('Dune'), findsOneWidget);
     expect(find.text('The Show'), findsOneWidget);
     expect(find.text('S1 · E1'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('shows a Continue Watching rail for in-progress items', (tester) async {
+    final library = getIt<LibraryRepository>();
+    final history = getIt<WatchHistoryRepository>();
+    await library.upsert(
+        const ScannedFile(filePath: '/m/dune.mkv', title: 'Dune', mediaType: 'movie'));
+    final id = (await library.findByPath('/m/dune.mkv'))!.id;
+    await history.record(
+      libraryItemId: id,
+      position: const Duration(seconds: 60),
+      duration: const Duration(seconds: 120),
+    );
+
+    await tester.pumpWidget(const ProviderScope(child: CouchRoachApp()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('CONTINUE WATCHING'), findsOneWidget);
+    expect(find.textContaining('left'), findsOneWidget); // "1:00 left"
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 1));
