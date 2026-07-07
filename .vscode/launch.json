@@ -6,7 +6,8 @@
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
-      "deviceId": "linux"
+      "deviceId": "linux",
+      "toolArgs": ["--dart-define-from-file=dart_define.json"]
     },
     {
       "name": "Couch Roach (Linux, profile)",
@@ -14,7 +15,8 @@
       "type": "dart",
       "program": "lib/main.dart",
       "deviceId": "linux",
-      "flutterMode": "profile"
+      "flutterMode": "profile",
+      "toolArgs": ["--dart-define-from-file=dart_define.json"]
     },
     {
       "name": "Couch Roach (Linux, release)",
@@ -22,7 +24,8 @@
       "type": "dart",
       "program": "lib/main.dart",
       "deviceId": "linux",
-      "flutterMode": "release"
+      "flutterMode": "release",
+      "toolArgs": ["--dart-define-from-file=dart_define.json"]
     }
   ]
 }
