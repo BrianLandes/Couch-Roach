@@ -283,9 +283,15 @@ These are load-bearing for this app specifically — don't violate them without 
   `AcquisitionResolver` in
   [lib/src/services/acquisition/acquisition.dart](lib/src/services/acquisition/acquisition.dart).
   Only **legal-source** resolvers belong in this repo (Internet Archive, Academic Torrents,
-  distro feeds). **Do not add** a resolver that searches piracy trackers or a Prowlarr/Jackett
-  indexer for commercial content — that's deliberately out of scope (HANDOFF §8). The play flow
-  must never reference where a magnet came from.
+  distro feeds). A **Jackett/Prowlarr Torznab resolver is permitted** as *content-agnostic*
+  infrastructure the user points at their **own legal / public-domain indexer configuration**
+  (personal, single-machine): it **hardcodes no indexers** and ships **no commercial-piracy
+  trackers in code or default config** — indexer selection lives in the user's own Jackett
+  instance, not this repo, and the legal responsibility for that choice sits with the user.
+  Jackett runs as an **invisible localhost child** (the qBittorrent-nox pattern; .NET 9
+  self-contained build). **Do not add** a resolver — or a default/hardcoded indexer — that
+  targets piracy trackers for commercial content; that remains out of scope (HANDOFF §8;
+  DECISIONS §D). The play flow must never reference where a magnet came from.
 - **All file placement goes through `StorageManager`.** The machine has multiple disks; content
   spreads across them by free space. Never hardcode a single library root — scan every root the
   manager reports, and pick download targets via `chooseTarget`. See
