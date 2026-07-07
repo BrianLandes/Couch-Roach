@@ -161,43 +161,65 @@ class _Header extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.md),
-          ValueListenableBuilder<bool>(
-            valueListenable: library.scanning,
-            builder: (context, scanning, _) => OutlinedButton.icon(
-              onPressed: scanning
-                  ? null
-                  : () async {
-                      await library.rescan();
-                      await getIt<LibraryMatchService>().matchUnmatched();
-                      // Kick the quota-aware subtitle queue in the background —
-                      // it downloads a few and records attempts so it never
-                      // hammers the daily quota on a big first scan.
-                      if (const AppConfig().hasOpenSubtitlesKey) {
-                        unawaited(getIt<SubtitleService>().processQueue());
-                      }
-                    },
-              icon: scanning
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh_rounded),
-              label: Text(scanning ? 'Scanning…' : 'Rescan'),
+          // Action cluster — scrolls horizontally (right-aligned) if the window
+          // is too narrow to show every control, so the header never overflows.
+          Flexible(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              reverse: true,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ValueListenableBuilder<bool>(
+                    valueListenable: library.scanning,
+                    builder: (context, scanning, _) => OutlinedButton.icon(
+                      onPressed: scanning
+                          ? null
+                          : () async {
+                              await library.rescan();
+                              await getIt<LibraryMatchService>()
+                                  .matchUnmatched();
+                              // Kick the quota-aware subtitle queue in the
+                              // background — it downloads a few and records
+                              // attempts so it never hammers the daily quota
+                              // on a big first scan.
+                              if (const AppConfig().hasOpenSubtitlesKey) {
+                                unawaited(
+                                    getIt<SubtitleService>().processQueue());
+                              }
+                            },
+                      icon: scanning
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh_rounded),
+                      label: Text(scanning ? 'Scanning…' : 'Rescan'),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  OutlinedButton.icon(
+                    onPressed: () => context.push(Routes.downloads),
+                    icon: const Icon(Icons.download_rounded),
+                    label: const Text('Downloads'),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  OutlinedButton.icon(
+                    onPressed: () => context.push(Routes.storageSettings),
+                    icon: const Icon(Icons.folder_rounded),
+                    label: const Text('Manage storage'),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  const FullscreenToggleButton(),
+                  const IconButton(
+                    onPressed: minimizeWindow,
+                    icon: Icon(Icons.remove_rounded),
+                    tooltip: 'Minimize to desktop',
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          OutlinedButton.icon(
-            onPressed: () => context.push(Routes.storageSettings),
-            icon: const Icon(Icons.folder_rounded),
-            label: const Text('Manage storage'),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          const FullscreenToggleButton(),
-          const IconButton(
-            onPressed: minimizeWindow,
-            icon: Icon(Icons.remove_rounded),
-            tooltip: 'Minimize to desktop',
           ),
         ],
       ),

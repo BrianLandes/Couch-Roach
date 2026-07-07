@@ -37,6 +37,46 @@ abstract class TorrentDaemon {
     bool sequential = true,
     bool firstLastPiecePriority = true,
   });
+
+  /// Snapshot of every torrent the daemon is managing — drives the Downloads
+  /// activity screen. Returns [] if the daemon isn't reachable.
+  Future<List<TorrentStatus>> listTorrents();
+}
+
+/// A live status line for one torrent in the daemon (from the qBittorrent
+/// `/torrents/info` shape). Progress is 0.0–1.0; [etaSeconds] is null when the
+/// daemon can't estimate it (e.g. stalled or complete).
+class TorrentStatus {
+  const TorrentStatus({
+    required this.hash,
+    required this.name,
+    required this.progress,
+    required this.state,
+    required this.downloadSpeed,
+    required this.sizeBytes,
+    required this.downloadedBytes,
+    this.etaSeconds,
+  });
+
+  final String hash;
+  final String name;
+
+  /// 0.0–1.0.
+  final double progress;
+
+  /// Raw daemon state string (e.g. `downloading`, `stalledDL`, `pausedDL`,
+  /// `uploading`, `checkingDL`, `error`). Mapped to a friendly label in the UI.
+  final String state;
+
+  /// Bytes/second, current.
+  final int downloadSpeed;
+  final int sizeBytes;
+  final int downloadedBytes;
+
+  /// Seconds remaining, or null if unknown/not applicable.
+  final int? etaSeconds;
+
+  bool get isComplete => progress >= 1.0;
 }
 
 abstract class TorrentTask {

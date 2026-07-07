@@ -66,6 +66,12 @@ class QbittorrentDaemon implements TorrentDaemon {
     return QbittorrentTask(this, hash: hash, savePath: savePath);
   }
 
+  @override
+  Future<List<TorrentStatus>> listTorrents() async {
+    final list = await torrentsInfo();
+    return list.map(parseTorrentStatus).toList(growable: false);
+  }
+
   /// Poll until the tagged torrent appears (magnet metadata resolution can lag
   /// the add call), then return its hash.
   Future<String> _resolveHashByTag(String tag) async {
@@ -195,6 +201,28 @@ Map<String, dynamic>? pickPrimaryFile(List<Map<String, dynamic>> files) {
   final pool = videos.isNotEmpty ? videos : files;
   pool.sort((a, b) => sizeOf(b).compareTo(sizeOf(a)));
   return pool.first;
+}
+
+/// qBittorrent's sentinel ETA (100 days, in seconds) meaning "unknown/∞".
+const int _qbEtaUnknown = 8640000;
+
+/// Parse one `/torrents/info` entry into a [TorrentStatus]. Pure + tested.
+/// The daemon's ETA sentinel (and any complete/non-downloading torrent) maps to
+/// a null [TorrentStatus.etaSeconds].
+TorrentStatus parseTorrentStatus(Map<String, dynamic> json) {
+  int asInt(Object? v) => (v as num?)?.toInt() ?? 0;
+  final eta = asInt(json['eta']);
+  final progress = (json['progress'] as num?)?.toDouble() ?? 0;
+  return TorrentStatus(
+    hash: json['hash'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    progress: progress.clamp(0.0, 1.0),
+    state: json['state'] as String? ?? '',
+    downloadSpeed: asInt(json['dlspeed']),
+    sizeBytes: asInt(json['size']),
+    downloadedBytes: asInt(json['downloaded']),
+    etaSeconds: (eta <= 0 || eta >= _qbEtaUnknown || progress >= 1.0) ? null : eta,
+  );
 }
 
 /// Raised when a qBittorrent Web API operation fails. Surfaced to the caller so

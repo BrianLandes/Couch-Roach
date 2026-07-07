@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/dev/style_showcase_page.dart';
 import '../features/discover/show_detail_screen.dart';
+import '../features/downloads/downloads_screen.dart';
 import '../features/library/library_screen.dart';
 import '../features/player/player_screen.dart';
 import '../features/settings/storage_settings_screen.dart';
@@ -20,6 +21,9 @@ abstract class Routes {
 
   /// Manage the library folders content spreads across.
   static const storageSettings = '/settings/storage';
+
+  /// Live activity for the background torrent daemon (progress + ETA).
+  static const downloads = '/downloads';
 
   /// Living component gallery for the design system (dev/reference).
   static const styleShowcase = '/style';
@@ -51,6 +55,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: Routes.storageSettings,
       builder: (context, state) => const StorageSettingsScreen(),
+    ),
+    GoRoute(
+      path: Routes.downloads,
+      builder: (context, state) => const DownloadsScreen(),
     ),
     GoRoute(
       path: Routes.styleShowcase,
