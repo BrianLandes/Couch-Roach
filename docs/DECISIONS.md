@@ -75,6 +75,26 @@ managed zone — there is no separate "app-downloaded only" gate.
 - Runs on startup and periodically. See `lib/src/services/cleanup/`.
 - **Still open:** grace-period length (default proposed: **7 days**).
 
+### C. VPN gating (ExpressVPN)
+The app must ensure **ExpressVPN's tunnel is on** before/while acquiring or
+streaming: detect running+connected, start it if not, connect ("activate") if
+disconnected, and re-check periodically. **Assume already configured/signed in** —
+we don't automate login; if not installed / too old / not signed in, surface a
+**manual-fix state in the UI**, never repair silently.
+- **Resolved mechanism:** ExpressVPN now ships an **official Windows CLI**
+  `expressvpnctl` (app ≥ **12.69.0**) — `status` / `connect` / `disconnect`. No GUI
+  automation or reverse-engineered API needed; symmetric with the Linux CLI.
+- **Constraint:** `connect` needs **Administrator**. Chosen approach (to confirm):
+  an **elevated Windows Scheduled Task** the app triggers via `schtasks /run` — no
+  per-launch/per-call UAC, app stays unelevated.
+- **Design:** a `VpnController` seam (Windows now / Linux later) + `VpnService`
+  (`@LazySingleton`) polling `status` on a timer and exposing a `Stream<VpnState>`;
+  Riverpod provider drives a status indicator. Mirrors the `AcquisitionResolver`
+  seam. Slot in around/after M4 (orthogonal to M1–M4).
+- **Open:** exact `expressvpnctl status` output strings (needs a spike on the real
+  machine before the parser); hard-gate vs. best-effort on play/acquire.
+- Full research + build plan: **`docs/VPN.md`**.
+
 ## TV / kiosk UX
 - Must go **fullscreen**.
 - Input: a **remote that emits arrow keys** → D-pad / focus-traversal navigation
