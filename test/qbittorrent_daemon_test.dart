@@ -68,12 +68,59 @@ void main() {
       expect(captured.bodyFields, {'hashes': 'h'});
     });
 
+    test('setFilePriority posts joined indices + priority to filePrio', () async {
+      await daemon().setFilePriority('h', [1, 3, 4], 0);
+      expect(captured.url.path, '/api/v2/torrents/filePrio');
+      expect(captured.bodyFields, {'hash': 'h', 'id': '1|3|4', 'priority': '0'});
+    });
+
     test('a non-2xx control response throws', () async {
       final d = QbittorrentDaemon(
         MockClient((_) async => http.Response('no', 403)),
         ErrorLogService(),
       );
       expect(() => d.remove(hash: 'h', deleteFiles: false), throwsA(anything));
+    });
+  });
+
+  group('pieceRangeOf', () {
+    test('parses a [first, last] pair', () {
+      expect(pieceRangeOf([3, 9]), (3, 9));
+    });
+    test('rejects malformed/absent ranges', () {
+      expect(pieceRangeOf(null), isNull);
+      expect(pieceRangeOf([1]), isNull);
+      expect(pieceRangeOf('nope'), isNull);
+    });
+  });
+
+  group('headPieceCount', () {
+    test('covers the head buffer, clamped to [2, filePieces]', () {
+      // 16 MiB buffer / 1 MiB pieces = 16.
+      expect(QbittorrentTask.headPieceCount(1 << 20, 100), 16);
+      // Big pieces → floor of 2.
+      expect(QbittorrentTask.headPieceCount(32 << 20, 100), 2);
+      // Never more than the file has.
+      expect(QbittorrentTask.headPieceCount(1 << 20, 5), 5);
+    });
+  });
+
+  group('headAndTailReady', () {
+    // file pieces 2..6; head=2 means pieces 2,3 + last(6) must be downloaded.
+    List<int> states(Set<int> have, {int len = 8}) =>
+        [for (var i = 0; i < len; i++) have.contains(i) ? 2 : 0];
+
+    test('ready when head pieces and the last piece are present', () {
+      expect(headAndTailReady(states({2, 3, 6}), 2, 6, 2), isTrue);
+    });
+    test('not ready while the last (moov/index) piece is missing', () {
+      expect(headAndTailReady(states({2, 3}), 2, 6, 2), isFalse);
+    });
+    test('not ready while a head piece is missing', () {
+      expect(headAndTailReady(states({2, 6}), 2, 6, 2), isFalse);
+    });
+    test('guards against an out-of-range last piece', () {
+      expect(headAndTailReady(states({2, 3}, len: 4), 2, 6, 2), isFalse);
     });
   });
 

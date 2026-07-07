@@ -161,9 +161,58 @@ class QbittorrentDaemon implements TorrentDaemon {
       return const [];
     }
   }
+
+  /// `GET /torrents/pieceStates?hash=` — one state per piece: 0 not downloaded,
+  /// 1 downloading, 2 downloaded. Returns [] on error.
+  Future<List<int>> pieceStates(String hash) async {
+    final uri = Uri.parse('$_api/torrents/pieceStates')
+        .replace(queryParameters: {'hash': hash});
+    try {
+      final res = await _http.get(uri);
+      if (res.statusCode != 200) return const [];
+      return (jsonDecode(res.body) as List)
+          .map((e) => (e as num).toInt())
+          .toList(growable: false);
+    } catch (e, st) {
+      _log.logError(e, stackTrace: st, source: 'QbittorrentDaemon.pieceStates');
+      return const [];
+    }
+  }
+
+  /// `GET /torrents/properties?hash=` — torrent properties (incl. `piece_size`).
+  /// Returns {} on error.
+  Future<Map<String, dynamic>> torrentProperties(String hash) async {
+    final uri = Uri.parse('$_api/torrents/properties')
+        .replace(queryParameters: {'hash': hash});
+    try {
+      final res = await _http.get(uri);
+      if (res.statusCode != 200) return const {};
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    } catch (e, st) {
+      _log.logError(e,
+          stackTrace: st, source: 'QbittorrentDaemon.torrentProperties');
+      return const {};
+    }
+  }
+
+  /// `POST /torrents/filePrio` — set download [priority] (0 skip, 1 normal,
+  /// 6 high, 7 maximal) for the given file [indices].
+  Future<void> setFilePriority(String hash, List<int> indices, int priority) =>
+      _command('/torrents/filePrio', {
+        'hash': hash,
+        'id': indices.join('|'),
+        'priority': '$priority',
+      }, 'setFilePriority');
 }
 
 /// A single added torrent, tracked by its info hash.
+///
+/// Streaming readiness is piece-level, not a progress fraction: once the primary
+/// file is known we download **only** it (others → priority 0) with first/last
+/// piece priority, then wait until that file's leading pieces (header + a buffer)
+/// **and** its last piece (mp4 `moov` / container index often live at the tail)
+/// are actually present — otherwise mpv opens a file whose start isn't there yet
+/// and fails with "couldn't recognize the file format".
 class QbittorrentTask implements TorrentTask {
   QbittorrentTask(this._daemon, {required this.hash, required this.savePath});
 
@@ -171,42 +220,98 @@ class QbittorrentTask implements TorrentTask {
   final String hash;
   final String savePath;
 
-  /// Minimum head buffer (as a fraction of the primary file) before we call it
-  /// streamable. Crude on purpose — the sequential/first-last task replaces this
-  /// with piece-level (first+last present) detection.
-  static const double _minStreamBuffer = 0.01;
+  /// Head buffer downloaded before we start playing (~seconds of video).
+  static const int _headBufferBytes = 16 * 1024 * 1024;
 
-  @override
-  Future<String> get primaryFile async {
-    final deadline = DateTime.now().add(const Duration(seconds: 30));
+  _PrimaryFile? _primary;
+
+  /// Resolve the primary video file (index, name, piece range) once, and focus
+  /// the download on just that file so IA's many derivative encodings don't
+  /// starve streaming.
+  Future<_PrimaryFile> _resolvePrimary() async {
+    if (_primary != null) return _primary!;
+    final deadline = DateTime.now().add(const Duration(seconds: 60));
     while (DateTime.now().isBefore(deadline)) {
       final files = await _daemon.torrentFiles(hash);
-      final primary = pickPrimaryFile(files);
-      if (primary != null) {
-        // qBittorrent's file `name` is the path relative to the save path
-        // (including any torrent root folder), so join to get the absolute path.
-        return p.join(savePath, primary['name'] as String);
+      final chosen = pickPrimaryFile(files);
+      if (chosen != null) {
+        final index = (chosen['index'] as num?)?.toInt() ?? files.indexOf(chosen);
+        final range = pieceRangeOf(chosen['piece_range']);
+        final primary = _PrimaryFile(
+          index: index,
+          name: chosen['name'] as String,
+          firstPiece: range?.$1,
+          lastPiece: range?.$2,
+        );
+        _primary = primary;
+        await _focusDownloadOn(primary.index, files);
+        return primary;
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
     throw TorrentDaemonException('no files resolved for torrent $hash');
   }
 
+  /// Download only the primary file: every other file → priority 0, the primary
+  /// → maximal. Best-effort (streaming still works if the daemon rejects it).
+  Future<void> _focusDownloadOn(
+      int primaryIndex, List<Map<String, dynamic>> files) async {
+    final others = <int>[];
+    for (var i = 0; i < files.length; i++) {
+      final idx = (files[i]['index'] as num?)?.toInt() ?? i;
+      if (idx != primaryIndex) others.add(idx);
+    }
+    try {
+      if (others.isNotEmpty) await _daemon.setFilePriority(hash, others, 0);
+      await _daemon.setFilePriority(hash, [primaryIndex], 7);
+    } catch (_) {
+      // Non-fatal — fall back to streaming whatever downloads.
+    }
+  }
+
+  @override
+  Future<String> get primaryFile async {
+    // qBittorrent's file `name` is the path relative to the save path (including
+    // any torrent root folder), so join to get the absolute path.
+    return p.join(savePath, (await _resolvePrimary()).name);
+  }
+
   @override
   Future<void> readyToStream() async {
+    final primary = await _resolvePrimary();
     final deadline = DateTime.now().add(const Duration(minutes: 5));
+
+    // Fallback when the daemon doesn't expose piece ranges: wait for the file to
+    // be essentially complete (safe, if not truly streaming).
+    if (primary.firstPiece == null || primary.lastPiece == null) {
+      return _awaitFileNearlyComplete(deadline);
+    }
+
+    final props = await _daemon.torrentProperties(hash);
+    final pieceSize = (props['piece_size'] as num?)?.toInt() ?? (1 << 20);
+    final first = primary.firstPiece!;
+    final last = primary.lastPiece!;
+    final headPieces = headPieceCount(pieceSize, last - first + 1);
+
     while (DateTime.now().isBefore(deadline)) {
-      final files = await _daemon.torrentFiles(hash);
-      final primary = pickPrimaryFile(files);
-      if (primary != null) {
-        final progress = (primary['progress'] as num?)?.toDouble() ?? 0;
-        if (progress >= _minStreamBuffer || progress >= 1.0) return;
+      if (headAndTailReady(await _daemon.pieceStates(hash), first, last,
+          headPieces)) {
+        return;
       }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    throw TorrentDaemonException(
+        'torrent $hash did not buffer enough to stream in time');
+  }
+
+  Future<void> _awaitFileNearlyComplete(DateTime deadline) async {
+    while (DateTime.now().isBefore(deadline)) {
+      final chosen = pickPrimaryFile(await _daemon.torrentFiles(hash));
+      if (((chosen?['progress'] as num?)?.toDouble() ?? 0) >= 0.99) return;
       await Future<void>.delayed(const Duration(seconds: 1));
     }
     throw TorrentDaemonException(
-      'torrent $hash did not buffer enough to stream in time',
-    );
+        'torrent $hash did not buffer enough to stream in time');
   }
 
   @override
@@ -220,6 +325,53 @@ class QbittorrentTask implements TorrentTask {
       await Future<void>.delayed(const Duration(seconds: 1));
     }
   }
+
+  /// Head pieces to require before playing: enough to cover [_headBufferBytes],
+  /// at least 2, never more than the file has. Pure + tested.
+  static int headPieceCount(int pieceSize, int filePieces) {
+    if (pieceSize <= 0 || filePieces <= 0) return filePieces.clamp(0, 2);
+    return (_headBufferBytes / pieceSize).ceil().clamp(2, filePieces);
+  }
+}
+
+/// A resolved primary file within a torrent. Piece indices are null when the
+/// daemon doesn't report a `piece_range`.
+class _PrimaryFile {
+  _PrimaryFile({
+    required this.index,
+    required this.name,
+    this.firstPiece,
+    this.lastPiece,
+  });
+  final int index;
+  final String name;
+  final int? firstPiece;
+  final int? lastPiece;
+}
+
+/// A qBittorrent `piece_range` (`[first, last]`) → a record, or null if absent
+/// or malformed. Pure + tested.
+(int, int)? pieceRangeOf(Object? raw) {
+  if (raw is List && raw.length == 2 && raw[0] is num && raw[1] is num) {
+    return ((raw[0] as num).toInt(), (raw[1] as num).toInt());
+  }
+  return null;
+}
+
+/// Streaming-ready when the primary file's leading [headPieces] pieces AND its
+/// last piece are all downloaded (state 2) — header + buffer up front, container
+/// index/`moov` at the tail. Pure + tested.
+bool headAndTailReady(
+    List<int> states, int firstPiece, int lastPiece, int headPieces) {
+  if (firstPiece < 0 || lastPiece < firstPiece || lastPiece >= states.length) {
+    return false;
+  }
+  if (states[lastPiece] != 2) return false;
+  final end = firstPiece + headPieces;
+  for (var i = firstPiece; i < end && i <= lastPiece; i++) {
+    if (states[i] != 2) return false;
+  }
+  return true;
 }
 
 /// Pick the file to hand the player: the largest **video** file, or the largest
@@ -234,7 +386,7 @@ Map<String, dynamic>? pickPrimaryFile(List<Map<String, dynamic>> files) {
   }
 
   final videos = files.where(isVideo).toList();
-  final pool = videos.isNotEmpty ? videos : files;
+  final pool = videos.isNotEmpty ? videos : [...files]; // copy: never mutate input
   pool.sort((a, b) => sizeOf(b).compareTo(sizeOf(a)));
   return pool.first;
 }
