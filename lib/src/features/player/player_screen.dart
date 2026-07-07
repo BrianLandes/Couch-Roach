@@ -70,6 +70,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   final List<StreamSubscription<dynamic>> _subs = [];
   int _lastSavedSec = 0;
+  // We auto-select the best (most-channels) audio track once, on the first
+  // tracks update. After that the user is free to change it from the mpv menu
+  // and we won't override their choice.
+  bool _audioAutoSelected = false;
   // Resume target applied on the first position tick — seeking right after
   // open() is dropped because libmpv isn't ready to seek yet.
   Duration? _pendingSeek;
@@ -99,6 +103,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _pendingSeek = start > Duration.zero ? start : null;
 
       _subs.add(_player.stream.position.listen(_onPosition));
+      _subs.add(_player.stream.tracks.listen(_onTracks));
       _subs.add(_player.stream.completed.listen((done) {
         if (done) _markCompleted();
       }));
@@ -140,6 +145,53 @@ class _PlayerScreenState extends State<PlayerScreen> {
       position: pos,
       duration: _player.state.duration,
     );
+  }
+
+  // When multiple audio tracks exist, prefer the one with the most channels so
+  // a surround mix (5.1/7.1) wins over a stereo downmix. Runs once per open;
+  // afterwards the user's manual track choice is respected.
+  void _onTracks(Tracks tracks) {
+    if (_audioAutoSelected) return;
+
+    // Only real, selectable tracks — skip the synthetic "auto"/"no" entries.
+    final selectable = tracks.audio
+        .where((t) => t.id != 'auto' && t.id != 'no')
+        .toList();
+    if (selectable.length < 2) return;
+
+    // Channel counts aren't populated until libmpv has probed the streams; wait
+    // for a later update if none of them report a count yet.
+    final anyKnown = selectable.any((t) => _channelCount(t) > 0);
+    if (!anyKnown) return;
+
+    _audioAutoSelected = true;
+
+    final best = selectable.reduce((a, b) {
+      final ca = _channelCount(a);
+      final cb = _channelCount(b);
+      if (ca != cb) return ca > cb ? a : b;
+      // Equal channels: keep libmpv's default so we don't reorder needlessly.
+      if (a.isDefault == true && b.isDefault != true) return a;
+      return b.isDefault == true ? b : a;
+    });
+
+    // Nothing to do if the widest track is already what mpv picked by default.
+    if (best.id == _player.state.track.audio.id) return;
+
+    _player.setAudioTrack(best);
+    getIt<ErrorLogService>().info(
+      'Selected surround audio track ${best.id} '
+      '(${_channelCount(best)}ch, ${best.channels ?? best.language ?? '?'})',
+      source: 'PlayerScreen',
+    );
+  }
+
+  // libmpv exposes the channel count on either field depending on the container;
+  // take whichever is larger, defaulting to 0 (unknown) so it never wins a tie.
+  int _channelCount(AudioTrack t) {
+    final a = t.channelscount ?? 0;
+    final b = t.audiochannels ?? 0;
+    return a > b ? a : b;
   }
 
   void _markCompleted() {
