@@ -95,6 +95,35 @@ we don't automate login; if not installed / too old / not signed in, surface a
   machine before the parser); hard-gate vs. best-effort on play/acquire.
 - Full research + build plan: **`docs/VPN.md`**.
 
+### D. Acquisition governance — Jackett/Prowlarr sidecar (legal use)
+**Governance change to the acquisition boundary** (amends HANDOFF §8 and the CLAUDE.md
+invariant). The original rule put *any* Jackett/Prowlarr indexer resolver out of scope.
+That is narrowed: a **Jackett Torznab resolver, run as a bundled sidecar, is now in
+scope** for **personal, single-machine, legal / public-domain use**.
+- **Guardrail (unchanged in spirit):** the resolver is **content-agnostic** — it queries
+  whatever Torznab endpoint the sidecar exposes and ranks results; it **hardcodes no
+  indexers** and ships **no commercial-piracy trackers in code or default config**. The
+  choice of indexers lives in the user's **own Jackett instance**; the legal
+  responsibility for that choice sits with the user, not this repo. Targeting piracy
+  trackers for commercial content remains out of scope.
+- **Chosen tool: Jackett** (not Prowlarr) — lighter fit for a single consumer app
+  (Prowlarr's edge is pushing indexers to multiple *arr apps, which we don't have).
+- **Mechanics:** Jackett is **C# / .NET 9**, shipped as a **self-contained** build
+  (bundles the runtime — no .NET needed on the TV PC) and run as an **invisible localhost
+  child process** on `127.0.0.1:9117`, same model as qBittorrent-nox. Spawn the console
+  host (`JackettConsole.exe` on Windows / the bundled `jackett` launcher on Linux) with
+  `--DataFolder <app-support>/jackett --NoRestart --NoUpdates`; **no service/systemd/tray
+  installers** in sidecar mode.
+- **No account / no external key:** Jackett is fully local; the Torznab **API key is
+  auto-generated on first run** into `ServerConfig.json` under `--DataFolder`, and the app
+  reads it there.
+- **Milestone:** M4-family (needs the `TorrentDaemon` impl + play flow). Groundwork/tasks
+  captured now; resolver body built at M4.
+- **Open:** bundle-size cost (~50–100 MB/platform, self-contained .NET); ranking policy
+  (seeders/quality/size); whether the resolver coexists with or precedes the
+  Internet-Archive/Academic legal resolvers in the play flow.
+- Full research + packaging notes: **`docs/research/torrent-indexers.md`**.
+
 ## TV / kiosk UX
 - Must go **fullscreen**.
 - Input: a **remote that emits arrow keys** → D-pad / focus-traversal navigation

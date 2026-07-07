@@ -185,6 +185,8 @@ What this doc **does not** specify is a resolver that searches piracy trackers (
 
 Keeping this as a swappable interface is also just better architecture — the app doesn't care where a magnet comes from, and the legal/illegal decision lives in one small, replaceable place rather than being smeared through the play flow.
 
+> **Amendment (2026-07-07 — see DECISIONS §D):** a **Jackett/Prowlarr Torznab resolver run as a bundled sidecar is now in scope**, narrowly. It ships as *content-agnostic* infrastructure the user points at their **own legal / public-domain indexer configuration** (personal, single-machine). The resolver hardcodes no indexers and ships no commercial-piracy trackers in code or default config — the choice of indexers lives in the user's own Jackett instance, and the legal responsibility for that choice sits with the user, not this repo. Targeting piracy trackers for commercial content — in code or default config — remains out of scope, exactly as above. Mechanically: Jackett (.NET 9, self-contained) runs as an invisible localhost child process, same model as qBittorrent-nox. Packaging + runtime details in `docs/research/torrent-indexers.md`.
+
 ---
 
 ## 9. Open forks (decide before / during build)
