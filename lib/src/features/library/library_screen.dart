@@ -30,6 +30,7 @@ class LibraryScreen extends ConsumerWidget {
     final continueAsync = ref.watch(continueWatchingProvider);
     final itemsAsync = ref.watch(libraryItemsProvider);
     final trending = ref.watch(trendingTvProvider).asData?.value ?? const [];
+    final recommended = ref.watch(recommendedProvider).asData?.value ?? const [];
     final resumable = continueAsync.asData?.value ?? const [];
 
     return Scaffold(
@@ -40,8 +41,20 @@ class LibraryScreen extends ConsumerWidget {
               const SliverToBoxAdapter(child: _Header()),
               if (resumable.isNotEmpty)
                 SliverToBoxAdapter(child: _ContinueWatchingRail(entries: resumable)),
+              if (recommended.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: _DiscoverRail(
+                    label: 'Recommended For You',
+                    shows: recommended,
+                  ),
+                ),
               if (trending.isNotEmpty)
-                SliverToBoxAdapter(child: _WhatToWatchRail(shows: trending)),
+                SliverToBoxAdapter(
+                  child: _DiscoverRail(
+                    label: 'What to Watch Next',
+                    shows: trending,
+                  ),
+                ),
               ..._librarySlivers(context, itemsAsync,
                   autofocusFirst: resumable.isEmpty),
             ],
@@ -214,8 +227,9 @@ class _ContinueWatchingRail extends StatelessWidget {
   }
 }
 
-class _WhatToWatchRail extends StatelessWidget {
-  const _WhatToWatchRail({required this.shows});
+class _DiscoverRail extends StatelessWidget {
+  const _DiscoverRail({required this.label, required this.shows});
+  final String label;
   final List<TvShowSummary> shows;
 
   @override
@@ -224,7 +238,7 @@ class _WhatToWatchRail extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionLabel('What to Watch Next'),
+        _SectionLabel(label),
         SizedBox(
           height: 240,
           child: ListView.separated(

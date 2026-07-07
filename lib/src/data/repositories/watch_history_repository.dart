@@ -52,6 +52,10 @@ abstract class WatchHistoryRepository {
 
   /// Rows with progress, most-recently-watched first (Continue Watching feed).
   Stream<List<WatchHistoryData>> watchRecent();
+
+  /// Distinct TMDB ids of recently-watched, matched shows (newest first) — the
+  /// seed for the "Recommended For You" rail.
+  Future<List<int>> recentlyWatchedTmdbIds({int limit});
 }
 
 @LazySingleton(as: WatchHistoryRepository)
@@ -133,6 +137,34 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         );
       }).toList();
     });
+  }
+
+  @override
+  Future<List<int>> recentlyWatchedTmdbIds({int limit = 5}) async {
+    final query = _db.select(_db.watchHistory).join([
+      innerJoin(
+        _db.libraryItems,
+        _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
+      ),
+    ])
+      ..where(_db.libraryItems.tmdbId.isNotNull())
+      ..orderBy([
+        OrderingTerm(
+          expression: _db.watchHistory.lastWatchedAt,
+          mode: OrderingMode.desc,
+        ),
+      ]);
+
+    final ids = <int>[];
+    final seen = <int>{};
+    for (final row in await query.get()) {
+      final id = row.readTable(_db.libraryItems).tmdbId;
+      if (id != null && seen.add(id)) {
+        ids.add(id);
+        if (ids.length >= limit) break;
+      }
+    }
+    return ids;
   }
 
   @override

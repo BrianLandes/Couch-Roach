@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -274,10 +275,12 @@ class _EpisodeRow extends StatelessWidget {
                 aspectRatio: 16 / 9,
                 child: still == null
                     ? const ColoredBox(color: AppColors.glassFill)
-                    : Image.network(
-                        still,
+                    : CachedNetworkImage(
+                        imageUrl: still,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
+                        placeholder: (_, __) =>
+                            const ColoredBox(color: AppColors.glassFill),
+                        errorWidget: (_, __, ___) =>
                             const ColoredBox(color: AppColors.glassFill),
                       ),
               ),

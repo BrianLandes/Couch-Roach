@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../data/tmdb/tmdb_images.dart';
@@ -36,12 +37,11 @@ class PosterArt extends StatelessWidget {
     final url = TmdbImages.poster(posterPath);
     if (url == null) return fallback;
 
-    return Image.network(
-      url,
+    return CachedNetworkImage(
+      imageUrl: url,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => fallback,
-      loadingBuilder: (context, child, progress) =>
-          progress == null ? child : fallback,
+      placeholder: (_, __) => fallback,
+      errorWidget: (_, __, ___) => fallback,
     );
   }
 }
