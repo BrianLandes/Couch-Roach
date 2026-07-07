@@ -10,8 +10,36 @@ import '../db/database.dart';
 /// row, which outlives the file: a deleted video flags its library row `missing`
 /// but never removes it, so this history survives (see DECISIONS: watch records
 /// outlive the file).
+/// A resumable title for the Continue Watching rail: the library row plus its
+/// resume position and duration.
+class ContinueWatchingEntry {
+  const ContinueWatchingEntry({
+    required this.item,
+    required this.resumePositionSec,
+    this.durationSec,
+  });
+
+  final LibraryItem item;
+  final int resumePositionSec;
+  final int? durationSec;
+
+  Duration get resume => Duration(seconds: resumePositionSec);
+
+  /// Time left, or null when the duration isn't known.
+  Duration? get remaining {
+    final d = durationSec;
+    if (d == null) return null;
+    return Duration(seconds: (d - resumePositionSec).clamp(0, d));
+  }
+}
+
 abstract class WatchHistoryRepository {
   Future<WatchHistoryData?> forItem(int libraryItemId);
+
+  /// In-progress, still-present titles, most-recently-watched first — the
+  /// Continue Watching feed. Excludes completed items, items with no progress,
+  /// and files flagged missing.
+  Stream<List<ContinueWatchingEntry>> watchContinueWatching({int limit = 20});
 
   /// Insert or update the row for [libraryItemId]. When [completed] is true the
   /// resume position is cleared so the title restarts next time.
@@ -73,6 +101,38 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         ),
       );
     }
+  }
+
+  @override
+  Stream<List<ContinueWatchingEntry>> watchContinueWatching({int limit = 20}) {
+    final query = _db.select(_db.watchHistory).join([
+      innerJoin(
+        _db.libraryItems,
+        _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
+      ),
+    ])
+      ..where(_db.watchHistory.completed.equals(false) &
+          _db.watchHistory.resumePositionSec.isBiggerThanValue(0) &
+          _db.libraryItems.missing.equals(false))
+      ..orderBy([
+        OrderingTerm(
+          expression: _db.watchHistory.lastWatchedAt,
+          mode: OrderingMode.desc,
+        ),
+      ])
+      ..limit(limit);
+
+    return query.watch().map((rows) {
+      return rows.map((row) {
+        final wh = row.readTable(_db.watchHistory);
+        final item = row.readTable(_db.libraryItems);
+        return ContinueWatchingEntry(
+          item: item,
+          resumePositionSec: wh.resumePositionSec,
+          durationSec: wh.durationSec,
+        );
+      }).toList();
+    });
   }
 
   @override
