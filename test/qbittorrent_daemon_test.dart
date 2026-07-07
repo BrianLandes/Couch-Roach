@@ -1,5 +1,8 @@
+import 'package:couch_roach/src/core/logging/error_log_service.dart';
 import 'package:couch_roach/src/services/acquisition/qbittorrent_daemon.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 // Shape mirrors qBittorrent's GET /torrents/files entries (name, size, progress).
 Map<String, dynamic> file(String name, int size, {double progress = 0}) =>
@@ -36,6 +39,41 @@ void main() {
 
     test('treats a non-2xx status as failure', () {
       expect(addResponseIsFailure(403, 'Forbidden'), isTrue);
+    });
+  });
+
+  group('control commands', () {
+    // Capture the request the daemon sends, return 200.
+    late http.Request captured;
+    QbittorrentDaemon daemon() => QbittorrentDaemon(
+          MockClient((req) async {
+            captured = req;
+            return http.Response('', 200);
+          }),
+          ErrorLogService(),
+        );
+
+    test('remove posts to /torrents/delete with deleteFiles', () async {
+      await daemon().remove(hash: 'abc', deleteFiles: true);
+      expect(captured.url.path, '/api/v2/torrents/delete');
+      expect(captured.bodyFields, {'hashes': 'abc', 'deleteFiles': 'true'});
+    });
+
+    test('setPaused(true) stops, setPaused(false) starts', () async {
+      final d = daemon();
+      await d.setPaused(hash: 'h', paused: true);
+      expect(captured.url.path, '/api/v2/torrents/stop');
+      await d.setPaused(hash: 'h', paused: false);
+      expect(captured.url.path, '/api/v2/torrents/start');
+      expect(captured.bodyFields, {'hashes': 'h'});
+    });
+
+    test('a non-2xx control response throws', () async {
+      final d = QbittorrentDaemon(
+        MockClient((_) async => http.Response('no', 403)),
+        ErrorLogService(),
+      );
+      expect(() => d.remove(hash: 'h', deleteFiles: false), throwsA(anything));
     });
   });
 

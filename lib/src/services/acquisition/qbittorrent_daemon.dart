@@ -72,6 +72,31 @@ class QbittorrentDaemon implements TorrentDaemon {
   }
 
   @override
+  Future<void> remove({required String hash, required bool deleteFiles}) =>
+      _command('/torrents/delete',
+          {'hashes': hash, 'deleteFiles': '$deleteFiles'}, 'remove');
+
+  @override
+  Future<void> setPaused({required String hash, required bool paused}) =>
+      // qBittorrent 5.x renamed pause/resume → stop/start.
+      _command(paused ? '/torrents/stop' : '/torrents/start',
+          {'hashes': hash}, 'setPaused');
+
+  /// POST a control command; throw + log on a non-2xx so callers can surface it.
+  Future<void> _command(
+      String path, Map<String, String> body, String source) async {
+    try {
+      final res = await _http.post(Uri.parse('$_api$path'), body: body);
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw TorrentDaemonException('$path failed (${res.statusCode})');
+      }
+    } catch (e, st) {
+      _log.logError(e, stackTrace: st, source: 'QbittorrentDaemon.$source');
+      rethrow;
+    }
+  }
+
+  @override
   Future<bool> isAlive() async {
     try {
       final res = await _http

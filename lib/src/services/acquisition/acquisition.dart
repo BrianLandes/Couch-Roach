@@ -45,6 +45,13 @@ abstract class TorrentDaemon {
   /// Whether the daemon's Web API is reachable right now (a health ping) — drives
   /// the online/offline indicator. Never throws.
   Future<bool> isAlive();
+
+  /// Remove a torrent from the daemon. When [deleteFiles] is true its downloaded
+  /// data (incl. partial/stalled files) is deleted from disk too.
+  Future<void> remove({required String hash, required bool deleteFiles});
+
+  /// Pause ([paused] true) or resume ([paused] false) a torrent.
+  Future<void> setPaused({required String hash, required bool paused});
 }
 
 /// A live status line for one torrent in the daemon (from the qBittorrent

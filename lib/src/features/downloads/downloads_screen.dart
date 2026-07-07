@@ -7,6 +7,7 @@ import '../../widgets/app_back_button.dart';
 import '../../widgets/focusable_card.dart';
 import 'download_format.dart';
 import 'downloads_providers.dart';
+import 'manage_download.dart';
 
 /// Activity screen: everything the background torrent daemon is doing — one card
 /// per torrent with progress, speed, and estimated time left. Live-updating via
@@ -53,7 +54,8 @@ class DownloadsScreen extends ConsumerWidget {
                     'Downloads error — see the error log.',
                     color: AppColors.danger,
                   ),
-                  data: (torrents) => _list(torrents, alive: alive),
+                  data: (torrents) =>
+                      _list(context, ref, torrents, alive: alive),
                 ),
               ),
             ],
@@ -63,7 +65,8 @@ class DownloadsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _list(List<TorrentStatus> torrents, {required bool? alive}) {
+  Widget _list(BuildContext context, WidgetRef ref,
+      List<TorrentStatus> torrents, {required bool? alive}) {
     if (torrents.isEmpty) {
       // Distinguish "client isn't running" from "running but idle".
       return _EmptyState(offline: alive == false);
@@ -84,17 +87,25 @@ class DownloadsScreen extends ConsumerWidget {
       ),
       itemCount: sorted.length,
       separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
-      itemBuilder: (context, i) =>
-          _DownloadCard(torrent: sorted[i], autofocus: i == 0),
+      itemBuilder: (context, i) => _DownloadCard(
+        torrent: sorted[i],
+        autofocus: i == 0,
+        onManage: () => showManageDownload(context, ref, sorted[i]),
+      ),
     );
   }
 }
 
 class _DownloadCard extends StatelessWidget {
-  const _DownloadCard({required this.torrent, this.autofocus = false});
+  const _DownloadCard({
+    required this.torrent,
+    this.autofocus = false,
+    this.onManage,
+  });
 
   final TorrentStatus torrent;
   final bool autofocus;
+  final VoidCallback? onManage;
 
   @override
   Widget build(BuildContext context) {
@@ -105,6 +116,7 @@ class _DownloadCard extends StatelessWidget {
 
     return FocusableCard(
       autofocus: autofocus,
+      onPressed: onManage,
       child: GlassSurface(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(

@@ -1,5 +1,6 @@
 import 'package:couch_roach/src/features/downloads/downloads_providers.dart';
 import 'package:couch_roach/src/features/downloads/downloads_screen.dart';
+import 'package:couch_roach/src/features/downloads/manage_download.dart';
 import 'package:couch_roach/src/services/acquisition/acquisition.dart';
 import 'package:couch_roach/src/theme/theme.dart';
 import 'package:flutter/material.dart';
@@ -68,6 +69,25 @@ void main() {
     expect(find.textContaining('42%'), findsOneWidget);
     expect(find.textContaining('ETA 5m'), findsOneWidget); // 300s → 5m 0s
     expect(find.text('Nothing downloading'), findsNothing);
+  });
+
+  testWidgets('tapping a download opens the manage sheet', (tester) async {
+    await tester.pumpWidget(_app([_torrent(name: 'Popeye')]));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Popeye'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Manage download'), findsOneWidget);
+    expect(find.text('Remove & delete files from disk'), findsOneWidget);
+    expect(find.text('Stop'), findsOneWidget); // downloading → stoppable
+  });
+
+  test('isPausedState recognizes paused/stopped states', () {
+    expect(isPausedState('pausedDL'), isTrue);
+    expect(isPausedState('stoppedDL'), isTrue);
+    expect(isPausedState('downloading'), isFalse);
+    expect(isPausedState('stalledDL'), isFalse);
   });
 
   testWidgets('hides speed/ETA for a completed torrent', (tester) async {
