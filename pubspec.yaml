@@ -47,6 +47,9 @@ dependencies:
   # Navigation.
   go_router: ^14.6.0
 
+  # Desktop window control (fullscreen / kiosk launch).
+  window_manager: ^0.4.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

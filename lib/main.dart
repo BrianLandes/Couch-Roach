@@ -8,6 +8,7 @@ import 'package:media_kit/media_kit.dart';
 import 'src/app.dart';
 import 'src/core/logging/error_log_service.dart';
 import 'src/core/storage/storage_manager.dart';
+import 'src/core/window/window_service.dart';
 import 'src/features/library/library_service.dart';
 import 'src/injection.dart';
 
@@ -28,6 +29,9 @@ void main() {
       await log.init();
       FlutterError.onError = log.onFlutterError;
       PlatformDispatcher.instance.onError = log.onPlatformError;
+
+      // Launch the TV window fullscreen (F11 toggles).
+      await initFullscreenWindow();
 
       // Hydrate the configured storage roots so scanning/placement see every disk.
       await getIt<StorageManager>().load();

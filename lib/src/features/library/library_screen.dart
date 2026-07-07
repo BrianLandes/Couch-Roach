@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/window/window_service.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
@@ -153,6 +154,12 @@ class _Header extends StatelessWidget {
             onPressed: () => context.push(Routes.storageSettings),
             icon: const Icon(Icons.folder_rounded),
             label: const Text('Manage storage'),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          const IconButton(
+            onPressed: minimizeWindow,
+            icon: Icon(Icons.remove_rounded),
+            tooltip: 'Minimize to desktop',
           ),
         ],
       ),
