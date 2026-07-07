@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../core/logging/error_log_service.dart';
 import '../../injection.dart';
 import '../../theme/theme.dart';
-import '../../widgets/app_back_button.dart';
 
 /// Everything the player needs to open a title. Passed via go_router `extra`
 /// (file paths don't belong in a URL).
@@ -53,7 +53,17 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen> {
   late final Player _player = Player();
-  late final VideoController _controller = VideoController(_player);
+
+  // Hardware acceleration is disabled: with GPU rendering, some Windows setups
+  // decode fine but render a solid-color (e.g. blue) frame. CPU rendering is the
+  // reliable path. TODO(perf): expose this as a setting and re-try HW accel for
+  // high-res content once we can detect the failure.
+  late final VideoController _controller = VideoController(
+    _player,
+    configuration:
+        const VideoControllerConfiguration(enableHardwareAcceleration: false),
+  );
+
   final List<StreamSubscription<dynamic>> _subs = [];
   String? _error;
 
@@ -101,6 +111,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
+  void _back() {
+    if (context.canPop()) context.pop();
+  }
+
+  /// Controls theme with a back button in the top bar so it fades in/out with
+  /// the rest of the player UI.
+  MaterialDesktopVideoControlsThemeData _controlsTheme() {
+    return MaterialDesktopVideoControlsThemeData(
+      topButtonBar: [
+        IconButton(
+          onPressed: _back,
+          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+          tooltip: 'Back',
+        ),
+        if (widget.title != null)
+          Padding(
+            padding: const EdgeInsets.only(left: AppSpacing.sm),
+            child: Text(
+              widget.title!,
+              style: const TextStyle(color: Colors.white, fontSize: 18),
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -110,25 +146,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
           Positioned.fill(
             child: _error != null
                 ? _PlaybackError(title: widget.title, message: _error!)
-                : Video(controller: _controller),
-          ),
-          // Back control, always reachable (focus or pointer), over a scrim so
-          // it reads against any frame.
-          const SafeArea(
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Padding(
-                padding: EdgeInsets.all(AppSpacing.sm),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: AppColors.scrim,
-                    shape: BoxShape.circle,
+                : MaterialDesktopVideoControlsTheme(
+                    normal: _controlsTheme(),
+                    fullscreen: _controlsTheme(),
+                    child: Video(
+                      controller: _controller,
+                      controls: MaterialDesktopVideoControls,
+                    ),
                   ),
-                  child: AppBackButton(),
+          ),
+          // On the error screen there are no fading controls, so keep a back
+          // button reachable.
+          if (_error != null)
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: AppColors.scrim,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      onPressed: _back,
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      tooltip: 'Back',
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
