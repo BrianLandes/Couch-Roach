@@ -13,7 +13,6 @@ import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
-import '../../widgets/search_field.dart';
 import '../archive/archive_play.dart';
 import '../archive/archive_poster_card.dart';
 import '../archive/archive_providers.dart';
@@ -80,13 +79,11 @@ class LibraryScreen extends ConsumerWidget {
                       autofocusFirst: resumable.isEmpty),
                 ],
               ),
-              Positioned(
+              const Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
-                child: _Header(
-                  onSearch: (q) => context.push(Routes.search, extra: q),
-                ),
+                child: _Header(),
               ),
             ],
           ),
@@ -164,14 +161,12 @@ List<Widget> _librarySlivers(
   );
 }
 
-/// Height of the pinned landing header (title/actions row + search row). The
-/// scroll view reserves this much up top; the header floats over the rest.
-const double _kHeaderHeight = 164;
+/// Height of the pinned single-row landing header. The scroll view reserves
+/// this much up top; the header floats over the rest.
+const double _kHeaderHeight = 96;
 
 class _Header extends StatelessWidget {
-  const _Header({required this.onSearch});
-
-  final ValueChanged<String> onSearch;
+  const _Header();
 
   @override
   Widget build(BuildContext context) {
@@ -187,84 +182,82 @@ class _Header extends StatelessWidget {
           AppSpacing.screenPadding,
           AppSpacing.md,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Couch Roach',
-                    style: text.headlineMedium,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                // Scrolls horizontally (right-aligned) if too narrow to show
-                // every control, so the header never overflows.
-                Flexible(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    reverse: true,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ValueListenableBuilder<bool>(
-                          valueListenable: library.scanning,
-                          builder: (context, scanning, _) =>
-                              OutlinedButton.icon(
-                            onPressed: scanning
-                                ? null
-                                : () async {
-                                    await library.rescan();
-                                    await getIt<LibraryMatchService>()
-                                        .matchUnmatched();
-                                    // Kick the quota-aware subtitle queue in the
-                                    // background so it never hammers the daily
-                                    // quota on a big first scan.
-                                    if (const AppConfig().hasOpenSubtitlesKey) {
-                                      unawaited(getIt<SubtitleService>()
-                                          .processQueue());
-                                    }
-                                  },
-                            icon: scanning
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.refresh_rounded),
-                            label: Text(scanning ? 'Scanning…' : 'Rescan'),
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        OutlinedButton.icon(
-                          onPressed: () => context.push(Routes.downloads),
-                          icon: const Icon(Icons.download_rounded),
-                          label: const Text('Downloads'),
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        OutlinedButton.icon(
-                          onPressed: () => context.push(Routes.storageSettings),
-                          icon: const Icon(Icons.folder_rounded),
-                          label: const Text('Manage storage'),
-                        ),
-                        const SizedBox(width: AppSpacing.sm),
-                        const FullscreenToggleButton(),
-                        const IconButton(
-                          onPressed: minimizeWindow,
-                          icon: Icon(Icons.remove_rounded),
-                          tooltip: 'Minimize to desktop',
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            Expanded(
+              child: Text(
+                'Couch Roach',
+                style: text.headlineMedium,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            const SizedBox(height: AppSpacing.sm),
-            SearchField(onSubmitted: onSearch),
+            const SizedBox(width: AppSpacing.md),
+            // Scrolls horizontally (right-aligned) if too narrow to show every
+            // control, so the header never overflows.
+            Flexible(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                reverse: true,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => context.push(Routes.search),
+                      icon: const Icon(Icons.search_rounded),
+                      label: const Text('Search'),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: library.scanning,
+                      builder: (context, scanning, _) => OutlinedButton.icon(
+                        onPressed: scanning
+                            ? null
+                            : () async {
+                                await library.rescan();
+                                await getIt<LibraryMatchService>()
+                                    .matchUnmatched();
+                                // Kick the quota-aware subtitle queue in the
+                                // background so it never hammers the daily quota
+                                // on a big first scan.
+                                if (const AppConfig().hasOpenSubtitlesKey) {
+                                  unawaited(
+                                      getIt<SubtitleService>().processQueue());
+                                }
+                              },
+                        icon: scanning
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.refresh_rounded),
+                        label: Text(scanning ? 'Scanning…' : 'Rescan'),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    OutlinedButton.icon(
+                      onPressed: () => context.push(Routes.downloads),
+                      icon: const Icon(Icons.download_rounded),
+                      label: const Text('Downloads'),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    OutlinedButton.icon(
+                      onPressed: () => context.push(Routes.storageSettings),
+                      icon: const Icon(Icons.folder_rounded),
+                      label: const Text('Manage storage'),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    const FullscreenToggleButton(),
+                    const IconButton(
+                      onPressed: minimizeWindow,
+                      icon: Icon(Icons.remove_rounded),
+                      tooltip: 'Minimize to desktop',
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),

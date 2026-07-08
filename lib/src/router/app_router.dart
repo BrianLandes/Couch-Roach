@@ -26,7 +26,8 @@ abstract class Routes {
   /// Live activity for the background torrent daemon (progress + ETA).
   static const downloads = '/downloads';
 
-  /// Internet Archive search results. Pass the query string as the route `extra`.
+  /// Internet Archive search. Optionally pass a query string as the route
+  /// `extra` to pre-fill it; otherwise it opens ready for the user to type.
   static const search = '/search';
 
   /// Living component gallery for the design system (dev/reference).
@@ -67,7 +68,7 @@ final appRouter = GoRouter(
     GoRoute(
       path: Routes.search,
       builder: (context, state) =>
-          SearchResultsScreen(query: state.extra as String),
+          SearchResultsScreen(query: state.extra as String? ?? ''),
     ),
     GoRoute(
       path: Routes.styleShowcase,

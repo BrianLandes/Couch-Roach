@@ -47,6 +47,8 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                     Expanded(
                       child: SearchField(
                         initialText: _query,
+                        // Opened with no query → focus so the user can just type.
+                        autofocus: widget.query.isEmpty,
                         onSubmitted: (q) => setState(() => _query = q),
                       ),
                     ),
@@ -72,6 +74,12 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   }
 
   Widget _results(List<ArchiveItem> results) {
+    if (_query.trim().isEmpty) {
+      return const _Centered(
+        'Type a movie or show title to search the Internet Archive.',
+        color: AppColors.textSecondary,
+      );
+    }
     if (results.isEmpty) {
       return _Centered('No results on the Internet Archive for “$_query”.',
           color: AppColors.textSecondary);
