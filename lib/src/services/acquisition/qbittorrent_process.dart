@@ -233,23 +233,42 @@ class QbittorrentProcess {
   /// The fresh-install config (exposed for testing).
   static String defaultConfig() => enforceConfig(null);
 
-  /// Log every qBittorrent config file under the profile, so a timeout can be
-  /// diagnosed: if the daemon wrote a config somewhere other than where we
-  /// seeded, our WebUI keys never took effect.
+  /// On a readiness timeout, dump what the daemon itself is telling us: the
+  /// config files it wrote (to catch a path mismatch) and the tail of its own
+  /// log (which says *why* the Web UI didn't bind — bad port, blocking prompt,
+  /// etc.). Diagnostic only; never masks the original timeout.
   void _logDiscoveredConfigs(Directory profileDir) {
     try {
-      final found = profileDir
+      final files = profileDir
           .listSync(recursive: true, followLinks: false)
           .whereType<File>()
+          .toList();
+
+      final configs = files
           .where((f) {
-        final name = p.basename(f.path).toLowerCase();
-        return name.endsWith('.ini') || name.endsWith('.conf');
-      }).map((f) => f.path);
+            final n = p.basename(f.path).toLowerCase();
+            return n.endsWith('.ini') || n.endsWith('.conf');
+          })
+          .map((f) => f.path)
+          .toList();
       _log.warn(
         'qBittorrent WebUI never came up. Config files under the profile: '
-        '${found.isEmpty ? '(none found)' : found.join(', ')}',
+        '${configs.isEmpty ? '(none found)' : configs.join(', ')}',
         source: 'QbittorrentProcess',
       );
+
+      // qBittorrent writes <profile>/qBittorrent/data/logs/qbittorrent.log —
+      // its own log explains a WebUI that won't start.
+      for (final logFile in files.where(
+          (f) => p.basename(f.path).toLowerCase() == 'qbittorrent.log')) {
+        final lines = logFile.readAsLinesSync();
+        final tail = lines.length <= 40 ? lines : lines.sublist(lines.length - 40);
+        _log.warn(
+          'qBittorrent log (${logFile.path}), last ${tail.length} lines:\n'
+          '${tail.join('\n')}',
+          source: 'QbittorrentProcess',
+        );
+      }
     } catch (_) {
       // Diagnostic only — never let it mask the original timeout.
     }
