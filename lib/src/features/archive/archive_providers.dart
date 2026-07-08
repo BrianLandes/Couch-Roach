@@ -8,3 +8,10 @@ import '../../services/acquisition/archive_browse_service.dart';
 final archivePicksProvider = FutureProvider<List<ArchiveItem>>(
   (ref) => getIt<ArchiveBrowseService>().popularPicks(),
 );
+
+/// Full detail (description + files) for one IA item, keyed by identifier —
+/// drives the Archive detail/profile page.
+final archiveDetailProvider =
+    FutureProvider.family<ArchiveDetail?, String>(
+  (ref, identifier) => getIt<ArchiveBrowseService>().detail(identifier),
+);

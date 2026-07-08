@@ -13,7 +13,6 @@ import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
-import '../archive/archive_play.dart';
 import '../archive/archive_poster_card.dart';
 import '../archive/archive_providers.dart';
 import '../../services/acquisition/archive_browse_service.dart';
@@ -151,7 +150,8 @@ List<Widget> _librarySlivers(
               return LibraryTile(
                 item: item,
                 autofocus: autofocusFirst && i == 0,
-                onPressed: () => _openPlayer(context, item),
+                onPressed: () =>
+                    context.push(Routes.libraryDetail, extra: item),
               );
             },
           ),
@@ -332,7 +332,8 @@ class _ArchiveRail extends StatelessWidget {
               final item = items[i];
               return ArchivePosterCard(
                 item: item,
-                onPressed: () => playArchiveItem(context, item),
+                onPressed: () =>
+                    context.push(Routes.archiveDetail, extra: item),
               );
             },
           ),

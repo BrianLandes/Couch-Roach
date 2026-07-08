@@ -185,10 +185,10 @@ void main() {
 
   group('downloadFully', () {
     test('true for small files, false for large or unknown', () {
-      expect(QbittorrentTask.downloadFully(150 * 1024 * 1024), isTrue);
-      expect(QbittorrentTask.downloadFully(QbittorrentTask.smallFileThresholdBytes),
-          isTrue);
-      expect(QbittorrentTask.downloadFully(2 * 1024 * 1024 * 1024), isFalse);
+      const threshold = QbittorrentTask.smallFileThresholdBytes;
+      expect(QbittorrentTask.downloadFully(1), isTrue); // tiny
+      expect(QbittorrentTask.downloadFully(threshold), isTrue); // boundary
+      expect(QbittorrentTask.downloadFully(threshold + 1), isFalse);
       expect(QbittorrentTask.downloadFully(0), isFalse); // unknown size
     });
   });
