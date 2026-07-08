@@ -50,11 +50,18 @@ class QbittorrentDaemon implements TorrentDaemon {
     final tag = dedupeKey != null
         ? 'cr-src-${dedupeKey.replaceAll(',', '_')}'
         : 'couchroach-${DateTime.now().microsecondsSinceEpoch}';
+    final label = handle.displayName ?? handle.magnetOrUrl;
+    _log.info('add "$label" (tag=$tag, savePath=$savePath)',
+        source: 'QbittorrentDaemon.add');
 
     // Reattach to an already-added torrent instead of adding a duplicate.
     if (dedupeKey != null) {
       final existing = await _taskForTag(tag);
-      if (existing != null) return existing;
+      if (existing != null) {
+        _log.info('reattached to already-added torrent hash=${existing.hash}',
+            source: 'QbittorrentDaemon.add');
+        return existing;
+      }
     }
 
     final body = {
@@ -74,8 +81,13 @@ class QbittorrentDaemon implements TorrentDaemon {
     for (var attempt = 0;
         attempt < addResolveWindows.length && hash == null;
         attempt++) {
+      final window = addResolveWindows[attempt];
+      _log.info(
+          'add attempt ${attempt + 1}/${addResolveWindows.length}: POSTing, '
+          'waiting up to ${window.inSeconds}s for the torrent to appear',
+          source: 'QbittorrentDaemon.add');
       await _postAdd(body, handle);
-      hash = await _tryResolveHashByTag(tag, addResolveWindows[attempt]);
+      hash = await _tryResolveHashByTag(tag, window);
     }
     if (hash == null) {
       final e = TorrentDaemonException(
@@ -83,6 +95,7 @@ class QbittorrentDaemon implements TorrentDaemon {
       _log.logError(e, source: 'QbittorrentDaemon.add');
       throw e;
     }
+    _log.info('torrent appeared: hash=$hash', source: 'QbittorrentDaemon.add');
     return QbittorrentTask(this, hash: hash, savePath: savePath);
   }
 
@@ -287,6 +300,10 @@ class QbittorrentTask implements TorrentTask {
   final String hash;
   final String savePath;
 
+  // Step logging goes to the same sink the daemon uses (same library, so the
+  // private field is reachable).
+  ErrorLogService get _log => _daemon._log;
+
   /// Head buffer downloaded before we start playing (~seconds of video).
   static const int _headBufferBytes = 16 * 1024 * 1024;
 
@@ -321,12 +338,22 @@ class QbittorrentTask implements TorrentTask {
           lastPiece: range?.$2,
         );
         _primary = primary;
+        _log.info(
+            'primary file "${primary.name}" ${_fmtMb(primary.sizeBytes)} '
+            'idx=${primary.index} pieces='
+            '${primary.firstPiece == null ? "n/a" : "[${primary.firstPiece}..${primary.lastPiece}]"} '
+            '(of ${files.length} files in the torrent)',
+            source: 'QbittorrentTask.resolvePrimary');
         await _focusDownloadOn(primary.index, files);
+        _log.info('focused download on the primary file (other files skipped)',
+            source: 'QbittorrentTask.resolvePrimary');
         return primary;
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    throw TorrentDaemonException('no files resolved for torrent $hash');
+    final e = TorrentDaemonException('no files resolved for torrent $hash');
+    _log.logError(e, source: 'QbittorrentTask.resolvePrimary');
+    throw e;
   }
 
   /// Download only the primary file: every other file → priority 0, the primary
@@ -363,6 +390,10 @@ class QbittorrentTask implements TorrentTask {
     // then blocks on) isn't worth it when the file finishes quickly. Switch to a
     // parallel download so qBittorrent pulls it as fast as the seed allows.
     if (downloadFully(primary.sizeBytes)) {
+      _log.info(
+          'readyToStream: small file (${_fmtMb(primary.sizeBytes)}) — '
+          'downloading fully before play',
+          source: 'QbittorrentTask.readyToStream');
       await _daemon.setSequentialDownload(hash, false);
       await _daemon.setFirstLastPiecePrio(hash, false);
       return _awaitFileProgress(deadline, 0.999);
@@ -371,11 +402,19 @@ class QbittorrentTask implements TorrentTask {
     // Large files: stream. Enforce sequential + first/last-piece explicitly here
     // rather than trusting the add-time flags to have taken effect, so the mode
     // is deterministic regardless of daemon version.
+    _log.info(
+        'readyToStream: large file (${_fmtMb(primary.sizeBytes)}) — streaming '
+        '(sequential + first/last piece)',
+        source: 'QbittorrentTask.readyToStream');
     await _daemon.setSequentialDownload(hash, true);
     await _daemon.setFirstLastPiecePrio(hash, true);
 
     // Fall back to near-complete when the daemon doesn't expose piece ranges.
     if (primary.firstPiece == null || primary.lastPiece == null) {
+      _log.info(
+          'readyToStream: daemon reported no piece_range — waiting for '
+          'near-complete instead',
+          source: 'QbittorrentTask.readyToStream');
       return _awaitFileProgress(deadline, 0.99);
     }
 
@@ -384,26 +423,53 @@ class QbittorrentTask implements TorrentTask {
     final first = primary.firstPiece!;
     final last = primary.lastPiece!;
     final headPieces = headPieceCount(pieceSize, last - first + 1);
+    _log.info(
+        'streaming: piece_size=${(pieceSize / 1024).toStringAsFixed(0)}KB, '
+        'need head=$headPieces pieces + last (file spans pieces $first..$last)',
+        source: 'QbittorrentTask.readyToStream');
 
+    var lastLog = DateTime.now();
     while (DateTime.now().isBefore(deadline)) {
-      if (headAndTailReady(
-          await _daemon.pieceStates(hash), first, last, headPieces)) {
+      final states = await _daemon.pieceStates(hash);
+      if (headAndTailReady(states, first, last, headPieces)) {
+        _log.info('readyToStream: head + tail present — starting playback',
+            source: 'QbittorrentTask.readyToStream');
         return;
+      }
+      final now = DateTime.now();
+      if (now.difference(lastLog).inSeconds >= 4) {
+        lastLog = now;
+        _log.info(_bufferStatus(states, first, last, headPieces, primary.name),
+            source: 'QbittorrentTask.readyToStream');
       }
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
-    throw TorrentDaemonException(
+    final e = TorrentDaemonException(
         'torrent $hash did not buffer enough to stream in time');
+    _log.logError(e, source: 'QbittorrentTask.readyToStream');
+    throw e;
   }
 
   Future<void> _awaitFileProgress(DateTime deadline, double target) async {
+    var lastLog = DateTime.now();
     while (DateTime.now().isBefore(deadline)) {
       final chosen = pickPrimaryFile(await _daemon.torrentFiles(hash));
-      if (((chosen?['progress'] as num?)?.toDouble() ?? 0) >= target) return;
+      final progress = (chosen?['progress'] as num?)?.toDouble() ?? 0;
+      if (progress >= target) return;
+      final now = DateTime.now();
+      if (now.difference(lastLog).inSeconds >= 4) {
+        lastLog = now;
+        _log.info(
+            'downloading: ${(progress * 100).toStringAsFixed(1)}% '
+            '(target ${(target * 100).toStringAsFixed(1)}%)',
+            source: 'QbittorrentTask.readyToStream');
+      }
       await Future<void>.delayed(const Duration(seconds: 1));
     }
-    throw TorrentDaemonException(
+    final e = TorrentDaemonException(
         'torrent $hash did not download enough to play in time');
+    _log.logError(e, source: 'QbittorrentTask.readyToStream');
+    throw e;
   }
 
   @override
@@ -442,6 +508,29 @@ class _PrimaryFile {
   final String name;
   final int? firstPiece;
   final int? lastPiece;
+}
+
+String _fmtMb(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(0)}MB';
+
+/// One-line buffering status for the log: how much of the primary file's pieces
+/// are downloaded, and whether the head buffer and tail piece are present — so a
+/// stall reads as e.g. "99.8% … head 8/8, tail pending".
+String _bufferStatus(
+    List<int> states, int first, int last, int headPieces, String name) {
+  final total = last - first + 1;
+  var done = 0;
+  var headDone = 0;
+  for (var i = first; i <= last && i >= 0 && i < states.length; i++) {
+    if (states[i] == 2) {
+      done++;
+      if (i < first + headPieces) headDone++;
+    }
+  }
+  final tail =
+      (last >= 0 && last < states.length && states[last] == 2) ? 'ready' : 'pending';
+  final pct = total > 0 ? (done / total * 100).toStringAsFixed(1) : '0.0';
+  return 'buffering "$name": $pct% of file ($done/$total pieces) — '
+      'head $headDone/$headPieces, tail $tail';
 }
 
 /// A qBittorrent `piece_range` (`[first, last]`) → a record, or null if absent
