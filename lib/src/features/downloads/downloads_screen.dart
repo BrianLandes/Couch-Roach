@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/platform/open_url.dart';
 import '../../services/acquisition/acquisition.dart';
+import '../../services/acquisition/qbittorrent_process.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/focusable_card.dart';
@@ -43,11 +45,7 @@ class DownloadsScreen extends ConsumerWidget {
                     const SizedBox(width: AppSpacing.sm),
                     Text('Downloads', style: text.headlineMedium),
                     const Spacer(),
-                    StatusPill.health(
-                      alive: alive,
-                      onlineLabel: 'Client online',
-                      offlineLabel: 'Client offline',
-                    ),
+                    _daemonPill(context, alive),
                   ],
                 ),
               ),
@@ -65,6 +63,36 @@ class DownloadsScreen extends ConsumerWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// The online/offline pill. When the client is online it's a click target that
+  /// opens qBittorrent's own web UI (its localhost dashboard) — a convenience on
+  /// Linux where the daemon is headless and has no other window.
+  Widget _daemonPill(BuildContext context, bool? alive) {
+    final pill = StatusPill.health(
+      alive: alive,
+      onlineLabel: 'Client online',
+      offlineLabel: 'Client offline',
+    );
+    if (alive != true) return pill;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () async {
+          final messenger = ScaffoldMessenger.of(context);
+          if (!await openUrl(QbittorrentProcess.baseUrl)) {
+            messenger.showSnackBar(const SnackBar(
+              content: Text('Could not open the qBittorrent web UI — '
+                  'see the error log.'),
+            ));
+          }
+        },
+        child: Tooltip(
+          message: 'Open the qBittorrent web UI',
+          child: pill,
         ),
       ),
     );
