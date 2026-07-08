@@ -30,16 +30,21 @@ class ExpressVpnController implements VpnController {
     r'C:\Program Files (x86)\ExpressVPN',
     r'C:\Program Files\ExpressVPN',
   ];
+  static const _linuxCliCandidates = [
+    '/usr/bin/expressvpn',
+    '/usr/local/bin/expressvpn',
+  ];
 
-  /// The CLI path, or null if not found. Linux resolves the bare name off PATH.
+  /// The CLI path, or null if it isn't installed. Probing an absolute path
+  /// (rather than a bare name) means a machine without ExpressVPN reports
+  /// `notInstalled` cleanly instead of throwing a ProcessException every poll.
   String? resolveCliPath() {
-    if (Platform.isWindows) {
-      for (final c in _windowsCliCandidates) {
-        if (File(c).existsSync()) return c;
-      }
-      return null;
+    final candidates = Platform.isWindows
+        ? _windowsCliCandidates
+        : (Platform.isLinux ? _linuxCliCandidates : const <String>[]);
+    for (final c in candidates) {
+      if (File(c).existsSync()) return c;
     }
-    if (Platform.isLinux) return 'expressvpn';
     return null;
   }
 
@@ -58,6 +63,10 @@ class ExpressVpnController implements VpnController {
     try {
       final res = await Process.run(path, ['status']);
       return parseVpnStatus('${res.stdout}\n${res.stderr}');
+    } on ProcessException {
+      // Binary went missing / can't launch — an expected "not installed" state,
+      // not an error to log on every poll.
+      return VpnState.notInstalled;
     } catch (e, st) {
       _log.logError(e, stackTrace: st, source: 'VpnController.status');
       return VpnState.error;
