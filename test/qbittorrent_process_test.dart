@@ -32,4 +32,52 @@ void main() {
       'http://127.0.0.1:${QbittorrentProcess.webUiPort}',
     );
   });
+
+  group('enforceConfig', () {
+    test('re-enables WebUI when an existing config turned it off', () {
+      const stale = '[Preferences]\n'
+          'WebUI\\Enabled=false\n'
+          'WebUI\\Port=8080\n';
+      final merged = QbittorrentProcess.enforceConfig(stale);
+      expect(merged, contains('WebUI\\Enabled=true'));
+      expect(merged, contains('WebUI\\Port=${QbittorrentProcess.webUiPort}'));
+      expect(merged, isNot(contains('WebUI\\Enabled=false')));
+      expect(merged, isNot(contains('WebUI\\Port=8080')));
+    });
+
+    test('preserves unrelated sections and keys', () {
+      const existing = '[Preferences]\n'
+          'WebUI\\Enabled=false\n'
+          'Downloads\\SavePath=D:/Media\n'
+          '\n'
+          '[BitTorrent]\n'
+          'Session\\Port=54321\n';
+      final merged = QbittorrentProcess.enforceConfig(existing);
+      expect(merged, contains('Downloads\\SavePath=D:/Media'));
+      expect(merged, contains('[BitTorrent]'));
+      expect(merged, contains('Session\\Port=54321'));
+      expect(merged, contains('WebUI\\Enabled=true')); // still enforced
+    });
+
+    test('handles values containing = signs', () {
+      const existing = '[Preferences]\n'
+          'General\\SomeToken=a=b=c\n';
+      final merged = QbittorrentProcess.enforceConfig(existing);
+      expect(merged, contains('General\\SomeToken=a=b=c'));
+    });
+
+    test('a null (fresh) config comes out fully seeded', () {
+      final merged = QbittorrentProcess.enforceConfig(null);
+      expect(merged, contains('[LegalNotice]'));
+      expect(merged, contains('Accepted=true'));
+      expect(merged, contains('WebUI\\Enabled=true'));
+      expect(merged, contains('WebUI\\LocalHostAuth=false'));
+    });
+
+    test('is idempotent — enforcing twice changes nothing further', () {
+      final once = QbittorrentProcess.enforceConfig(null);
+      final twice = QbittorrentProcess.enforceConfig(once);
+      expect(twice, once);
+    });
+  });
 }
