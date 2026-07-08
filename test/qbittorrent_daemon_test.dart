@@ -142,6 +142,60 @@ void main() {
     });
   });
 
+  group('torrent url fetch (fetch-and-upload)', () {
+    const iaUrl = 'https://archive.org/download/x/x_archive.torrent';
+
+    test('fetches http(s) .torrent bytes and uploads them as multipart',
+        () async {
+      var added = false;
+      var wasMultipart = false;
+      final client = MockClient((req) async {
+        if (req.method == 'GET' && req.url.host == 'archive.org') {
+          return http.Response.bytes([0x64, 0x65], 200); // 'de' — minimal bencode
+        }
+        if (req.method == 'POST') {
+          added = true;
+          wasMultipart =
+              (req.headers['content-type'] ?? '').contains('multipart/form-data');
+          return http.Response('Ok.', 200);
+        }
+        // info?tag: empty before the add (dedupe misses), the torrent after.
+        return http.Response(
+            added ? jsonEncode([{'hash': 'IA', 'save_path': '/x'}]) : '[]', 200);
+      });
+      final task = await QbittorrentDaemon(client, ErrorLogService()).add(
+        const TorrentHandle(magnetOrUrl: iaUrl),
+        savePath: '/x',
+        dedupeKey: 'x',
+      ) as QbittorrentTask;
+
+      expect(wasMultipart, isTrue, reason: 'uploaded bytes, not a urls= add');
+      expect(task.hash, 'IA');
+    });
+
+    test('throws with the status when the .torrent fetch is not 200', () async {
+      final client = MockClient((req) async => req.method == 'GET'
+          ? http.Response('Not found', 404)
+          : http.Response('Ok.', 200));
+      expect(
+        () => QbittorrentDaemon(client, ErrorLogService())
+            .add(const TorrentHandle(magnetOrUrl: iaUrl), savePath: '/x'),
+        throwsA(isA<TorrentDaemonException>()),
+      );
+    });
+
+    test('rejects a 200 that is not a .torrent (HTML error page)', () async {
+      final client = MockClient((req) async => req.method == 'GET'
+          ? http.Response('<html>nope</html>', 200)
+          : http.Response('Ok.', 200));
+      expect(
+        () => QbittorrentDaemon(client, ErrorLogService())
+            .add(const TorrentHandle(magnetOrUrl: iaUrl), savePath: '/x'),
+        throwsA(isA<TorrentDaemonException>()),
+      );
+    });
+  });
+
   group('control commands', () {
     // Capture the request the daemon sends, return 200.
     late http.Request captured;
