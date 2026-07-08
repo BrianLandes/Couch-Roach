@@ -33,8 +33,30 @@ class ContinueWatchingEntry {
   }
 }
 
+/// The furthest-watched episode of a matched TV show — the seed for the "New
+/// Episodes For You" rail (compare against what's since aired on TMDB).
+class WatchedShow {
+  const WatchedShow({
+    required this.tmdbId,
+    required this.name,
+    required this.season,
+    required this.episode,
+    this.posterPath,
+  });
+
+  final int tmdbId;
+  final String name;
+  final int season;
+  final int episode;
+  final String? posterPath;
+}
+
 abstract class WatchHistoryRepository {
   Future<WatchHistoryData?> forItem(int libraryItemId);
+
+  /// The furthest-watched episode of each matched TV show in watch history,
+  /// most-recently-watched show first — seeds the "New Episodes" check.
+  Future<List<WatchedShow>> latestWatchedEpisodePerShow();
 
   /// In-progress, still-present titles, most-recently-watched first — the
   /// Continue Watching feed. Excludes completed items, items with no progress,
@@ -141,6 +163,48 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         );
       }).toList();
     });
+  }
+
+  @override
+  Future<List<WatchedShow>> latestWatchedEpisodePerShow() async {
+    final query = _db.select(_db.watchHistory).join([
+      innerJoin(
+        _db.libraryItems,
+        _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
+      ),
+    ])
+      ..where(_db.libraryItems.mediaType.equals('tv') &
+          _db.libraryItems.tmdbId.isNotNull() &
+          _db.libraryItems.season.isNotNull() &
+          _db.libraryItems.episode.isNotNull())
+      ..orderBy([
+        OrderingTerm(
+          expression: _db.watchHistory.lastWatchedAt,
+          mode: OrderingMode.desc,
+        ),
+      ]);
+
+    // Keep the furthest-watched episode per show; insertion order (newest watch
+    // first, from the query) is preserved for the rail.
+    int rank(int s, int e) => s * 1000 + e;
+    final byShow = <int, WatchedShow>{};
+    for (final row in await query.get()) {
+      final item = row.readTable(_db.libraryItems);
+      final id = item.tmdbId!;
+      final s = item.season!;
+      final e = item.episode!;
+      final existing = byShow[id];
+      if (existing == null || rank(existing.season, existing.episode) < rank(s, e)) {
+        byShow[id] = WatchedShow(
+          tmdbId: id,
+          name: item.tmdbName ?? item.title,
+          season: s,
+          episode: e,
+          posterPath: item.tmdbPosterPath,
+        );
+      }
+    }
+    return byShow.values.toList();
   }
 
   @override

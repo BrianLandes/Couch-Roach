@@ -46,6 +46,8 @@ class LibraryScreen extends ConsumerWidget {
     final documentaries =
         ref.watch(documentaryMoviesProvider).asData?.value ?? const [];
     final archivePicks = ref.watch(archivePicksProvider).asData?.value ?? const [];
+    final newEpisodes =
+        ref.watch(newEpisodesProvider).asData?.value ?? const [];
     final resumable = continueAsync.asData?.value ?? const [];
 
     return Scaffold(
@@ -63,6 +65,13 @@ class LibraryScreen extends ConsumerWidget {
                   if (resumable.isNotEmpty)
                     SliverToBoxAdapter(
                         child: _ContinueWatchingRail(entries: resumable)),
+                  if (newEpisodes.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DiscoverRail(
+                        label: 'New Episodes For You',
+                        tiles: newEpisodes,
+                      ),
+                    ),
                   if (recommended.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _DiscoverRail(

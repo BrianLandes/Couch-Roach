@@ -10,6 +10,7 @@ import '../../data/tmdb/tv_show_summary.dart';
 import '../../injection.dart';
 import '../../services/discovery/tmdb_client.dart';
 import 'discover_tile.dart';
+import 'new_episodes.dart';
 
 /// Trending TV this week — the "What to Watch Next" rail.
 final trendingTvProvider = FutureProvider<List<TvShowSummary>>(
@@ -120,6 +121,60 @@ final recommendedProvider = FutureProvider<List<TvShowSummary>>((ref) async {
   }
   return out;
 });
+
+/// "New Episodes For You" — shows in your watch history that have episodes which
+/// have aired since the last one you watched. Cheap first pass off tvDetails (a
+/// newer season that's already airing); only fetches the current season's
+/// episodes when that misses. Empty until you've watched matched episodes.
+final newEpisodesProvider = FutureProvider<List<DiscoverTile>>((ref) async {
+  final watched =
+      await getIt<WatchHistoryRepository>().latestWatchedEpisodePerShow();
+  if (watched.isEmpty) return const [];
+
+  final tmdb = getIt<DiscoveryClient>();
+  final now = DateTime.now();
+
+  final results = await Future.wait(watched.take(12).map((show) async {
+    final details = await tmdb.tvDetails(show.tmdbId);
+    final seasons = (details?.seasons ?? const [])
+        .where((s) => s.seasonNumber >= 1)
+        .map((s) => SeasonAir(
+              season: s.seasonNumber,
+              airDate:
+                  s.airDate == null ? null : DateTime.tryParse(s.airDate!),
+            ))
+        .toList();
+
+    // A whole newer season has started airing → new episodes to catch up on.
+    if (hasNewerAiredSeason(
+        watchedSeason: show.season, seasons: seasons, now: now)) {
+      return _newEpisodeTile(show);
+    }
+
+    // Else: has a later episode within the current season aired?
+    final season = await tmdb.seasonDetails(show.tmdbId, show.season);
+    final eps = (season?.episodes ?? const [])
+        .map((e) => EpisodeAir(
+              episode: e.episodeNumber,
+              airDate:
+                  e.airDate == null ? null : DateTime.tryParse(e.airDate!),
+            ))
+        .toList();
+    return hasLaterAiredEpisode(
+            watchedEpisode: show.episode, episodes: eps, now: now)
+        ? _newEpisodeTile(show)
+        : null;
+  }));
+
+  return results.whereType<DiscoverTile>().toList();
+});
+
+DiscoverTile _newEpisodeTile(WatchedShow show) => DiscoverTile(
+      tmdbId: show.tmdbId,
+      title: show.name,
+      mediaType: 'tv',
+      posterPath: show.posterPath,
+    );
 
 /// Full details for a show (`tv/{id}`).
 final tvDetailsProvider = FutureProvider.family<TvShowDetails?, int>(
