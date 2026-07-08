@@ -101,7 +101,11 @@ class _ArchivePreparingDialogState extends State<_ArchivePreparingDialog> {
     } catch (e, st) {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'ArchivePlay.prepare');
-      _fail("Couldn't start this download — see the error log.");
+      // Show a plain-language reason when we have one; the technical detail is
+      // in the log above.
+      _fail(e is TorrentDaemonException
+          ? e.userMessage
+          : 'Something went wrong starting this video. Please try again.');
     }
   }
 

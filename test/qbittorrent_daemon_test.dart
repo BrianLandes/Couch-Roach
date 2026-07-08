@@ -173,25 +173,40 @@ void main() {
       expect(task.hash, 'IA');
     });
 
-    test('throws with the status when the .torrent fetch is not 200', () async {
+    test('a 404 fetch throws sourceNotFound with a friendly message', () async {
       final client = MockClient((req) async => req.method == 'GET'
           ? http.Response('Not found', 404)
           : http.Response('Ok.', 200));
-      expect(
+      await expectLater(
         () => QbittorrentDaemon(client, ErrorLogService())
             .add(const TorrentHandle(magnetOrUrl: iaUrl), savePath: '/x'),
-        throwsA(isA<TorrentDaemonException>()),
+        throwsA(isA<TorrentDaemonException>()
+            .having((e) => e.kind, 'kind', TorrentErrorKind.sourceNotFound)
+            .having((e) => e.userMessage, 'userMessage', isNotEmpty)),
       );
     });
 
-    test('rejects a 200 that is not a .torrent (HTML error page)', () async {
+    test('a 200 that is not a .torrent throws badTorrent', () async {
       final client = MockClient((req) async => req.method == 'GET'
           ? http.Response('<html>nope</html>', 200)
           : http.Response('Ok.', 200));
-      expect(
+      await expectLater(
         () => QbittorrentDaemon(client, ErrorLogService())
             .add(const TorrentHandle(magnetOrUrl: iaUrl), savePath: '/x'),
-        throwsA(isA<TorrentDaemonException>()),
+        throwsA(isA<TorrentDaemonException>()
+            .having((e) => e.kind, 'kind', TorrentErrorKind.badTorrent)),
+      );
+    });
+
+    test('a 503 fetch maps to sourceUnavailable', () async {
+      final client = MockClient((req) async => req.method == 'GET'
+          ? http.Response('busy', 503)
+          : http.Response('Ok.', 200));
+      await expectLater(
+        () => QbittorrentDaemon(client, ErrorLogService())
+            .add(const TorrentHandle(magnetOrUrl: iaUrl), savePath: '/x'),
+        throwsA(isA<TorrentDaemonException>()
+            .having((e) => e.kind, 'kind', TorrentErrorKind.sourceUnavailable)),
       );
     });
   });

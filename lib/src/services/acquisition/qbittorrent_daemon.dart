@@ -93,7 +93,8 @@ class QbittorrentDaemon implements TorrentDaemon {
     }
     if (hash == null) {
       final e = TorrentDaemonException(
-          'torrent for tag "$tag" never appeared in qBittorrent');
+          'torrent for tag "$tag" never appeared in qBittorrent',
+          kind: TorrentErrorKind.notInClient);
       _log.logError(e, source: 'QbittorrentDaemon.add');
       throw e;
     }
@@ -118,11 +119,16 @@ class QbittorrentDaemon implements TorrentDaemon {
       res = await _http.get(uri); // package:http follows redirects
     } catch (e, st) {
       _log.logError(e, stackTrace: st, source: 'QbittorrentDaemon.fetchTorrent');
-      throw TorrentDaemonException('could not fetch .torrent from $uri: $e');
+      throw TorrentDaemonException('could not fetch .torrent from $uri: $e',
+          kind: TorrentErrorKind.network);
     }
     if (res.statusCode != 200) {
       final e = TorrentDaemonException(
-          'fetching .torrent from $uri returned HTTP ${res.statusCode}');
+          'fetching .torrent from $uri returned HTTP ${res.statusCode}',
+          kind: res.statusCode == 404
+              ? TorrentErrorKind.sourceNotFound
+              : TorrentErrorKind.sourceUnavailable,
+          statusCode: res.statusCode);
       _log.logError(e, source: 'QbittorrentDaemon.fetchTorrent');
       throw e;
     }
@@ -131,7 +137,8 @@ class QbittorrentDaemon implements TorrentDaemon {
     final bytes = res.bodyBytes;
     if (bytes.isEmpty || bytes.first != 0x64) {
       final e = TorrentDaemonException(
-          'data from $uri is not a .torrent (${bytes.length} bytes)');
+          'data from $uri is not a .torrent (${bytes.length} bytes)',
+          kind: TorrentErrorKind.badTorrent);
       _log.logError(e, source: 'QbittorrentDaemon.fetchTorrent');
       throw e;
     }
@@ -172,6 +179,7 @@ class QbittorrentDaemon implements TorrentDaemon {
         throw TorrentDaemonException(
           'add failed (${res.statusCode}: ${res.body.trim()}) for '
           '${handle.displayName ?? handle.magnetOrUrl}',
+          kind: TorrentErrorKind.addFailed,
         );
       }
     } catch (e, st) {
@@ -417,7 +425,8 @@ class QbittorrentTask implements TorrentTask {
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    final e = TorrentDaemonException('no files resolved for torrent $hash');
+    final e = TorrentDaemonException('no files resolved for torrent $hash',
+        kind: TorrentErrorKind.noVideo);
     _log.logError(e, source: 'QbittorrentTask.resolvePrimary');
     throw e;
   }
@@ -511,7 +520,8 @@ class QbittorrentTask implements TorrentTask {
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
     final e = TorrentDaemonException(
-        'torrent $hash did not buffer enough to stream in time');
+        'torrent $hash did not buffer enough to stream in time',
+        kind: TorrentErrorKind.timeout);
     _log.logError(e, source: 'QbittorrentTask.readyToStream');
     throw e;
   }
@@ -533,7 +543,8 @@ class QbittorrentTask implements TorrentTask {
       await Future<void>.delayed(const Duration(seconds: 1));
     }
     final e = TorrentDaemonException(
-        'torrent $hash did not download enough to play in time');
+        'torrent $hash did not download enough to play in time',
+        kind: TorrentErrorKind.timeout);
     _log.logError(e, source: 'QbittorrentTask.readyToStream');
     throw e;
   }
@@ -690,11 +701,3 @@ TorrentStatus parseTorrentStatus(Map<String, dynamic> json) {
   );
 }
 
-/// Raised when a qBittorrent Web API operation fails. Surfaced to the caller so
-/// the play flow can degrade with a user-facing error.
-class TorrentDaemonException implements Exception {
-  TorrentDaemonException(this.message);
-  final String message;
-  @override
-  String toString() => 'TorrentDaemonException: $message';
-}
