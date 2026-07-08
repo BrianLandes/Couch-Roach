@@ -36,7 +36,13 @@ class JackettResolver implements AcquisitionResolver {
   @override
   Future<TorrentHandle?> resolve(ShowMeta meta, int? season, int? episode) async {
     final config = _config;
-    if (config == null) return null; // sidecar not ready → degrade quietly
+    if (config == null) {
+      // Sidecar not up / not configured — degrade, but say so: this is the most
+      // common reason a Download & Play finds "no source".
+      _log.info('Jackett not configured (sidecar not ready) — skipping',
+          source: 'JackettResolver');
+      return null;
+    }
 
     final uri = buildTorznabUri(config, meta, season, episode);
     try {

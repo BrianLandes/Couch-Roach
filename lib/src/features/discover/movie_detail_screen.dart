@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../router/app_router.dart';
+import '../../services/acquisition/acquisition.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/poster_art.dart';
+import '../acquire/acquire_play.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
 import 'discover_tile.dart';
@@ -63,10 +65,24 @@ class MovieDetailScreen extends ConsumerWidget {
                       ),
                       icon: const Icon(Icons.play_arrow_rounded),
                       label: const Text('Play'),
+                    )
+                  else
+                    FilledButton.icon(
+                      autofocus: true,
+                      onPressed: () => acquireAndPlay(
+                        context,
+                        title: tile.title,
+                        meta: ShowMeta(
+                          title: tile.title,
+                          tmdbId: tile.tmdbId,
+                          mediaType: 'movie',
+                        ),
+                      ),
+                      icon: const Icon(Icons.download_rounded),
+                      label: const Text('Download & Play'),
                     ),
                   if (trailerUrl != null)
                     OutlinedButton.icon(
-                      autofocus: local == null,
                       onPressed: () => showTrailerPicker(
                         context,
                         tmdbId: tile.tmdbId,
@@ -78,27 +94,6 @@ class MovieDetailScreen extends ConsumerWidget {
                     ),
                 ],
               ),
-              if (local == null) ...[
-                const SizedBox(height: AppSpacing.md),
-                GlassSurface(
-                  padding: const EdgeInsets.all(AppSpacing.md),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.info_outline_rounded,
-                          size: 20, color: AppColors.textTertiary),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          "Not in your library yet — you can't download this one "
-                          'from here for now.',
-                          style: text.bodyMedium
-                              ?.copyWith(color: AppColors.textSecondary),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
               if (tile.overview.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.xl),
                 Text(tile.overview,

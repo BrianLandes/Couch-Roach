@@ -17,7 +17,9 @@ import 'acquisition.dart';
 ///
 /// This is the one legal, zero-config resolver that ships active in the repo;
 /// the content-agnostic Jackett resolver (user-configured) lands separately.
-@LazySingleton(as: AcquisitionResolver)
+/// Both are composed behind the [AcquisitionResolver] seam by
+/// [CompositeAcquisitionResolver] — this registers as itself, not the seam.
+@LazySingleton()
 class InternetArchiveResolver implements AcquisitionResolver {
   InternetArchiveResolver(this._http, this._log);
 

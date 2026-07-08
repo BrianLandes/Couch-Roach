@@ -64,11 +64,12 @@ class QbittorrentDaemon implements TorrentDaemon {
       }
     }
 
-    // Fetch the .torrent ourselves for http(s) sources (IA now, Jackett later)
-    // so a failed download surfaces as a real HTTP status here instead of
-    // qBittorrent silently never creating the torrent after returning Ok. Throws
-    // with the reason on a bad fetch; magnets pass through unchanged (null).
-    final torrentBytes = await _fetchTorrent(handle);
+    // Resolve what to hand qBittorrent: for http(s) sources we fetch/resolve
+    // ourselves so a failed download surfaces as a real HTTP status here instead
+    // of qBittorrent silently never creating the torrent after returning Ok.
+    // Throws with the reason on a bad fetch; magnets (and a Jackett link that
+    // redirects to one) pass through as a URL.
+    final source = await _resolveAddSource(handle);
 
     // A slow/dropped first add right after daemon startup can leave the torrent
     // missing — retry with a longer window. The tag is stable across attempts, so
@@ -88,7 +89,7 @@ class QbittorrentDaemon implements TorrentDaemon {
           savePath: savePath,
           sequential: sequential,
           firstLastPiecePriority: firstLastPiecePriority,
-          torrentBytes: torrentBytes);
+          source: source);
       hash = await _tryResolveHashByTag(tag, window);
     }
     if (hash == null) {
@@ -102,49 +103,87 @@ class QbittorrentDaemon implements TorrentDaemon {
     return QbittorrentTask(this, hash: hash, savePath: savePath);
   }
 
-  /// For an http(s) `.torrent` URL, fetch the file ourselves (following
-  /// redirects) and return its bytes — so a 404/403/503/HTML-error surfaces here
-  /// with a real status instead of qBittorrent silently failing the async
-  /// download. Magnet and any non-http handle pass through as `urls` (null).
-  Future<List<int>?> _fetchTorrent(TorrentHandle handle) async {
-    final uri = Uri.tryParse(handle.magnetOrUrl);
-    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
-      return null;
+  /// Resolve an add into what qBittorrent's `/torrents/add` should receive.
+  ///
+  /// A magnet or any non-http handle passes straight through as a URL. For an
+  /// http(s) source we resolve it ourselves — **following redirects by hand** —
+  /// so that: (a) a 404/403/503/HTML-error surfaces here with a real status
+  /// instead of qBittorrent silently failing the async download, and (b) a
+  /// redirect to a `magnet:` (how Jackett/Torznab `/dl/` links commonly hand back
+  /// a magnet) is passed to qBittorrent as a URL rather than fetched as bytes —
+  /// Dart's `HttpClient` throws "No host specified" if it auto-follows into a
+  /// magnet. A real `.torrent` body comes back as bytes to upload.
+  Future<_AddSource> _resolveAddSource(TorrentHandle handle) async {
+    final parsed = Uri.tryParse(handle.magnetOrUrl);
+    if (parsed == null ||
+        !(parsed.isScheme('http') || parsed.isScheme('https'))) {
+      return _AddSource(url: handle.magnetOrUrl); // magnet / passthrough
     }
+    var uri = parsed;
+
     final label = handle.displayName ?? handle.magnetOrUrl;
-    _log.info('fetching .torrent for "$label" from $uri',
+    _log.info('resolving source for "$label" from $uri',
         source: 'QbittorrentDaemon.add');
-    final http.Response res;
-    try {
-      res = await _http.get(uri); // package:http follows redirects
-    } catch (e, st) {
-      _log.logError(e, stackTrace: st, source: 'QbittorrentDaemon.fetchTorrent');
-      throw TorrentDaemonException('could not fetch .torrent from $uri: $e',
-          kind: TorrentErrorKind.network);
+
+    for (var hop = 0; hop < 5; hop++) {
+      final http.Response res;
+      try {
+        // followRedirects=false so a hop to a magnet: link is caught here rather
+        // than blowing up inside the HTTP client.
+        final req = http.Request('GET', uri)..followRedirects = false;
+        res = await http.Response.fromStream(await _http.send(req));
+      } catch (e, st) {
+        _log.logError(e,
+            stackTrace: st, source: 'QbittorrentDaemon.fetchTorrent');
+        throw TorrentDaemonException('could not fetch .torrent from $uri: $e',
+            kind: TorrentErrorKind.network);
+      }
+
+      if (res.statusCode >= 300 && res.statusCode < 400) {
+        final location = res.headers['location'];
+        if (location == null || location.isEmpty) {
+          throw TorrentDaemonException(
+              'redirect from $uri had no Location header',
+              kind: TorrentErrorKind.sourceUnavailable);
+        }
+        if (location.startsWith('magnet:')) {
+          _log.info('source redirected to a magnet — adding it by URL',
+              source: 'QbittorrentDaemon.add');
+          return _AddSource(url: location);
+        }
+        uri = uri.resolve(location); // follow an http(s) hop
+        continue;
+      }
+
+      if (res.statusCode != 200) {
+        final e = TorrentDaemonException(
+            'fetching .torrent from $uri returned HTTP ${res.statusCode}',
+            kind: res.statusCode == 404
+                ? TorrentErrorKind.sourceNotFound
+                : TorrentErrorKind.sourceUnavailable,
+            statusCode: res.statusCode);
+        _log.logError(e, source: 'QbittorrentDaemon.fetchTorrent');
+        throw e;
+      }
+
+      // A .torrent is a bencoded dictionary — it starts with 'd' (0x64). Guards
+      // against an HTML/JSON error page served with a 200.
+      final bytes = res.bodyBytes;
+      if (bytes.isEmpty || bytes.first != 0x64) {
+        final e = TorrentDaemonException(
+            'data from $uri is not a .torrent (${bytes.length} bytes)',
+            kind: TorrentErrorKind.badTorrent);
+        _log.logError(e, source: 'QbittorrentDaemon.fetchTorrent');
+        throw e;
+      }
+      _log.info('.torrent fetched (${bytes.length} bytes)',
+          source: 'QbittorrentDaemon.add');
+      return _AddSource(bytes: bytes);
     }
-    if (res.statusCode != 200) {
-      final e = TorrentDaemonException(
-          'fetching .torrent from $uri returned HTTP ${res.statusCode}',
-          kind: res.statusCode == 404
-              ? TorrentErrorKind.sourceNotFound
-              : TorrentErrorKind.sourceUnavailable,
-          statusCode: res.statusCode);
-      _log.logError(e, source: 'QbittorrentDaemon.fetchTorrent');
-      throw e;
-    }
-    // A .torrent is a bencoded dictionary — it starts with 'd' (0x64). Guards
-    // against an HTML/JSON error page served with a 200.
-    final bytes = res.bodyBytes;
-    if (bytes.isEmpty || bytes.first != 0x64) {
-      final e = TorrentDaemonException(
-          'data from $uri is not a .torrent (${bytes.length} bytes)',
-          kind: TorrentErrorKind.badTorrent);
-      _log.logError(e, source: 'QbittorrentDaemon.fetchTorrent');
-      throw e;
-    }
-    _log.info('.torrent fetched (${bytes.length} bytes)',
-        source: 'QbittorrentDaemon.add');
-    return bytes;
+
+    throw TorrentDaemonException(
+        'too many redirects fetching .torrent from $uri',
+        kind: TorrentErrorKind.sourceUnavailable);
   }
 
   Future<void> _postAdd(
@@ -153,7 +192,7 @@ class QbittorrentDaemon implements TorrentDaemon {
     required String savePath,
     required bool sequential,
     required bool firstLastPiecePriority,
-    required List<int>? torrentBytes,
+    required _AddSource source,
   }) async {
     final fields = {
       'savepath': savePath,
@@ -163,17 +202,19 @@ class QbittorrentDaemon implements TorrentDaemon {
     };
     try {
       final http.Response res;
-      if (torrentBytes != null) {
+      final bytes = source.bytes;
+      if (bytes != null) {
         // Upload the fetched bytes as the multipart `torrents` file.
         final req =
             http.MultipartRequest('POST', Uri.parse('$_api/torrents/add'))
               ..fields.addAll(fields)
-              ..files.add(http.MultipartFile.fromBytes('torrents', torrentBytes,
+              ..files.add(http.MultipartFile.fromBytes('torrents', bytes,
                   filename: 'source.torrent'));
         res = await http.Response.fromStream(await _http.send(req));
       } else {
+        // Add by URL — a magnet, or a .torrent URL qBittorrent fetches itself.
         res = await _http.post(Uri.parse('$_api/torrents/add'),
-            body: {'urls': handle.magnetOrUrl, ...fields});
+            body: {'urls': source.url!, ...fields});
       }
       if (addResponseIsFailure(res.statusCode, res.body)) {
         throw TorrentDaemonException(
@@ -590,6 +631,15 @@ class QbittorrentTask implements TorrentTask {
     if (pieceSize <= 0 || filePieces <= 0) return filePieces.clamp(0, 2);
     return (_headBufferBytes / pieceSize).ceil().clamp(2, filePieces);
   }
+}
+
+/// What to hand qBittorrent's `/torrents/add`: torrent [bytes] to upload as a
+/// multipart file, or a [url] (a magnet, or a `.torrent` URL qBittorrent fetches
+/// itself) to add via the `urls` field. Exactly one is non-null.
+class _AddSource {
+  const _AddSource({this.bytes, this.url});
+  final List<int>? bytes;
+  final String? url;
 }
 
 /// A resolved file within a torrent. Piece indices are null when the daemon

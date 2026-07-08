@@ -29,6 +29,8 @@ import 'package:couch_roach/src/injection.dart' as _i481;
 import 'package:couch_roach/src/services/acquisition/acquisition.dart' as _i156;
 import 'package:couch_roach/src/services/acquisition/archive_browse_service.dart'
     as _i477;
+import 'package:couch_roach/src/services/acquisition/composite_resolver.dart'
+    as _i669;
 import 'package:couch_roach/src/services/acquisition/internet_archive_resolver.dart'
     as _i98;
 import 'package:couch_roach/src/services/acquisition/jackett_process.dart'
@@ -96,6 +98,11 @@ extension GetItInjectableX on _i174.GetIt {
               gh<_i519.Client>(),
               gh<_i657.ErrorLogService>(),
             ));
+    gh.lazySingleton<_i98.InternetArchiveResolver>(
+        () => _i98.InternetArchiveResolver(
+              gh<_i519.Client>(),
+              gh<_i657.ErrorLogService>(),
+            ));
     gh.lazySingleton<_i616.JackettResolver>(() => _i616.JackettResolver(
           gh<_i519.Client>(),
           gh<_i657.ErrorLogService>(),
@@ -123,11 +130,6 @@ extension GetItInjectableX on _i174.GetIt {
     );
     gh.lazySingleton<_i486.SettingsService>(
         () => _i486.SettingsService(gh<_i865.AppDatabase>()));
-    gh.lazySingleton<_i156.AcquisitionResolver>(
-        () => _i98.InternetArchiveResolver(
-              gh<_i519.Client>(),
-              gh<_i657.ErrorLogService>(),
-            ));
     gh.lazySingleton<_i366.StorageRepository>(
         () => _i366.DriftStorageRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i156.TorrentDaemon>(() => _i791.QbittorrentDaemon(
@@ -146,6 +148,12 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i657.ErrorLogService>(),
           gh<_i486.SettingsService>(),
         ));
+    gh.lazySingleton<_i156.AcquisitionResolver>(
+        () => _i669.CompositeAcquisitionResolver(
+              gh<_i98.InternetArchiveResolver>(),
+              gh<_i616.JackettResolver>(),
+              gh<_i657.ErrorLogService>(),
+            ));
     gh.lazySingleton<_i754.SubtitleService>(
         () => _i295.OpenSubtitlesSubtitleService(
               gh<_i1041.SubtitleSkipCheck>(),

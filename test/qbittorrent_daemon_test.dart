@@ -173,6 +173,40 @@ void main() {
       expect(task.hash, 'IA');
     });
 
+    test('a link that redirects to a magnet is added by URL, not fetched',
+        () async {
+      // Jackett/Torznab `/dl/` links 302 to a magnet — we must add the magnet by
+      // URL, not try to fetch it (Dart's HttpClient can't open a magnet URI).
+      const dlUrl = 'http://127.0.0.1:9117/dl/torrentdownload?apikey=k';
+      const magnet = 'magnet:?xt=urn:btih:ABC&dn=Some.Show';
+      var added = false;
+      var wasMultipart = true;
+      String? postedUrls;
+      final client = MockClient((req) async {
+        if (req.method == 'GET' && req.url.path.startsWith('/dl')) {
+          return http.Response('', 302, headers: {'location': magnet});
+        }
+        if (req.method == 'POST' && req.url.path.endsWith('/torrents/add')) {
+          added = true;
+          wasMultipart =
+              (req.headers['content-type'] ?? '').contains('multipart/form-data');
+          postedUrls = req.bodyFields['urls'];
+          return http.Response('Ok.', 200);
+        }
+        return http.Response(
+            added ? jsonEncode([{'hash': 'MAG', 'save_path': '/x'}]) : '[]', 200);
+      });
+      final task = await QbittorrentDaemon(client, ErrorLogService()).add(
+        const TorrentHandle(magnetOrUrl: dlUrl),
+        savePath: '/x',
+        dedupeKey: 'x',
+      ) as QbittorrentTask;
+
+      expect(wasMultipart, isFalse, reason: 'magnet is a urls= add, not upload');
+      expect(postedUrls, magnet);
+      expect(task.hash, 'MAG');
+    });
+
     test('a 404 fetch throws sourceNotFound with a friendly message', () async {
       final client = MockClient((req) async => req.method == 'GET'
           ? http.Response('Not found', 404)

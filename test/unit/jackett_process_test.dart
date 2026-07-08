@@ -6,14 +6,17 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
-  http.Client okClient() => MockClient((_) async => http.Response('', 200));
+  // Nothing answering on the port (connection refused) → skips the "adopt an
+  // existing Jackett" path and falls through to the spawn/bundle check.
+  http.Client noServer() =>
+      MockClient((_) async => throw Exception('connection refused'));
 
   test('start() is a safe no-op when Jackett is not bundled', () async {
     // The test runner has no jackett/ tree vendored next to it, so the sidecar
     // never spawns — start() logs and returns without throwing, and the resolver
     // is left unconfigured (acquisition's indexer path stays off).
-    final resolver = JackettResolver(okClient(), ErrorLogService());
-    final process = JackettProcess(okClient(), ErrorLogService(), resolver);
+    final resolver = JackettResolver(noServer(), ErrorLogService());
+    final process = JackettProcess(noServer(), ErrorLogService(), resolver);
 
     await process.start();
 

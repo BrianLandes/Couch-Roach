@@ -11,6 +11,8 @@ import '../../router/app_router.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/poster_art.dart';
+import '../../services/acquisition/acquisition.dart';
+import '../acquire/acquire_play.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
 import 'trailer_picker.dart';
@@ -124,7 +126,11 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
             onSelect: (n) => setState(() => _season = n),
           ),
           const SizedBox(height: AppSpacing.md),
-          _EpisodeList(tmdbId: details.tmdbId, seasonNumber: selected),
+          _EpisodeList(
+            tmdbId: details.tmdbId,
+            seasonNumber: selected,
+            showName: details.name,
+          ),
         ],
       ],
     );
@@ -229,9 +235,14 @@ class _SeasonChips extends StatelessWidget {
 }
 
 class _EpisodeList extends ConsumerWidget {
-  const _EpisodeList({required this.tmdbId, required this.seasonNumber});
+  const _EpisodeList({
+    required this.tmdbId,
+    required this.seasonNumber,
+    required this.showName,
+  });
   final int tmdbId;
   final int seasonNumber;
+  final String showName;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -263,6 +274,9 @@ class _EpisodeList extends ConsumerWidget {
                 child: _EpisodeRow(
                   episode: ep,
                   local: local[(seasonNumber, ep.episodeNumber)],
+                  tmdbId: tmdbId,
+                  seasonNumber: seasonNumber,
+                  showName: showName,
                 ),
               ),
           ],
@@ -273,8 +287,17 @@ class _EpisodeList extends ConsumerWidget {
 }
 
 class _EpisodeRow extends StatelessWidget {
-  const _EpisodeRow({required this.episode, this.local});
+  const _EpisodeRow({
+    required this.episode,
+    required this.tmdbId,
+    required this.seasonNumber,
+    required this.showName,
+    this.local,
+  });
   final EpisodeSummary episode;
+  final int tmdbId;
+  final int seasonNumber;
+  final String showName;
   final LibraryItem? local;
 
   @override
@@ -334,7 +357,13 @@ class _EpisodeRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.md),
-          _Availability(local: local),
+          _Availability(
+            local: local,
+            tmdbId: tmdbId,
+            seasonNumber: seasonNumber,
+            episode: episode,
+            showName: showName,
+          ),
         ],
       ),
     );
@@ -342,19 +371,37 @@ class _EpisodeRow extends StatelessWidget {
 }
 
 class _Availability extends StatelessWidget {
-  const _Availability({this.local});
+  const _Availability({
+    required this.tmdbId,
+    required this.seasonNumber,
+    required this.episode,
+    required this.showName,
+    this.local,
+  });
+  final int tmdbId;
+  final int seasonNumber;
+  final EpisodeSummary episode;
+  final String showName;
   final LibraryItem? local;
 
   @override
   Widget build(BuildContext context) {
     final item = local;
     if (item == null) {
-      return Chip(
-        label: const Text('Not downloaded'),
-        labelStyle: Theme.of(context)
-            .textTheme
-            .labelMedium
-            ?.copyWith(color: AppColors.textTertiary),
+      // Not on disk yet — acquire it through the resolver seam (IA, then the
+      // user's Jackett indexers) and stream once it's buffered.
+      return FilledButton.icon(
+        onPressed: () => acquireAndPlay(
+          context,
+          title: '$showName — S${seasonNumber.toString().padLeft(2, '0')}'
+              'E${episode.episodeNumber.toString().padLeft(2, '0')}'
+              '${episode.name.isEmpty ? '' : ' · ${episode.name}'}',
+          meta: ShowMeta(title: showName, tmdbId: tmdbId, mediaType: 'tv'),
+          season: seasonNumber,
+          episode: episode.episodeNumber,
+        ),
+        icon: const Icon(Icons.download_rounded),
+        label: const Text('Download & Play'),
       );
     }
     return FilledButton.icon(

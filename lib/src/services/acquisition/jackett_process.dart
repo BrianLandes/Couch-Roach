@@ -48,6 +48,29 @@ class JackettProcess {
   Future<void> start() async {
     if (_process != null) return;
 
+    // Adopt an already-running Jackett on the port rather than spawning a second
+    // one that can't bind. This is common in dev (a hot-restart or IDE-stop
+    // kills the app without firing the window-close shutdown, orphaning the
+    // child) and possible in prod after a crash. The live instance shares this
+    // DataFolder, so its ServerConfig.json holds the API key we need — point the
+    // resolver at it and skip spawning. Without this, the doomed spawn's exit
+    // would tear the resolver's config back down and disable indexer search.
+    if (await _isServing()) {
+      final config = await _readConfig(await _dataFolder());
+      if (config != null) {
+        _resolver.configure(config);
+        _log.info('Adopted an already-running Jackett at $baseUrl',
+            source: 'JackettSidecar');
+      } else {
+        _log.warn(
+          'Something is already serving $baseUrl but no API key was found in '
+          'our DataFolder — indexer search disabled (a foreign Jackett?)',
+          source: 'JackettSidecar',
+        );
+      }
+      return;
+    }
+
     final executable = _resolveExecutable();
     if (executable == null) {
       _log.warn(
@@ -144,6 +167,17 @@ class JackettProcess {
     final dir = Directory(p.join(base.path, 'jackett'));
     if (!dir.existsSync()) dir.createSync(recursive: true);
     return dir;
+  }
+
+  /// Whether something is already answering on the port (any HTTP response means
+  /// a server is listening — almost certainly a Jackett we or the user started).
+  Future<bool> _isServing() async {
+    try {
+      await _http.get(Uri.parse(baseUrl)).timeout(const Duration(seconds: 2));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Poll the web endpoint until it binds (any HTTP response means the server is
