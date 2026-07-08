@@ -86,11 +86,9 @@ class QbittorrentDaemon implements TorrentDaemon {
     return QbittorrentTask(this, hash: hash, savePath: savePath);
   }
 
-  Future<void> _postAdd(
-      Map<String, String> body, TorrentHandle handle) async {
+  Future<void> _postAdd(Map<String, String> body, TorrentHandle handle) async {
     try {
-      final res =
-          await _http.post(Uri.parse('$_api/torrents/add'), body: body);
+      final res = await _http.post(Uri.parse('$_api/torrents/add'), body: body);
       if (addResponseIsFailure(res.statusCode, res.body)) {
         throw TorrentDaemonException(
           'add failed (${res.statusCode}: ${res.body.trim()}) for '
@@ -129,8 +127,8 @@ class QbittorrentDaemon implements TorrentDaemon {
   @override
   Future<void> setPaused({required String hash, required bool paused}) =>
       // qBittorrent 5.x renamed pause/resume → stop/start.
-      _command(paused ? '/torrents/stop' : '/torrents/start',
-          {'hashes': hash}, 'setPaused');
+      _command(paused ? '/torrents/stop' : '/torrents/start', {'hashes': hash},
+          'setPaused');
 
   /// POST a control command; throw + log on a non-2xx so callers can surface it.
   Future<void> _command(
@@ -186,10 +184,10 @@ class QbittorrentDaemon implements TorrentDaemon {
     try {
       final res = await _http.get(uri);
       if (res.statusCode != 200) return const [];
-      return (jsonDecode(res.body) as List)
-          .cast<Map<String, dynamic>>();
+      return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
     } catch (e, st) {
-      _log.logError(e, stackTrace: st, source: 'QbittorrentDaemon.torrentsInfo');
+      _log.logError(e,
+          stackTrace: st, source: 'QbittorrentDaemon.torrentsInfo');
       return const [];
     }
   }
@@ -204,7 +202,8 @@ class QbittorrentDaemon implements TorrentDaemon {
       if (res.statusCode != 200) return const [];
       return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
     } catch (e, st) {
-      _log.logError(e, stackTrace: st, source: 'QbittorrentDaemon.torrentFiles');
+      _log.logError(e,
+          stackTrace: st, source: 'QbittorrentDaemon.torrentFiles');
       return const [];
     }
   }
@@ -245,16 +244,19 @@ class QbittorrentDaemon implements TorrentDaemon {
   /// `POST /torrents/filePrio` — set download [priority] (0 skip, 1 normal,
   /// 6 high, 7 maximal) for the given file [indices].
   Future<void> setFilePriority(String hash, List<int> indices, int priority) =>
-      _command('/torrents/filePrio', {
-        'hash': hash,
-        'id': indices.join('|'),
-        'priority': '$priority',
-      }, 'setFilePriority');
+      _command(
+          '/torrents/filePrio',
+          {
+            'hash': hash,
+            'id': indices.join('|'),
+            'priority': '$priority',
+          },
+          'setFilePriority');
 
   /// Set sequential download on/off. The Web API only offers a *toggle*, so read
   /// the current `seq_dl` state and flip only when it differs.
-  Future<void> setSequentialDownload(String hash, bool enabled) => _setToggle(
-      hash, 'seq_dl', enabled, '/torrents/toggleSequentialDownload');
+  Future<void> setSequentialDownload(String hash, bool enabled) =>
+      _setToggle(hash, 'seq_dl', enabled, '/torrents/toggleSequentialDownload');
 
   /// Set first/last-piece priority on/off (toggle-only API, see above).
   Future<void> setFirstLastPiecePrio(String hash, bool enabled) => _setToggle(
@@ -263,7 +265,8 @@ class QbittorrentDaemon implements TorrentDaemon {
   Future<void> _setToggle(
       String hash, String field, bool enabled, String togglePath) async {
     final info = await torrentsInfo(hashes: hash);
-    final current = info.isNotEmpty ? (info.first[field] as bool? ?? false) : false;
+    final current =
+        info.isNotEmpty ? (info.first[field] as bool? ?? false) : false;
     if (current == enabled) return;
     await _command(togglePath, {'hashes': hash}, 'setToggle');
   }
@@ -291,7 +294,7 @@ class QbittorrentTask implements TorrentTask {
   /// than streamed: they finish quickly, and streaming's benefit (start before
   /// it's done) doesn't outweigh the tail-stall risk on a single-web-seed IA
   /// torrent. Larger files still stream. Pure predicate exposed for testing.
-  static const int smallFileThresholdBytes = 300 * 1024 * 1024;
+  static const int smallFileThresholdBytes = 100 * 1024 * 1024;
   static bool downloadFully(int sizeBytes) =>
       sizeBytes > 0 && sizeBytes <= smallFileThresholdBytes;
 
@@ -307,7 +310,8 @@ class QbittorrentTask implements TorrentTask {
       final files = await _daemon.torrentFiles(hash);
       final chosen = pickPrimaryFile(files);
       if (chosen != null) {
-        final index = (chosen['index'] as num?)?.toInt() ?? files.indexOf(chosen);
+        final index =
+            (chosen['index'] as num?)?.toInt() ?? files.indexOf(chosen);
         final range = pieceRangeOf(chosen['piece_range']);
         final primary = _PrimaryFile(
           index: index,
@@ -382,8 +386,8 @@ class QbittorrentTask implements TorrentTask {
     final headPieces = headPieceCount(pieceSize, last - first + 1);
 
     while (DateTime.now().isBefore(deadline)) {
-      if (headAndTailReady(await _daemon.pieceStates(hash), first, last,
-          headPieces)) {
+      if (headAndTailReady(
+          await _daemon.pieceStates(hash), first, last, headPieces)) {
         return;
       }
       await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -406,8 +410,9 @@ class QbittorrentTask implements TorrentTask {
   Stream<double> get progress async* {
     while (true) {
       final info = await _daemon.torrentsInfo(hashes: hash);
-      final value =
-          info.isEmpty ? 0.0 : (info.first['progress'] as num?)?.toDouble() ?? 0.0;
+      final value = info.isEmpty
+          ? 0.0
+          : (info.first['progress'] as num?)?.toDouble() ?? 0.0;
       yield value.clamp(0.0, 1.0);
       if (value >= 1.0) return;
       await Future<void>.delayed(const Duration(seconds: 1));
@@ -476,7 +481,8 @@ Map<String, dynamic>? pickPrimaryFile(List<Map<String, dynamic>> files) {
   }
 
   final videos = files.where(isVideo).toList();
-  final pool = videos.isNotEmpty ? videos : [...files]; // copy: never mutate input
+  final pool =
+      videos.isNotEmpty ? videos : [...files]; // copy: never mutate input
   pool.sort((a, b) => sizeOf(b).compareTo(sizeOf(a)));
   return pool.first;
 }
@@ -495,7 +501,8 @@ bool addResponseIsFailure(int statusCode, String body) {
     try {
       final j = jsonDecode(trimmed) as Map<String, dynamic>;
       int count(String k) => (j[k] as num?)?.toInt() ?? 0;
-      final accepted = count('success_count') + count('pending_count') +
+      final accepted = count('success_count') +
+          count('pending_count') +
           ((j['added_torrent_ids'] as List?)?.length ?? 0);
       return count('failure_count') > 0 && accepted == 0;
     } catch (_) {
@@ -523,7 +530,8 @@ TorrentStatus parseTorrentStatus(Map<String, dynamic> json) {
     downloadSpeed: asInt(json['dlspeed']),
     sizeBytes: asInt(json['size']),
     downloadedBytes: asInt(json['downloaded']),
-    etaSeconds: (eta <= 0 || eta >= _qbEtaUnknown || progress >= 1.0) ? null : eta,
+    etaSeconds:
+        (eta <= 0 || eta >= _qbEtaUnknown || progress >= 1.0) ? null : eta,
   );
 }
 

@@ -3,9 +3,10 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
-/// Desktop window setup for the TV: launch fullscreen, with F11 to toggle
-/// (dev/exit affordance) and [minimizeWindow] for a remote-friendly "drop to
-/// desktop". No-ops off desktop so tests and other platforms are unaffected.
+/// Desktop window setup for the TV: launch windowed, with F11 (or the in-app
+/// button) to toggle fullscreen and [minimizeWindow] for a remote-friendly
+/// "drop to desktop". No-ops off desktop so tests and other platforms are
+/// unaffected.
 bool get _isDesktop => Platform.isWindows || Platform.isLinux;
 
 /// Registered by [initFullscreenWindow] and invoked when the window is closing,
@@ -24,21 +25,13 @@ Future<void> initFullscreenWindow({Future<void> Function()? onClose}) async {
   }
   const options = WindowOptions(
     title: 'Couch Roach',
-    // NB: do NOT set `fullScreen: true` here. Launching fullscreen leaves
-    // window_manager's internal state out of sync with the Win32 window style
-    // on Windows, so the first *exit* from fullscreen produces a broken frame
-    // (window visible but click-through / unfocusable). Instead we come up
-    // windowed and toggle fullscreen on explicitly below, which keeps the
-    // enter/exit bookkeeping consistent.
-    //
-    // Normal title bar so windowed mode (F11) still has OS controls; fullscreen
-    // hides it anyway.
+    // Normal title bar so windowed mode has OS controls; fullscreen (F11 or the
+    // in-app button) hides it anyway.
     titleBarStyle: TitleBarStyle.normal,
   );
   await windowManager.waitUntilReadyToShow(options, () async {
     await windowManager.show();
     await windowManager.focus();
-    await windowManager.setFullScreen(true);
   });
 
   HardwareKeyboard.instance.addHandler(_onKey);

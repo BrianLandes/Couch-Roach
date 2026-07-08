@@ -37,8 +37,9 @@ void main() {
       // playback works; acquisition is just unavailable) — the failure is logged.
       final daemon = getIt<QbittorrentProcess>();
 
-      // Launch the TV window fullscreen (F11 toggles). The close hook kills the
-      // daemon child before the app exits so nothing is orphaned.
+      // Launch the TV window (windowed; F11 or the in-app button toggles
+      // fullscreen). The close hook kills the daemon child before the app exits
+      // so nothing is orphaned.
       await initFullscreenWindow(onClose: daemon.stop);
 
       unawaited(daemon.start().catchError((Object e, StackTrace st) {
