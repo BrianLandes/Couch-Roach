@@ -22,57 +22,112 @@ class LibraryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
     final title = item.tmdbName ?? item.title;
     final badge = item.season != null && item.episode != null
         ? 'S${item.season} · E${item.episode}'
         : (item.mediaType == 'movie' ? 'Movie' : null);
-
     return FocusableCard(
       onPressed: onPressed,
       autofocus: autofocus,
-      child: ClipRRect(
-        borderRadius: AppRadii.rLg,
-        child: AspectRatio(
-          aspectRatio: 2 / 3,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              PosterArt(posterPath: item.tmdbPosterPath, seed: title),
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0x00000000), Color(0xCC05060A)],
-                    stops: [0.45, 1],
-                  ),
+      child: _PosterTile(
+          posterPath: item.tmdbPosterPath, seed: title, title: title, badge: badge),
+    );
+  }
+}
+
+/// A library tile that stands in for a whole TV show — its matched poster, name,
+/// and an episode-count badge — collapsing every downloaded episode into one.
+class ShowLibraryTile extends StatelessWidget {
+  const ShowLibraryTile({
+    super.key,
+    required this.name,
+    required this.posterPath,
+    required this.episodeCount,
+    this.onPressed,
+    this.autofocus = false,
+  });
+
+  final String name;
+  final String? posterPath;
+  final int episodeCount;
+  final VoidCallback? onPressed;
+  final bool autofocus;
+
+  @override
+  Widget build(BuildContext context) {
+    return FocusableCard(
+      onPressed: onPressed,
+      autofocus: autofocus,
+      child: _PosterTile(
+        posterPath: posterPath,
+        seed: name,
+        title: name,
+        badge: '$episodeCount episode${episodeCount == 1 ? '' : 's'}',
+      ),
+    );
+  }
+}
+
+/// Shared poster body: the 2:3 art with a bottom scrim, an optional accent
+/// [badge] line, and the [title].
+class _PosterTile extends StatelessWidget {
+  const _PosterTile({
+    required this.posterPath,
+    required this.seed,
+    required this.title,
+    this.badge,
+  });
+
+  final String? posterPath;
+  final String seed;
+  final String title;
+  final String? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return ClipRRect(
+      borderRadius: AppRadii.rLg,
+      child: AspectRatio(
+        aspectRatio: 2 / 3,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            PosterArt(posterPath: posterPath, seed: seed),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0x00000000), Color(0xCC05060A)],
+                  stops: [0.45, 1],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (badge != null) ...[
-                      Text(
-                        badge,
-                        style: text.labelMedium?.copyWith(color: AppColors.secondary),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
-                    ],
+            ),
+            Padding(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (badge != null) ...[
                     Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.titleMedium,
+                      badge!,
+                      style: text.labelMedium
+                          ?.copyWith(color: AppColors.secondary),
                     ),
+                    const SizedBox(height: AppSpacing.xs),
                   ],
-                ),
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.titleMedium,
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

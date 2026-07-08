@@ -23,6 +23,7 @@ import '../discover/discover_tile.dart';
 import '../vpn/vpn_status_chip.dart';
 import '../player/player_screen.dart';
 import 'continue_watching_card.dart';
+import 'library_grouping.dart';
 import 'library_match_service.dart';
 import 'library_providers.dart';
 import 'library_service.dart';
@@ -157,24 +158,39 @@ List<Widget> _librarySlivers(
             AppSpacing.screenPadding,
             AppSpacing.screenPadding,
           ),
-          sliver: SliverGrid.builder(
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 200,
-              childAspectRatio: 2 / 3,
-              crossAxisSpacing: AppSpacing.lg,
-              mainAxisSpacing: AppSpacing.lg,
-            ),
-            itemCount: items.length,
-            itemBuilder: (context, i) {
-              final item = items[i];
-              return LibraryTile(
-                item: item,
-                autofocus: autofocusFirst && i == 0,
-                onPressed: () =>
-                    context.push(Routes.libraryDetail, extra: item),
-              );
-            },
-          ),
+          sliver: Builder(builder: (context) {
+            // Collapse each matched TV show's episodes into a single tile.
+            final entries = groupLibraryItems(items);
+            return SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 200,
+                childAspectRatio: 2 / 3,
+                crossAxisSpacing: AppSpacing.lg,
+                mainAxisSpacing: AppSpacing.lg,
+              ),
+              itemCount: entries.length,
+              itemBuilder: (context, i) {
+                final entry = entries[i];
+                final autofocus = autofocusFirst && i == 0;
+                return switch (entry) {
+                  ItemEntry(:final item) => LibraryTile(
+                      item: item,
+                      autofocus: autofocus,
+                      onPressed: () =>
+                          context.push(Routes.libraryDetail, extra: item),
+                    ),
+                  ShowEntry(:final tmdbId, :final name) => ShowLibraryTile(
+                      name: name,
+                      posterPath: entry.posterPath,
+                      episodeCount: entry.episodeCount,
+                      autofocus: autofocus,
+                      onPressed: () =>
+                          openShowDetail(context, tmdbId: tmdbId, name: name),
+                    ),
+                };
+              },
+            );
+          }),
         ),
       ];
     },
