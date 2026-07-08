@@ -37,7 +37,12 @@ class JackettResolver implements AcquisitionResolver {
   bool get isConfigured => _config != null;
 
   @override
-  Future<TorrentHandle?> resolve(ShowMeta meta, int? season, int? episode) async {
+  Future<TorrentHandle?> resolve(
+    ShowMeta meta,
+    int? season,
+    int? episode, {
+    Set<String> exclude = const {},
+  }) async {
     final config = _config;
     if (config == null) {
       // Sidecar not up / not configured — degrade, but say so: this is the most
@@ -47,7 +52,7 @@ class JackettResolver implements AcquisitionResolver {
       return null;
     }
 
-    final exclude = _settings.excludeSignLanguage;
+    final excludeSign = _settings.excludeSignLanguage;
     try {
       // TV episode: verify the release actually is this episode — never trust the
       // indexer's season/ep filtering, which routinely returns other episodes.
@@ -56,7 +61,7 @@ class JackettResolver implements AcquisitionResolver {
         final episodeResults = await _query(config, meta, season, episode);
         final episodeBest = pickBestTorznabResult(verifiedEpisodeResults(
             episodeResults, meta, season, episode,
-            excludeSignLanguage: exclude));
+            excludeSignLanguage: excludeSign, excludeUrls: exclude));
         if (episodeBest != null) {
           _log.info(
               'resolved S${season}E$episode as a single episode: '
@@ -73,7 +78,7 @@ class JackettResolver implements AcquisitionResolver {
         final packResults = await _query(config, meta, season, null);
         final packBest = pickBestTorznabResult(seasonPackResults(
             packResults, meta, season,
-            excludeSignLanguage: exclude));
+            excludeSignLanguage: excludeSign, excludeUrls: exclude));
         if (packBest != null) {
           _log.info(
               'no verified single episode for S${season}E$episode — falling '
@@ -91,13 +96,15 @@ class JackettResolver implements AcquisitionResolver {
         return null;
       }
 
-      // Movie / unscoped search: rank by seed health, still dropping ASL/BSL cuts.
+      // Movie / unscoped search: rank by seed health, still dropping ASL/BSL cuts
+      // and any source already tried for this title.
       final results = await _query(config, meta, season, episode);
-      final pool = exclude
-          ? results
-              .where((r) => !FilenameMediaInfo.looksLikeSignLanguage(r.title))
-              .toList()
-          : results;
+      final pool = results.where((r) {
+        if (excludeSign && FilenameMediaInfo.looksLikeSignLanguage(r.title)) {
+          return false;
+        }
+        return !exclude.contains(r.downloadUrl);
+      }).toList();
       final best = pickBestTorznabResult(pool);
       if (best == null) return null;
       return TorrentHandle(
@@ -240,7 +247,8 @@ const int _minEpisodeBytes = 50 * 1024 * 1024; // 50 MB
 /// [meta]'s show: the title must name the same show AND parse to exactly that
 /// `SxxExx`. This is the fix for "asked for episode 1, got episode 9" — the
 /// indexer's own season/ep filtering is not trusted. Sign-language cuts are
-/// dropped when [excludeSignLanguage]; implausibly tiny files are dropped.
+/// dropped when [excludeSignLanguage]; sources whose download URL is in
+/// [excludeUrls] (already tried) are dropped; implausibly tiny files are dropped.
 /// Order is preserved (rank with [pickBestTorznabResult]). Pure + tested.
 List<TorznabResult> verifiedEpisodeResults(
   List<TorznabResult> results,
@@ -248,12 +256,14 @@ List<TorznabResult> verifiedEpisodeResults(
   int season,
   int episode, {
   bool excludeSignLanguage = true,
+  Set<String> excludeUrls = const {},
 }) {
   return results.where((r) {
     if (excludeSignLanguage &&
         FilenameMediaInfo.looksLikeSignLanguage(r.title)) {
       return false;
     }
+    if (excludeUrls.contains(r.downloadUrl)) return false;
     if (r.sizeBytes > 0 && r.sizeBytes < _minEpisodeBytes) return false;
     if (!FilenameMediaInfo.titleMatches(r.title, meta.title)) return false;
     final parsed = FilenameMediaInfo.parse(r.title);
@@ -264,19 +274,22 @@ List<TorznabResult> verifiedEpisodeResults(
 /// Keep only [results] that verify as a **whole-season pack** for [season] of
 /// [meta]'s show (right show + a season-pack marker for this season, and *not* a
 /// single different episode). The requested episode is later extracted from the
-/// pack's file list. Sign-language cuts dropped when [excludeSignLanguage].
-/// Order preserved. Pure + tested.
+/// pack's file list. Sign-language cuts dropped when [excludeSignLanguage];
+/// already-tried sources dropped when their URL is in [excludeUrls]. Order
+/// preserved. Pure + tested.
 List<TorznabResult> seasonPackResults(
   List<TorznabResult> results,
   ShowMeta meta,
   int season, {
   bool excludeSignLanguage = true,
+  Set<String> excludeUrls = const {},
 }) {
   return results.where((r) {
     if (excludeSignLanguage &&
         FilenameMediaInfo.looksLikeSignLanguage(r.title)) {
       return false;
     }
+    if (excludeUrls.contains(r.downloadUrl)) return false;
     if (!FilenameMediaInfo.titleMatches(r.title, meta.title)) return false;
     return FilenameMediaInfo.seasonPackNumber(r.title) == season;
   }).toList();

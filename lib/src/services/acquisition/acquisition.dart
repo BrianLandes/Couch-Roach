@@ -32,7 +32,15 @@ class TorrentHandle {
 
 /// Maps a request to a downloadable handle, or null if nothing legal is found.
 abstract class AcquisitionResolver {
-  Future<TorrentHandle?> resolve(ShowMeta meta, int? season, int? episode);
+  /// [exclude] lists source URLs (the value that would land in
+  /// [TorrentHandle.magnetOrUrl]) already handed out for this title — skip them
+  /// so "try another source" resolves the next-best instead of the same one.
+  Future<TorrentHandle?> resolve(
+    ShowMeta meta,
+    int? season,
+    int? episode, {
+    Set<String> exclude = const {},
+  });
 }
 
 /// A stable per-title/episode key, used both as the daemon add's `dedupeKey`
@@ -58,6 +66,14 @@ String acquisitionDedupeKey({
 /// commas. Pure + shared so [TorrentStatus.tags] can be matched back to a title.
 String acquisitionTag(String dedupeKey) =>
     'cr-src-${dedupeKey.replaceAll(',', '_')}';
+
+/// The dedupe key encoded in an [acquisitionTag], or null if [tag] isn't one of
+/// ours — lets the Downloads screen map a torrent back to its acquisition
+/// context. Dedupe keys never contain commas, so the reverse is exact. Pure.
+String? dedupeKeyFromTag(String tag) {
+  const prefix = 'cr-src-';
+  return tag.startsWith(prefix) ? tag.substring(prefix.length) : null;
+}
 
 /// Why a torrent operation failed, so the UI can explain it in plain language
 /// instead of "check the logs".
@@ -164,6 +180,11 @@ abstract class TorrentDaemon {
   /// Remove a torrent from the daemon. When [deleteFiles] is true its downloaded
   /// data (incl. partial/stalled files) is deleted from disk too.
   Future<void> remove({required String hash, required bool deleteFiles});
+
+  /// Remove the torrent bearing [dedupeKey]'s tag, if one exists (deleting its
+  /// files when [deleteFiles]). No-op when nothing matches. Used by "try another
+  /// source" to discard the current download before re-resolving.
+  Future<void> removeByDedupeKey(String dedupeKey, {required bool deleteFiles});
 
   /// Pause ([paused] true) or resume ([paused] false) a torrent.
   Future<void> setPaused({required String hash, required bool paused});

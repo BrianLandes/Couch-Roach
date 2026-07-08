@@ -10,13 +10,19 @@ import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
 import '../../core/media/ytdlp.dart';
 import '../../core/settings/settings_service.dart';
+import '../../data/db/database.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
+import '../../router/app_router.dart';
+import '../../services/acquisition/acquisition.dart';
+import '../../services/discovery/tmdb_client.dart';
 import '../../services/subtitles/subtitle_service.dart';
 import '../../services/subtitles/subtitle_skip_check.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
+import '../acquire/acquire_play.dart';
+import 'next_episode.dart';
 
 /// Everything the player needs to open a title. Passed via go_router `extra`
 /// (file paths don't belong in a URL).
@@ -102,6 +108,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration? _pendingSeek;
   String? _error;
 
+  // The library row for the playing file (show/season/episode) — drives
+  // prefetching and auto-playing the next episode. Loaded in _open().
+  LibraryItem? _currentItem;
+  // Prefetch of the next episode fires once, partway through.
+  bool _prefetchedNext = false;
+  // "Up Next" auto-advance: the next local episode + its countdown.
+  LibraryItem? _upNext;
+  Timer? _upNextTimer;
+  int _upNextSeconds = 0;
+
   // Subtitle tracks libmpv currently exposes (embedded streams + anything we've
   // loaded) and the active one, mirrored from the player streams so the
   // right-click "Subtitles" menu always lists the real, current options.
@@ -127,6 +143,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final id = widget.libraryItemId;
       if (id != null) {
         final item = await _library.findById(id);
+        _currentItem = item;
         _subtitleOffsetMs = item?.subtitleOffsetMs ?? 0;
         if (start == Duration.zero) {
           final history = await _history.forItem(id);
@@ -148,7 +165,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (mounted) setState(() => _selectedSubtitle = t.subtitle);
       }));
       _subs.add(_player.stream.completed.listen((done) {
-        if (done) _markCompleted();
+        if (done) {
+          _markCompleted();
+          _onEpisodeEnd();
+        }
       }));
       _subs.add(_player.stream.error.listen((message) {
         getIt<ErrorLogService>().logError(
@@ -311,6 +331,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
+    // Once past the halfway mark, start downloading the next episode (if any)
+    // in the background so it's ready by the time this one ends.
+    _maybePrefetchNext(pos);
+
     // Throttle saves to roughly every 5s of progress so we don't hammer the DB.
     final id = widget.libraryItemId;
     if (id == null || _pendingSeek != null) return;
@@ -320,6 +344,190 @@ class _PlayerScreenState extends State<PlayerScreen> {
       libraryItemId: id,
       position: pos,
       duration: _player.state.duration,
+    );
+  }
+
+  /// Fire the next-episode prefetch once, after the halfway point.
+  void _maybePrefetchNext(Duration pos) {
+    if (_prefetchedNext) return;
+    final item = _currentItem;
+    final dur = _player.state.duration;
+    if (item == null || dur <= Duration.zero) return;
+    if (pos.inSeconds < dur.inSeconds * 0.5) return;
+    _prefetchedNext = true;
+    unawaited(_prefetchNext(item));
+  }
+
+  /// Download the episode after [item] (S{n}E{e+1}) if it isn't already in the
+  /// library. Fire-and-forget through the acquisition seam; never blocks play.
+  Future<void> _prefetchNext(LibraryItem item) async {
+    final tmdbId = item.tmdbId;
+    final season = item.season;
+    final episode = item.episode;
+    if (item.mediaType != 'tv' ||
+        tmdbId == null ||
+        season == null ||
+        episode == null) {
+      return;
+    }
+    final next = await _nextEpisodeNumber(tmdbId, season, episode);
+    if (next == null) return;
+    final (nextSeason, nextEp) = next;
+
+    final local = await _library.localEpisodes(tmdbId);
+    if (local.any((e) => e.season == nextSeason && e.episode == nextEp)) return;
+    try {
+      await prefetchEpisode(
+        showName: item.tmdbName ?? item.title,
+        tmdbId: tmdbId,
+        season: nextSeason,
+        episode: nextEp,
+      );
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.prefetchNext');
+    }
+  }
+
+  /// The next episode's (season, episode) — the next in the same season, or the
+  /// first of the next season once this one is finished — from TMDB season
+  /// episode counts. Null when there's no next. Without TMDB (offline / no key)
+  /// it degrades to the next episode in the same season.
+  Future<(int, int)?> _nextEpisodeNumber(
+      int tmdbId, int season, int episode) async {
+    final details = await getIt<DiscoveryClient>().tvDetails(tmdbId);
+    final counts = <int, int>{
+      for (final s in details?.seasons ?? const [])
+        if (s.seasonNumber >= 1 && s.episodeCount != null)
+          s.seasonNumber: s.episodeCount!,
+    };
+    return nextEpisodeNumber(season, episode, episodeCounts: counts);
+  }
+
+  /// On finishing a TV episode, advance to the next one — including rolling from
+  /// the last episode of a season into the first of the next. If it's already
+  /// downloaded → an "Up Next" countdown auto-plays it. If it's still downloading
+  /// (e.g. the prefetch hasn't finished) → open the "Preparing to play" dialog,
+  /// which reattaches to that download, shows its progress, and plays the moment
+  /// it's buffered. No-op for movies/trailers or when there's no next.
+  Future<void> _onEpisodeEnd() async {
+    final item = _currentItem;
+    final tmdbId = item?.tmdbId;
+    final season = item?.season;
+    final episode = item?.episode;
+    if (item == null ||
+        item.mediaType != 'tv' ||
+        tmdbId == null ||
+        season == null ||
+        episode == null) {
+      return;
+    }
+
+    final next = await _nextEpisodeNumber(tmdbId, season, episode);
+    if (next == null || !mounted) return;
+    final (nextSeason, nextEp) = next;
+    final showName = item.tmdbName ?? item.title;
+
+    // 1) The next episode is already in the library → Up Next countdown.
+    LibraryItem? localNext;
+    for (final e in await _library.localEpisodes(tmdbId)) {
+      if (e.season == nextSeason && e.episode == nextEp) {
+        localNext = e;
+        break;
+      }
+    }
+    if (localNext != null) {
+      if (!mounted) return;
+      setState(() {
+        _upNext = localNext;
+        _upNextSeconds = 10;
+      });
+      _upNextTimer?.cancel();
+      _upNextTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+        if (!mounted) {
+          t.cancel();
+          return;
+        }
+        setState(() => _upNextSeconds--);
+        if (_upNextSeconds <= 0) {
+          t.cancel();
+          _playNext();
+        }
+      });
+      return;
+    }
+
+    // 2) Not local — but if it's downloading (the prefetch started it), open the
+    // preparing dialog so it plays when ready.
+    final daemon = getIt<TorrentDaemon>();
+    final downloading = await daemon.taskForDedupeKey(acquisitionDedupeKey(
+                tmdbId: tmdbId,
+                title: showName,
+                season: nextSeason,
+                episode: nextEp)) !=
+            null ||
+        await daemon.taskForDedupeKey(acquisitionDedupeKey(
+                tmdbId: tmdbId, title: showName, season: nextSeason)) !=
+            null;
+    if (!downloading || !mounted) return;
+
+    final s = nextSeason.toString().padLeft(2, '0');
+    final e = nextEp.toString().padLeft(2, '0');
+    await playWhenReady(
+      context,
+      replace: true,
+      title: '$showName — S${s}E$e',
+      meta: ShowMeta(title: showName, tmdbId: tmdbId, mediaType: 'tv'),
+      season: nextSeason,
+      episode: nextEp,
+    );
+  }
+
+  void _playNext() {
+    _upNextTimer?.cancel();
+    final next = _upNext;
+    if (next == null || !mounted) return;
+    // Replace this (finished) episode so Back doesn't return to it.
+    context.pushReplacement(
+      Routes.player,
+      extra: PlayerArgs(
+        filePath: next.filePath,
+        title: next.tmdbName ?? next.title,
+        libraryItemId: next.id,
+      ),
+    );
+  }
+
+  void _cancelUpNext() {
+    _upNextTimer?.cancel();
+    if (mounted) setState(() => _upNext = null);
+  }
+
+  /// "This torrent's no good" — abandon the current source and stream the
+  /// next-best one for this title. Only for real library titles sourced through
+  /// acquisition (needs the show/episode to re-resolve); no-op for trailers.
+  /// Stops playback first so the daemon can delete the current file, then hands
+  /// off to the preparing dialog (retry-first) and replaces this player with the
+  /// new source so Back doesn't return to the dead one.
+  Future<void> _tryAnotherSource() async {
+    final item = _currentItem;
+    if (item == null) return;
+    _subtitleMenuController.close();
+    final meta = ShowMeta(
+      title: item.tmdbName ?? item.title,
+      tmdbId: item.tmdbId,
+      mediaType: item.mediaType,
+    );
+    await _player.stop();
+    if (!mounted) return;
+    await playWhenReady(
+      context,
+      title: widget.title ?? item.tmdbName ?? item.title,
+      meta: meta,
+      season: item.season,
+      episode: item.episode,
+      retryFirst: true,
+      replace: true,
     );
   }
 
@@ -409,6 +617,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _persistFinal();
+    _upNextTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }
@@ -644,7 +853,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         children: [
           Positioned.fill(
             child: _error != null
-                ? _PlaybackError(title: widget.title, message: _error!)
+                ? _PlaybackError(
+                    title: widget.title,
+                    message: _error!,
+                    onRetry: _currentItem != null ? _tryAnotherSource : null,
+                  )
                 : Stack(
                     children: [
                       // Right-click anywhere on the video opens the context menu
@@ -682,6 +895,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               menuChildren: _subtitleMenuItems(),
                               child: const Text('Subtitles'),
                             ),
+                            if (_currentItem != null)
+                              MenuItemButton(
+                                leadingIcon: const Icon(Icons.refresh_rounded,
+                                    size: 18),
+                                onPressed: _tryAnotherSource,
+                                child: const Text('Try a different source'),
+                              ),
                           ],
                           child: const SizedBox.shrink(),
                         ),
@@ -711,16 +931,94 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
             ),
+          if (_upNext != null)
+            Positioned(
+              right: AppSpacing.xl,
+              bottom: AppSpacing.xl,
+              child: _UpNextCard(
+                title: _upNext!.tmdbName ?? _upNext!.title,
+                subtitle: _upNext!.season != null && _upNext!.episode != null
+                    ? 'S${_upNext!.season} · E${_upNext!.episode}'
+                    : null,
+                seconds: _upNextSeconds,
+                onPlay: _playNext,
+                onCancel: _cancelUpNext,
+              ),
+            ),
         ],
       ),
     );
   }
 }
 
+/// The "Up Next" auto-advance card shown at the end of an episode.
+class _UpNextCard extends StatelessWidget {
+  const _UpNextCard({
+    required this.title,
+    required this.seconds,
+    required this.onPlay,
+    required this.onCancel,
+    this.subtitle,
+  });
+
+  final String title;
+  final String? subtitle;
+  final int seconds;
+  final VoidCallback onPlay;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 320),
+      child: GlassSurface(
+        strong: true,
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Up next · playing in ${seconds}s',
+                style: text.labelMedium
+                    ?.copyWith(color: AppColors.textSecondary)),
+            const SizedBox(height: AppSpacing.xs),
+            Text(title,
+                style: text.titleMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+            if (subtitle != null)
+              Text(subtitle!,
+                  style: text.labelMedium
+                      ?.copyWith(color: AppColors.secondary)),
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              children: [
+                FilledButton.icon(
+                  autofocus: true,
+                  onPressed: onPlay,
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Play now'),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                TextButton(onPressed: onCancel, child: const Text('Cancel')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _PlaybackError extends StatelessWidget {
-  const _PlaybackError({required this.message, this.title});
+  const _PlaybackError({required this.message, this.title, this.onRetry});
   final String? title;
   final String message;
+
+  /// Offered for acquisition-sourced titles: abandon this (bad) source and
+  /// stream the next-best one. Null for local files / trailers.
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -745,6 +1043,14 @@ class _PlaybackError extends StatelessWidget {
               style: text.bodyMedium?.copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,
             ),
+            if (onRetry != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Try a different source'),
+              ),
+            ],
           ],
         ),
       ),

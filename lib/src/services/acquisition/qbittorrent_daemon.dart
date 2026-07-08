@@ -258,6 +258,22 @@ class QbittorrentDaemon implements TorrentDaemon {
           {'hashes': hash, 'deleteFiles': '$deleteFiles'}, 'remove');
 
   @override
+  Future<void> removeByDedupeKey(String dedupeKey,
+      {required bool deleteFiles}) async {
+    final tag = acquisitionTag(dedupeKey);
+    final list = await torrentsInfo(tag: tag);
+    final hashes = [
+      for (final t in list)
+        if ((t['hash'] as String?)?.isNotEmpty ?? false) t['hash'] as String,
+    ];
+    if (hashes.isEmpty) return;
+    // One delete call handles all matching hashes (comma-joined).
+    _log.info('removing ${hashes.length} torrent(s) for tag=$tag '
+        '(deleteFiles=$deleteFiles)', source: 'QbittorrentDaemon.remove');
+    await remove(hash: hashes.join(','), deleteFiles: deleteFiles);
+  }
+
+  @override
   Future<void> setPaused({required String hash, required bool paused}) =>
       // qBittorrent 5.x renamed pause/resume → stop/start.
       _command(paused ? '/torrents/stop' : '/torrents/start', {'hashes': hash},

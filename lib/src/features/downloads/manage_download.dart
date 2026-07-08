@@ -1,13 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/logging/error_log_service.dart';
 import '../../injection.dart';
 import '../../services/acquisition/acquisition.dart';
+import '../../services/acquisition/acquisition_session.dart';
 import '../../theme/theme.dart';
+import '../acquire/acquire_play.dart';
 import 'downloads_providers.dart';
 
 /// Actions offered for a torrent on the Downloads screen.
-enum ManageAction { stop, resume, removeKeepFiles, removeDeleteFiles }
+enum ManageAction {
+  stop,
+  resume,
+  tryAnotherSource,
+  removeKeepFiles,
+  removeDeleteFiles,
+}
+
+/// The acquisition request behind [torrent], if it was started this session
+/// (mapped from its [acquisitionTag] via [AcquisitionSession]) — enables "try
+/// another source". Null for a plain/imported torrent or one from a prior run.
+AcquireRequest? _requestFor(TorrentStatus torrent) {
+  for (final tag in torrent.tags) {
+    final key = dedupeKeyFromTag(tag);
+    if (key == null) continue;
+    final request = getIt<AcquisitionSession>().requestFor(key);
+    if (request != null) return request;
+  }
+  return null;
+}
 
 /// Whether a raw qBittorrent state string means the torrent is paused/stopped.
 bool isPausedState(String state) {
@@ -23,9 +45,12 @@ Future<void> showManageDownload(
   TorrentStatus torrent,
 ) async {
   final messenger = ScaffoldMessenger.of(context);
+  // Retry is only offered when we can reconstruct what was searched for.
+  final request = _requestFor(torrent);
   final action = await showDialog<ManageAction>(
     context: context,
-    builder: (_) => _ManageDownloadDialog(torrent: torrent),
+    builder: (_) =>
+        _ManageDownloadDialog(torrent: torrent, canRetry: request != null),
   );
   if (action == null) return;
 
@@ -36,13 +61,31 @@ Future<void> showManageDownload(
         await daemon.setPaused(hash: torrent.hash, paused: true);
       case ManageAction.resume:
         await daemon.setPaused(hash: torrent.hash, paused: false);
+      case ManageAction.tryAnotherSource:
+        // Discard this source and swap in the next-best, in the background —
+        // the replacement download appears in the list.
+        await retrySourceInBackground(
+          title: request!.title,
+          meta: request.meta,
+          season: request.season,
+          episode: request.episode,
+        );
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Swapped in another source — see the new download.'),
+        ));
       case ManageAction.removeKeepFiles:
         await daemon.remove(hash: torrent.hash, deleteFiles: false);
       case ManageAction.removeDeleteFiles:
         await daemon.remove(hash: torrent.hash, deleteFiles: true);
     }
     ref.invalidate(downloadsProvider); // reflect the change immediately
-  } catch (_) {
+  } on TorrentDaemonException catch (e) {
+    getIt<ErrorLogService>()
+        .logError(e, source: 'ManageDownload.${action.name}');
+    messenger.showSnackBar(SnackBar(content: Text(e.userMessage)));
+  } catch (e, st) {
+    getIt<ErrorLogService>()
+        .logError(e, stackTrace: st, source: 'ManageDownload.${action.name}');
     messenger.showSnackBar(
       const SnackBar(content: Text('Action failed — see the error log.')),
     );
@@ -50,8 +93,11 @@ Future<void> showManageDownload(
 }
 
 class _ManageDownloadDialog extends StatelessWidget {
-  const _ManageDownloadDialog({required this.torrent});
+  const _ManageDownloadDialog({required this.torrent, this.canRetry = false});
   final TorrentStatus torrent;
+
+  /// Whether "Try another source" is available (we know how to re-resolve this).
+  final bool canRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -86,6 +132,16 @@ class _ManageDownloadDialog extends StatelessWidget {
                     : Icons.pause_rounded),
                 label: Text(paused ? 'Resume' : 'Stop'),
               ),
+            // "This torrent's no good" — discard it and pull the next-best.
+            if (canRetry) ...[
+              const SizedBox(height: AppSpacing.sm),
+              OutlinedButton.icon(
+                onPressed: () =>
+                    Navigator.of(context).pop(ManageAction.tryAnotherSource),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Try another source'),
+              ),
+            ],
             const SizedBox(height: AppSpacing.sm),
             OutlinedButton.icon(
               autofocus: torrent.isComplete,

@@ -27,11 +27,17 @@ class CompositeAcquisitionResolver implements AcquisitionResolver {
   List<AcquisitionResolver> get _ordered => [_ia, _jackett];
 
   @override
-  Future<TorrentHandle?> resolve(ShowMeta meta, int? season, int? episode) async {
+  Future<TorrentHandle?> resolve(
+    ShowMeta meta,
+    int? season,
+    int? episode, {
+    Set<String> exclude = const {},
+  }) async {
     final ep = (season != null && episode != null) ? ' S${season}E$episode' : '';
     for (final resolver in _ordered) {
       try {
-        final hit = await resolver.resolve(meta, season, episode);
+        final hit = await resolver.resolve(meta, season, episode,
+            exclude: exclude);
         if (hit != null) {
           _log.info('resolved "${meta.title}"$ep via ${resolver.runtimeType}',
               source: 'CompositeResolver');

@@ -59,29 +59,37 @@ class AcquireButton extends ConsumerWidget {
 
     switch (state.phase) {
       case AcquirePhase.preparing:
-        return _Preparing(
-          progress: state.progress,
-          onPlayWhenReady: () => playWhenReady(
-            context,
-            title: title,
-            meta: meta,
-            season: season,
-            episode: episode,
+        return _withRetryMenu(
+          ref,
+          dedupeKey,
+          _Preparing(
+            progress: state.progress,
+            onPlayWhenReady: () => playWhenReady(
+              context,
+              title: title,
+              meta: meta,
+              season: season,
+              episode: episode,
+            ),
           ),
         );
       case AcquirePhase.ready:
-        return FilledButton.icon(
-          autofocus: autofocus,
-          onPressed: () => context.push(
-            Routes.player,
-            extra: PlayerArgs(
-              filePath: state.filePath!,
-              title: title,
-              libraryItemId: state.libraryItemId,
+        return _withRetryMenu(
+          ref,
+          dedupeKey,
+          FilledButton.icon(
+            autofocus: autofocus,
+            onPressed: () => context.push(
+              Routes.player,
+              extra: PlayerArgs(
+                filePath: state.filePath!,
+                title: title,
+                libraryItemId: state.libraryItemId,
+              ),
             ),
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: const Text('Play'),
           ),
-          icon: const Icon(Icons.play_arrow_rounded),
-          label: const Text('Play'),
         );
       case AcquirePhase.idle:
       case AcquirePhase.failed:
@@ -103,6 +111,42 @@ class AcquireButton extends ConsumerWidget {
           season: season,
           episode: episode,
         );
+  }
+
+  /// Wrap the active control ([child]) with a small overflow menu offering "Try
+  /// a different source" — the escape hatch when the current torrent is bad or
+  /// stalled (re-resolves the next-best in place, no navigation).
+  Widget _withRetryMenu(WidgetRef ref, String dedupeKey, Widget child) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Flexible(child: child),
+        const SizedBox(width: AppSpacing.xs),
+        MenuAnchor(
+          menuChildren: [
+            MenuItemButton(
+              leadingIcon: const Icon(Icons.refresh_rounded, size: 18),
+              onPressed: () => ref
+                  .read(acquisitionControllerProvider(dedupeKey).notifier)
+                  .retry(
+                    title: title,
+                    meta: meta,
+                    season: season,
+                    episode: episode,
+                  ),
+              child: const Text('Try a different source'),
+            ),
+          ],
+          builder: (context, controller, _) => IconButton(
+            onPressed: () =>
+                controller.isOpen ? controller.close() : controller.open(),
+            icon: const Icon(Icons.more_vert_rounded),
+            tooltip: 'More options',
+          ),
+        ),
+      ],
+    );
   }
 }
 

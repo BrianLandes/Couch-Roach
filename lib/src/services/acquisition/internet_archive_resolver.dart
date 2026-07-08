@@ -32,7 +32,12 @@ class InternetArchiveResolver implements AcquisitionResolver {
   static const _maxCandidates = 5;
 
   @override
-  Future<TorrentHandle?> resolve(ShowMeta meta, int? season, int? episode) async {
+  Future<TorrentHandle?> resolve(
+    ShowMeta meta,
+    int? season,
+    int? episode, {
+    Set<String> exclude = const {},
+  }) async {
     final searchUri = Uri.https(_host, '/advancedsearch.php', {
       'q': buildInternetArchiveQuery(meta, season, episode),
       'fl[]': ['identifier', 'title'],
@@ -49,6 +54,9 @@ class InternetArchiveResolver implements AcquisitionResolver {
     for (final doc in docs.whereType<Map>()) {
       final id = doc['identifier'] as String?;
       if (id == null || id.isEmpty) continue;
+
+      // Skip a source already tried for this title ("try another source").
+      if (exclude.contains(internetArchiveTorrentUrl(id))) continue;
 
       // Confirm the item actually has playable video before committing to it —
       // IA items can be audio/text/metadata only.

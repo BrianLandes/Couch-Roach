@@ -27,6 +27,8 @@ import 'package:couch_roach/src/features/library/library_service.dart' as _i38;
 import 'package:couch_roach/src/features/library/media_scanner.dart' as _i842;
 import 'package:couch_roach/src/injection.dart' as _i481;
 import 'package:couch_roach/src/services/acquisition/acquisition.dart' as _i156;
+import 'package:couch_roach/src/services/acquisition/acquisition_session.dart'
+    as _i632;
 import 'package:couch_roach/src/services/acquisition/archive_browse_service.dart'
     as _i477;
 import 'package:couch_roach/src/services/acquisition/composite_resolver.dart'
@@ -78,6 +80,8 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i657.ErrorLogService>(() => _i657.ErrorLogService());
     gh.lazySingleton<_i865.AppDatabase>(() => registerModule.database);
     gh.lazySingleton<_i519.Client>(() => registerModule.httpClient);
+    gh.lazySingleton<_i632.AcquisitionSession>(
+        () => _i632.AcquisitionSession());
     gh.lazySingleton<_i403.MovieHasher>(() => _i403.OpenSubtitlesMovieHasher());
     gh.lazySingleton<_i312.QbittorrentProcess>(
         () => _i312.QbittorrentProcess(gh<_i657.ErrorLogService>()));

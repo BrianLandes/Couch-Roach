@@ -98,4 +98,36 @@ void main() {
     expect(hit, isNotNull);
     expect(hit!.magnetOrUrl, contains('archive.org'));
   });
+
+  test('exclude skips an already-tried Internet Archive item', () async {
+    final iaClient = MockClient((req) async {
+      if (req.url.path.contains('advancedsearch')) {
+        return http.Response(
+          jsonEncode({
+            'response': {
+              'docs': [
+                {'identifier': 'pd-film', 'title': 'PD Film'},
+              ],
+            },
+          }),
+          200,
+        );
+      }
+      return http.Response(
+          jsonEncode({
+            'files': [
+              {'name': 'movie.mp4'},
+            ],
+          }),
+          200);
+    });
+    final composite = CompositeAcquisitionResolver(
+      ia(iaClient),
+      jackett(dead()), // unconfigured → null, so nothing else resolves
+      log,
+    );
+    // The only IA hit resolves to this torrent URL; excluding it yields nothing.
+    const tried = 'https://archive.org/download/pd-film/pd-film_archive.torrent';
+    expect(await composite.resolve(meta, null, null, exclude: {tried}), isNull);
+  });
 }

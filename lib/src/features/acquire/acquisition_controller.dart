@@ -93,6 +93,48 @@ class AcquisitionController extends StateNotifier<AcquireState> {
     }
   }
 
+  /// "This torrent didn't work" — abandon the current source and prepare the
+  /// next-best one, rolling the control back through preparing → ready. Unlike
+  /// [start], allowed from any phase (the user hits it while preparing or once
+  /// it's ready but bad).
+  Future<void> retry({
+    required String title,
+    required ShowMeta meta,
+    int? season,
+    int? episode,
+  }) async {
+    await _sub?.cancel();
+    state = const AcquireState.preparing();
+    try {
+      final prepared = await retryWithNextSource(
+        title: title,
+        meta: meta,
+        season: season,
+        episode: episode,
+        bindProgress: (progress) {
+          _sub?.cancel();
+          _sub = progress.listen((p) {
+            if (mounted) state = AcquireState.preparing(progress: p);
+          });
+        },
+      );
+      await _sub?.cancel();
+      if (mounted) {
+        state = AcquireState.ready(
+          filePath: prepared.filePath,
+          libraryItemId: prepared.libraryItemId,
+        );
+      }
+    } on TorrentDaemonException catch (e) {
+      if (mounted) state = AcquireState.failed(e.userMessage);
+    } catch (_) {
+      if (mounted) {
+        state = const AcquireState.failed(
+            'Something went wrong starting this video. Please try again.');
+      }
+    }
+  }
+
   @override
   void dispose() {
     _sub?.cancel();
