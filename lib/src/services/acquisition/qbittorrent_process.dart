@@ -80,7 +80,15 @@ class QbittorrentProcess {
       }
     }));
 
-    await _awaitReady();
+    try {
+      await _awaitReady();
+    } on TimeoutException {
+      // WebUI never bound. Log every config file under the profile so a
+      // path/format mismatch (qBittorrent wrote its config somewhere other than
+      // where we seeded) is obvious from the log.
+      _logDiscoveredConfigs(profileDir);
+      rethrow;
+    }
   }
 
   /// Kill the child process. Safe to call when nothing is running. Never
@@ -132,11 +140,17 @@ class QbittorrentProcess {
     return dir;
   }
 
-  /// Seed `qBittorrent.conf` so the daemon comes up headless, bound to
-  /// localhost, with the first-run legal notice pre-accepted and localhost auth
-  /// disabled (the API client connects with no credentials — the daemon is only
-  /// ever reachable on 127.0.0.1). Written only if absent so the user's later
-  /// tweaks via the Web UI survive restarts.
+  /// Ensure the daemon comes up headless with its Web API bound to
+  /// `127.0.0.1:8181`, the first-run legal notice pre-accepted, and localhost
+  /// auth bypassed (the client connects credential-free — the daemon is only
+  /// reachable on 127.0.0.1).
+  ///
+  /// This runs on **every** launch and *merges* the required keys into any
+  /// existing config rather than skipping when the file exists. qBittorrent
+  /// rewrites its whole config on exit, so an earlier build (or a manual tweak)
+  /// can leave WebUI disabled or on the wrong port — and a skip-if-exists seed
+  /// would never repair it, leaving the daemon up with no Web API to talk to.
+  /// The user's unrelated settings (download paths, limits, …) are preserved.
   Future<void> _seedConfig(Directory profileDir) async {
     // qBittorrent reads <profile>/qBittorrent/config/qBittorrent.{ini,conf}.
     // The Windows GUI build (portable/profile mode) uses .ini; nox uses .conf.
@@ -145,30 +159,100 @@ class QbittorrentProcess {
 
     final fileName = Platform.isWindows ? 'qBittorrent.ini' : 'qBittorrent.conf';
     final conf = File(p.join(configDir.path, fileName));
-    if (conf.existsSync()) return;
-
-    conf.writeAsStringSync(defaultConfig());
+    final existing = conf.existsSync() ? conf.readAsStringSync() : null;
+    final merged = enforceConfig(existing);
+    if (merged != existing) conf.writeAsStringSync(merged);
+    _log.info(
+      'qBittorrent config ${existing == null ? 'seeded' : 'reconciled'} at ${conf.path}',
+      source: 'QbittorrentProcess',
+    );
   }
 
-  /// The seed config (exposed for testing). `LocalHostAuth=false` lets the
-  /// localhost-only Web API client connect without credentials; the legal-notice
-  /// acceptance keeps the daemon from blocking on a first-run prompt. The
+  /// The keys we force on every launch (section → key → value). `WebUI\Enabled`
+  /// is the load-bearing one — without it the Web API never binds.
+  /// `LocalHostAuth=false` bypasses auth for localhost clients; the legal-notice
+  /// acceptance stops the daemon blocking on a first-run prompt; the
   /// StartMinimized/tray keys keep the Windows GUI exe (used in lieu of a
-  /// headless nox build) out of sight — nox ignores them.
-  static String defaultConfig() {
-    return '[LegalNotice]\n'
-        'Accepted=true\n'
-        '\n'
-        '[Preferences]\n'
-        'WebUI\\Enabled=true\n'
-        'WebUI\\Address=$webUiHost\n'
-        'WebUI\\Port=$webUiPort\n'
-        'WebUI\\LocalHostAuth=false\n'
-        'WebUI\\CSRFProtection=false\n'
-        'General\\Locale=en\n'
-        'General\\StartMinimized=true\n'
-        'General\\MinimizeToTray=true\n'
-        'General\\CloseToTray=true\n';
+  /// headless nox build) out of sight (nox ignores them).
+  static Map<String, Map<String, String>> get _requiredConfig => {
+        'LegalNotice': {'Accepted': 'true'},
+        'Preferences': {
+          'WebUI\\Enabled': 'true',
+          'WebUI\\Address': webUiHost,
+          'WebUI\\Port': '$webUiPort',
+          'WebUI\\LocalHostAuth': 'false',
+          'WebUI\\CSRFProtection': 'false',
+          'General\\Locale': 'en',
+          'General\\StartMinimized': 'true',
+          'General\\MinimizeToTray': 'true',
+          'General\\CloseToTray': 'true',
+        },
+      };
+
+  /// Merge [_requiredConfig] into [existing] qBittorrent INI text (or produce a
+  /// fresh config when null), preserving every other section/key in order. Pure
+  /// and static so the merge is unit-testable.
+  static String enforceConfig(String? existing) {
+    final sectionOrder = <String>[];
+    final data = <String, Map<String, String>>{};
+
+    String? current;
+    for (final raw in (existing ?? '').split('\n')) {
+      final line = raw.trim();
+      if (line.isEmpty) continue;
+      if (line.startsWith('[') && line.endsWith(']')) {
+        current = line.substring(1, line.length - 1);
+        if (!data.containsKey(current)) {
+          sectionOrder.add(current);
+          data[current] = <String, String>{};
+        }
+        continue;
+      }
+      final eq = line.indexOf('=');
+      if (eq <= 0 || current == null) continue; // skip malformed / preamble
+      data[current]![line.substring(0, eq).trim()] = line.substring(eq + 1).trim();
+    }
+
+    _requiredConfig.forEach((section, kv) {
+      if (!data.containsKey(section)) {
+        sectionOrder.add(section);
+        data[section] = <String, String>{};
+      }
+      data[section]!.addAll(kv);
+    });
+
+    final buf = StringBuffer();
+    for (final section in sectionOrder) {
+      buf.writeln('[$section]');
+      data[section]!.forEach((k, v) => buf.writeln('$k=$v'));
+      buf.writeln();
+    }
+    return buf.toString();
+  }
+
+  /// The fresh-install config (exposed for testing).
+  static String defaultConfig() => enforceConfig(null);
+
+  /// Log every qBittorrent config file under the profile, so a timeout can be
+  /// diagnosed: if the daemon wrote a config somewhere other than where we
+  /// seeded, our WebUI keys never took effect.
+  void _logDiscoveredConfigs(Directory profileDir) {
+    try {
+      final found = profileDir
+          .listSync(recursive: true, followLinks: false)
+          .whereType<File>()
+          .where((f) {
+        final name = p.basename(f.path).toLowerCase();
+        return name.endsWith('.ini') || name.endsWith('.conf');
+      }).map((f) => f.path);
+      _log.warn(
+        'qBittorrent WebUI never came up. Config files under the profile: '
+        '${found.isEmpty ? '(none found)' : found.join(', ')}',
+        source: 'QbittorrentProcess',
+      );
+    } catch (_) {
+      // Diagnostic only — never let it mask the original timeout.
+    }
   }
 
   /// Poll the Web API until it answers or we give up.
