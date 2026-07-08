@@ -38,35 +38,39 @@ abstract class VpnController {
   Future<void> disconnect();
 }
 
-/// Map raw `expressvpnctl status` output to a [VpnState]. Keyword-based and
-/// case-insensitive, checked most-specific first (note "disconnected" *contains*
-/// "connected", so the negative cases must win).
+/// Map raw `expressvpnctl status` output to a [VpnState].
 ///
-/// ⚠️ The exact strings ExpressVPN prints per state are undocumented — these are
-/// best-effort until the on-machine spike (docs/VPN.md) confirms them. The tests
-/// encode the contract; adjust both together when the real output is captured.
+/// Confirmed on the TV PC (expressvpnctl 12.69+), the first line is the status
+/// and the rest are details:
+///   `Disconnected` · `Connected to <loc>` · `Not logged in.` (+ `Connecting…`)
+///
+/// We match **only that first line** — the detail lines include
+/// `Network Lock: enabled when connected`, whose "connected" would otherwise
+/// make every state read as connected. Checked most-specific first (note
+/// "disconnected" *contains* "connected", so the negatives must win).
 VpnState parseVpnStatus(String raw) {
-  final s = raw.toLowerCase().trim();
-  if (s.isEmpty) return VpnState.unknown;
+  final line = raw
+      .split('\n')
+      .map((l) => l.trim())
+      .firstWhere((l) => l.isNotEmpty, orElse: () => '')
+      .toLowerCase();
+  if (line.isEmpty) return VpnState.unknown;
 
-  // Not activated / signed out — must be checked before the connect/disconnect
-  // keywords in case the message mentions connecting to sign in.
-  if (s.contains('not signed in') ||
-      s.contains('not activated') ||
-      s.contains('please sign in') ||
-      s.contains('please activate') ||
-      s.contains('sign in to') ||
-      s.contains('log in to') ||
-      s.contains('activate your')) {
+  // Signed out — "Not logged in." (confirmed) and other sign-in phrasings.
+  if (line.contains('not logged in') ||
+      line.contains('not signed in') ||
+      line.contains('not activated') ||
+      line.contains('log in') ||
+      line.contains('sign in')) {
     return VpnState.notSignedIn;
   }
-  if (s.contains('connecting') || s.contains('reconnecting')) {
+  if (line.contains('connecting') || line.contains('reconnecting')) {
     return VpnState.connecting;
   }
   // "disconnected" / "not connected" — before the bare "connected" match.
-  if (s.contains('disconnect') || s.contains('not connected')) {
+  if (line.contains('disconnect') || line.contains('not connected')) {
     return VpnState.disconnected;
   }
-  if (s.contains('connected')) return VpnState.connected;
+  if (line.contains('connected')) return VpnState.connected;
   return VpnState.unknown;
 }

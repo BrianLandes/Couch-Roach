@@ -26,23 +26,45 @@ class FakeVpnController implements VpnController {
 }
 
 void main() {
-  group('parseVpnStatus', () {
-    test('connected', () {
-      expect(parseVpnStatus('Connected to USA - New York'), VpnState.connected);
-    });
-    test('disconnected — the negative case wins over the "connected" substring',
+  group('parseVpnStatus — real expressvpnctl 12.69 output', () {
+    // Captured verbatim on the TV PC. Every state ends with a
+    // "Network Lock: enabled when connected" line, which is why we match the
+    // first line only (whole-string matching would read them all as connected).
+    const disconnected = 'Disconnected\n'
+        '\n'
+        'Location: Smart (usa-salt-lake-city)\n'
+        'Network Lock: enabled when connected\n'
+        'Split Tunnel: disabled\n';
+    const connected = 'Connected to Smart (usa-salt-lake-city)\n'
+        '\n'
+        'Protocol in use: LightwayUdp\n'
+        'Network Lock: enabled when connected\n'
+        'Split Tunnel: disabled\n';
+    const notLoggedIn = 'Not logged in.\n'
+        '\n'
+        'Network Lock: enabled when connected\n'
+        'Split Tunnel: disabled\n';
+
+    test('Disconnected → disconnected (not fooled by "enabled when connected")',
         () {
-      expect(parseVpnStatus('Disconnected'), VpnState.disconnected);
-      expect(parseVpnStatus('Not connected'), VpnState.disconnected);
+      expect(parseVpnStatus(disconnected), VpnState.disconnected);
     });
-    test('connecting', () {
-      expect(parseVpnStatus('Connecting…'), VpnState.connecting);
+    test('Connected to … → connected', () {
+      expect(parseVpnStatus(connected), VpnState.connected);
+    });
+    test('Not logged in. → notSignedIn (not fooled by the detail line)', () {
+      expect(parseVpnStatus(notLoggedIn), VpnState.notSignedIn);
+    });
+  });
+
+  group('parseVpnStatus — extra shapes', () {
+    test('connecting (assumed phrasing)', () {
+      expect(parseVpnStatus('Connecting to Smart…'), VpnState.connecting);
       expect(parseVpnStatus('Reconnecting'), VpnState.connecting);
     });
-    test('not signed in — checked before connect keywords', () {
+    test('other sign-in phrasings', () {
       expect(parseVpnStatus('Not signed in'), VpnState.notSignedIn);
-      expect(parseVpnStatus('Please sign in to connect'), VpnState.notSignedIn);
-      expect(parseVpnStatus('Not activated'), VpnState.notSignedIn);
+      expect(parseVpnStatus('Please sign in to continue'), VpnState.notSignedIn);
     });
     test('empty / unrecognized → unknown', () {
       expect(parseVpnStatus(''), VpnState.unknown);

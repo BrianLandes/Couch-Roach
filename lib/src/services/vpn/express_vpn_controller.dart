@@ -19,10 +19,12 @@ class ExpressVpnController implements VpnController {
   final VpnElevation _elevation;
 
   // Version-dependent install locations to probe (never hardcode a single one).
+  // First entry is the confirmed 12.69 location on the TV PC.
   static const _windowsCliCandidates = [
-    r'C:\Program Files (x86)\ExpressVPN\services\expressvpnctl.exe',
-    r'C:\Program Files\ExpressVPN\services\expressvpnctl.exe',
     r'C:\Program Files\ExpressVPN\expressvpnctl.exe',
+    r'C:\Program Files (x86)\ExpressVPN\expressvpnctl.exe',
+    r'C:\Program Files\ExpressVPN\services\expressvpnctl.exe',
+    r'C:\Program Files (x86)\ExpressVPN\services\expressvpnctl.exe',
   ];
   static const _windowsInstallDirs = [
     r'C:\Program Files (x86)\ExpressVPN',
