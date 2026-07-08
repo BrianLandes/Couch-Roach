@@ -61,6 +61,23 @@ void main() {
     });
   });
 
+  group('isEnglish', () {
+    test('matches en / eng / english language codes', () {
+      expect(SubtitleSkipCheck.isEnglish('en', null), isTrue);
+      expect(SubtitleSkipCheck.isEnglish('ENG', null), isTrue);
+      expect(SubtitleSkipCheck.isEnglish('English', null), isTrue);
+    });
+
+    test('matches a title naming English when the language is absent', () {
+      expect(SubtitleSkipCheck.isEnglish(null, 'English (SDH)'), isTrue);
+    });
+
+    test('is false for other languages and empty input', () {
+      expect(SubtitleSkipCheck.isEnglish('spa', 'Español'), isFalse);
+      expect(SubtitleSkipCheck.isEnglish(null, null), isFalse);
+    });
+  });
+
   group('ffprobeJsonHasEnglish', () {
     test('true for a subtitle stream tagged language=eng', () {
       const json = '''

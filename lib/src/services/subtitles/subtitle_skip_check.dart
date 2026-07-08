@@ -77,7 +77,7 @@ class SubtitleSkipCheck {
         final tags = (stream['tags'] as Map<String, dynamic>?) ?? const {};
         final lang = (tags['language'] ?? tags['LANGUAGE'])?.toString();
         final title = (tags['title'] ?? tags['TITLE'])?.toString();
-        if (_isEnglish(lang, title)) return true;
+        if (isEnglish(lang, title)) return true;
       }
       return false;
     } catch (_) {
@@ -93,7 +93,7 @@ class SubtitleSkipCheck {
       // Give libmpv a moment to parse the container and populate tracks.
       await Future<void>.delayed(const Duration(milliseconds: 800));
       return player.state.tracks.subtitle
-          .any((s) => _isEnglish(s.language, s.title));
+          .any((s) => isEnglish(s.language, s.title));
     } catch (e, st) {
       _log.logError(e, stackTrace: st, source: 'SubtitleSkipCheck.mediaKit');
       return false; // inconclusive → treat as "no English" (safe: we'll fetch)
@@ -102,7 +102,10 @@ class SubtitleSkipCheck {
     }
   }
 
-  static bool _isEnglish(String? language, String? title) {
+  /// True when a track's `language`/`title` names English (`en`/`eng`/`english`,
+  /// or a title mentioning "english"). Shared with the player so a downloaded
+  /// sidecar isn't loaded on top of an English track libmpv already has.
+  static bool isEnglish(String? language, String? title) {
     final l = language?.toLowerCase();
     if (l == 'en' || l == 'eng' || l == 'english') return true;
     final t = title?.toLowerCase();

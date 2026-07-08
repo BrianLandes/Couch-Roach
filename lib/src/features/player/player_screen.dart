@@ -5,9 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
+import '../../services/subtitles/subtitle_service.dart';
+import '../../services/subtitles/subtitle_skip_check.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
 
@@ -117,10 +120,40 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       // Seek is applied on the first ready position tick (see _onPosition).
       await _player.open(Media(widget.filePath));
+
+      // Playback has started — fetch English subtitles in the background and
+      // load them into the running player if they arrive. Never blocks play.
+      unawaited(_ensureSubtitles());
     } catch (e, st) {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'PlayerScreen.open');
       if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  /// Ask the subtitle service for an English track (skip-check → search →
+  /// download → `<name>.en.srt`). If it produces a sidecar and libmpv doesn't
+  /// already have an English subtitle track, load + select it. Best-effort; a
+  /// failure here never disrupts playback.
+  Future<void> _ensureSubtitles() async {
+    if (!const AppConfig().hasOpenSubtitlesKey) return;
+    try {
+      final srtPath =
+          await getIt<SubtitleService>().ensureEnglish(widget.filePath);
+      if (srtPath == null || !mounted) return;
+      // A pre-existing sidecar libmpv already auto-loaded shows up as an English
+      // track — don't add a duplicate.
+      final alreadyHasEnglish = _player.state.tracks.subtitle
+          .any((s) => SubtitleSkipCheck.isEnglish(s.language, s.title));
+      if (alreadyHasEnglish) return;
+      await _player.setSubtitleTrack(
+        SubtitleTrack.uri(srtPath, title: 'English', language: 'en'),
+      );
+      getIt<ErrorLogService>()
+          .info('Loaded English subtitles: $srtPath', source: 'PlayerScreen');
+    } catch (e, st) {
+      getIt<ErrorLogService>().logError(e,
+          stackTrace: st, source: 'PlayerScreen.ensureSubtitles');
     }
   }
 
