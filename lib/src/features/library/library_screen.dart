@@ -19,6 +19,7 @@ import '../../services/acquisition/archive_browse_service.dart';
 import '../discover/discover_poster_card.dart';
 import '../discover/discover_providers.dart';
 import '../discover/show_detail_screen.dart';
+import '../vpn/vpn_status_chip.dart';
 import '../player/player_screen.dart';
 import 'continue_watching_card.dart';
 import 'library_match_service.dart';
@@ -189,6 +190,8 @@ class _Header extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          const SizedBox(width: AppSpacing.md),
+          const VpnStatusChip(),
           const SizedBox(width: AppSpacing.md),
           // Compact icon buttons — they all fit on one row, so nothing (least of
           // all Search) gets scrolled out of reach.

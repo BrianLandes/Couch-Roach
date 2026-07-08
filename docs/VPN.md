@@ -1,6 +1,17 @@
 # VPN gating (ExpressVPN) — research & implementation plan
 
-_Status: **scoped, not built.** Orthogonal to M1–M4; slot in around/after M4._
+_Status: **seam + service + UI built** (2026-07-07). `VpnController` seam,
+`ExpressVpnController` (expressvpnctl wrapper + `parseVpnStatus`), `VpnService`
+(poll → `Stream<VpnState>` + `ensureConnected`), the Scheduled-Task elevation
+helper, and the landing-page status chip are in `lib/src/services/vpn/` +
+`lib/src/features/vpn/`._
+
+_**Still needs the real TV PC / a decision:** (1) the spike — capture exact
+`expressvpnctl status` strings + confirm whether `status` needs admin; the parser
+is best-effort keyword matching until then. (2) run the one-time elevated
+`VpnElevation.setUp` to register the connect/disconnect tasks. (3) decide the
+**gating policy** (hard-gate vs. best-effort) and wire `ensureConnected()` into
+the acquire/play flow — the mechanism exists but isn't called from play yet._
 _Last updated: 2026-07-07_
 
 ## Goal

@@ -46,6 +46,11 @@ import 'package:couch_roach/src/services/subtitles/subtitle_service.dart'
     as _i754;
 import 'package:couch_roach/src/services/subtitles/subtitle_skip_check.dart'
     as _i1041;
+import 'package:couch_roach/src/services/vpn/express_vpn_controller.dart'
+    as _i524;
+import 'package:couch_roach/src/services/vpn/vpn_controller.dart' as _i698;
+import 'package:couch_roach/src/services/vpn/vpn_elevation.dart' as _i508;
+import 'package:couch_roach/src/services/vpn/vpn_service.dart' as _i516;
 import 'package:get_it/get_it.dart' as _i174;
 import 'package:http/http.dart' as _i519;
 import 'package:injectable/injectable.dart' as _i526;
@@ -70,9 +75,15 @@ extension GetItInjectableX on _i174.GetIt {
         () => _i312.QbittorrentProcess(gh<_i657.ErrorLogService>()));
     gh.lazySingleton<_i1041.SubtitleSkipCheck>(
         () => _i1041.SubtitleSkipCheck(gh<_i657.ErrorLogService>()));
+    gh.lazySingleton<_i508.VpnElevation>(
+        () => _i508.VpnElevation(gh<_i657.ErrorLogService>()));
     gh.lazySingleton<_i1033.SubtitleClient>(() => _i1033.OpenSubtitlesClient(
           gh<_i519.Client>(),
           gh<_i657.ErrorLogService>(),
+        ));
+    gh.lazySingleton<_i698.VpnController>(() => _i524.ExpressVpnController(
+          gh<_i657.ErrorLogService>(),
+          gh<_i508.VpnElevation>(),
         ));
     gh.lazySingleton<_i477.ArchiveBrowseService>(
         () => _i477.ArchiveBrowseService(
@@ -88,6 +99,13 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i1033.SubtitleClient>(),
           gh<_i657.ErrorLogService>(),
         ));
+    gh.lazySingleton<_i516.VpnService>(
+      () => _i516.VpnService(
+        gh<_i698.VpnController>(),
+        gh<_i657.ErrorLogService>(),
+      ),
+      dispose: (i) => i.dispose(),
+    );
     gh.lazySingleton<_i156.AcquisitionResolver>(
         () => _i98.InternetArchiveResolver(
               gh<_i519.Client>(),
