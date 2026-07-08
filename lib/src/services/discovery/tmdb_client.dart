@@ -7,6 +7,7 @@ import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
 import '../../data/tmdb/movie_summary.dart';
 import '../../data/tmdb/season.dart';
+import '../../data/tmdb/tmdb_video.dart';
 import '../../data/tmdb/tv_show_details.dart';
 import '../../data/tmdb/tv_show_summary.dart';
 
@@ -27,6 +28,9 @@ abstract class DiscoveryClient {
 
   /// Recommendations for a show — the "similar to what you watched" feed.
   Future<List<TvShowSummary>> recommendedTv(int tmdbId);
+
+  /// Videos (trailers/teasers) for a title — the preview source.
+  Future<List<TmdbVideo>> videos({required int tmdbId, required bool isTv});
 }
 
 @LazySingleton(as: DiscoveryClient)
@@ -125,4 +129,14 @@ class TmdbClient implements DiscoveryClient {
   @override
   Future<List<TvShowSummary>> recommendedTv(int tmdbId) async =>
       _results(await _get('/tv/$tmdbId/recommendations'), TvShowSummary.fromJson);
+
+  @override
+  Future<List<TmdbVideo>> videos({
+    required int tmdbId,
+    required bool isTv,
+  }) async =>
+      _results(
+        await _get('/${isTv ? 'tv' : 'movie'}/$tmdbId/videos'),
+        TmdbVideo.fromJson,
+      );
 }

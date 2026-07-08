@@ -4,6 +4,7 @@ import '../../data/db/database.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../data/tmdb/season.dart';
+import '../../data/tmdb/tmdb_video.dart';
 import '../../data/tmdb/tv_show_details.dart';
 import '../../data/tmdb/tv_show_summary.dart';
 import '../../injection.dart';
@@ -55,6 +56,16 @@ final localTitleProvider =
     FutureProvider.family<LibraryItem?, int>((ref, tmdbId) async {
   final items = await getIt<LibraryRepository>().localEpisodes(tmdbId);
   return items.isEmpty ? null : items.first;
+});
+
+/// The YouTube trailer URL for a title, or null when there's no usable preview.
+/// Keyed by (tmdbId, isTv).
+final trailerUrlProvider =
+    FutureProvider.family<String?, (int, bool)>((ref, key) async {
+  final videos =
+      await getIt<DiscoveryClient>().videos(tmdbId: key.$1, isTv: key.$2);
+  final trailer = pickTrailer(videos);
+  return trailer == null ? null : youtubeWatchUrl(trailer.key);
 });
 
 /// "Recommended For You" — TMDB recommendations seeded by the shows you've

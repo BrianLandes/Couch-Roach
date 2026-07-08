@@ -117,12 +117,30 @@ void main() {
     expect(captured!.url.queryParameters['sort_by'], 'popularity.desc');
   });
 
+  test('videos hits the tv or movie endpoint by media type', () async {
+    final client = clientFor({
+      '/tv/1399/videos': {
+        'results': [
+          {'key': 'yt1', 'site': 'YouTube', 'type': 'Trailer', 'official': true},
+        ],
+      },
+      '/movie/550/videos': {
+        'results': [
+          {'key': 'yt2', 'site': 'YouTube', 'type': 'Teaser'},
+        ],
+      },
+    });
+    expect((await client.videos(tmdbId: 1399, isTv: true)).single.key, 'yt1');
+    expect((await client.videos(tmdbId: 550, isTv: false)).single.type, 'Teaser');
+  });
+
   test('non-200 degrades to empty/null (logged, not thrown)', () async {
     final client = clientFor({}); // everything 404
     expect(await client.searchTv('x'), isEmpty);
     expect(await client.tvDetails(1), isNull);
     expect(await client.trendingMovies(), isEmpty);
     expect(await client.discoverMovies(genreId: 99), isEmpty);
+    expect(await client.videos(tmdbId: 1, isTv: true), isEmpty);
   });
 
   test('TmdbImages builds CDN urls and passes nulls through', () {

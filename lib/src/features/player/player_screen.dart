@@ -137,6 +137,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// already have an English subtitle track, load + select it. Best-effort; a
   /// failure here never disrupts playback.
   Future<void> _ensureSubtitles() async {
+    // Only real library titles get subtitle fetching — trailers and other
+    // ad-hoc streams have no library item (and no local file to hash/search).
+    if (widget.libraryItemId == null) return;
     if (!const AppConfig().hasOpenSubtitlesKey) return;
     if (!getIt<SettingsService>().autoDownloadSubtitles) return;
     try {

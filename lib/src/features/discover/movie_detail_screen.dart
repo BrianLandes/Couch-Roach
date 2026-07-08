@@ -22,6 +22,8 @@ class MovieDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final text = Theme.of(context).textTheme;
     final local = ref.watch(localTitleProvider(tile.tmdbId)).asData?.value;
+    final trailerUrl =
+        ref.watch(trailerUrlProvider((tile.tmdbId, false))).asData?.value;
 
     return Scaffold(
       body: AmbientBackground(
@@ -43,21 +45,41 @@ class MovieDetailScreen extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
-              if (local != null)
-                FilledButton.icon(
-                  autofocus: true,
-                  onPressed: () => context.push(
-                    Routes.player,
-                    extra: PlayerArgs(
-                      filePath: local.filePath,
-                      title: local.tmdbName ?? local.title,
-                      libraryItemId: local.id,
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.md,
+                children: [
+                  if (local != null)
+                    FilledButton.icon(
+                      autofocus: true,
+                      onPressed: () => context.push(
+                        Routes.player,
+                        extra: PlayerArgs(
+                          filePath: local.filePath,
+                          title: local.tmdbName ?? local.title,
+                          libraryItemId: local.id,
+                        ),
+                      ),
+                      icon: const Icon(Icons.play_arrow_rounded),
+                      label: const Text('Play'),
                     ),
-                  ),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Play'),
-                )
-              else
+                  if (trailerUrl != null)
+                    OutlinedButton.icon(
+                      autofocus: local == null,
+                      onPressed: () => context.push(
+                        Routes.player,
+                        extra: PlayerArgs(
+                          filePath: trailerUrl,
+                          title: '${tile.title} — Trailer',
+                        ),
+                      ),
+                      icon: const Icon(Icons.movie_outlined),
+                      label: const Text('Trailer'),
+                    ),
+                ],
+              ),
+              if (local == null) ...[
+                const SizedBox(height: AppSpacing.md),
                 GlassSurface(
                   padding: const EdgeInsets.all(AppSpacing.md),
                   child: Row(
@@ -76,6 +98,7 @@ class MovieDetailScreen extends ConsumerWidget {
                     ],
                   ),
                 ),
+              ],
               if (tile.overview.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.xl),
                 Text(tile.overview,

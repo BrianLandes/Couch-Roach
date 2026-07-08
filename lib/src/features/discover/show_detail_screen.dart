@@ -80,6 +80,8 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
         details.seasons.where((s) => s.seasonNumber >= 1).toList(growable: false);
     final selected = _season ??
         (seasons.isNotEmpty ? seasons.first.seasonNumber : null);
+    final trailerUrl =
+        ref.watch(trailerUrlProvider((details.tmdbId, true))).asData?.value;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(
@@ -97,6 +99,23 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
             Expanded(child: _Hero(details: details)),
           ],
         ),
+        if (trailerUrl != null) ...[
+          const SizedBox(height: AppSpacing.lg),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => context.push(
+                Routes.player,
+                extra: PlayerArgs(
+                  filePath: trailerUrl,
+                  title: '${details.name} — Trailer',
+                ),
+              ),
+              icon: const Icon(Icons.movie_outlined),
+              label: const Text('Trailer'),
+            ),
+          ),
+        ],
         const SizedBox(height: AppSpacing.xl),
         if (seasons.isNotEmpty && selected != null) ...[
           _SeasonChips(
