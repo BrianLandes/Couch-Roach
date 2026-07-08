@@ -1,3 +1,12 @@
+import 'dart:io';
+
+import 'package:injectable/injectable.dart';
+import 'package:path/path.dart' as p;
+
+import '../../core/logging/error_log_service.dart';
+import '../../data/repositories/library_repository.dart';
+import '../../data/repositories/watch_history_repository.dart';
+
 /// Auto-cleanup after watch (DECISIONS: auto-cleanup).
 ///
 /// MODEL: the library folders are the app's to manage. Every file in them is
@@ -11,8 +20,7 @@
 /// "What I watched / where I left off" has to survive the video being gone, so
 /// the row persists as the durable record and only its bytes on disk are freed.
 ///
-/// Runs on startup and periodically. Not yet wired into app startup — pending
-/// Brian's confirmation of the grace-period length.
+/// Runs on startup and periodically (wired in `main()`).
 class WatchedReaperConfig {
   const WatchedReaperConfig({
     this.enabled = true,
@@ -26,4 +34,58 @@ class WatchedReaperConfig {
 abstract class WatchedReaper {
   /// Scans for eligible files and deletes them. Returns paths removed.
   Future<List<String>> sweep();
+}
+
+@LazySingleton(as: WatchedReaper)
+class DriftWatchedReaper implements WatchedReaper {
+  DriftWatchedReaper(this._history, this._library, this._log, this._config);
+
+  final WatchHistoryRepository _history;
+  final LibraryRepository _library;
+  final ErrorLogService _log;
+  final WatchedReaperConfig _config;
+
+  /// English sidecars the app itself may have written next to the video. A bare
+  /// `.srt` is deliberately left alone — it may be a user's own subtitle.
+  static const _sidecarSuffixes = ['.en.srt', '.eng.srt', '.english.srt'];
+
+  @override
+  Future<List<String>> sweep() async {
+    if (!_config.enabled) return const [];
+    final cutoff = DateTime.now().subtract(_config.gracePeriod);
+    final candidates = await _history.reapable(cutoff);
+    if (candidates.isEmpty) return const [];
+
+    final removed = <String>[];
+    for (final item in candidates) {
+      try {
+        _deleteFileAndSidecars(item.filePath);
+        // Flag the row missing (keep the row + its watch history) so the delete
+        // survives as "watched, then cleaned up".
+        await _library.markMissing(item.id);
+        removed.add(item.filePath);
+        _log.info('reaped "${item.title}" (${item.filePath})',
+            source: 'WatchedReaper.sweep');
+      } catch (e, st) {
+        _log.logError(e, stackTrace: st, source: 'WatchedReaper.sweep');
+      }
+    }
+    if (removed.isNotEmpty) {
+      _log.info('reaper freed ${removed.length} watched file(s)',
+          source: 'WatchedReaper.sweep');
+    }
+    return removed;
+  }
+
+  void _deleteFileAndSidecars(String videoPath) {
+    final video = File(videoPath);
+    if (video.existsSync()) video.deleteSync();
+
+    final dir = p.dirname(videoPath);
+    final base = p.basenameWithoutExtension(videoPath);
+    for (final suffix in _sidecarSuffixes) {
+      final sidecar = File(p.join(dir, '$base$suffix'));
+      if (sidecar.existsSync()) sidecar.deleteSync();
+    }
+  }
 }

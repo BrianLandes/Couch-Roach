@@ -64,6 +64,14 @@ abstract class LibraryRepository {
     String? posterPath,
   });
 
+  /// Pin/unpin a title as "keep" — a kept title is exempt from auto-cleanup even
+  /// after a full watch (see DECISIONS: auto-cleanup).
+  Future<void> setKeep(int id, bool keep);
+
+  /// Flag a single row `missing` (its file was reaped/deleted), keeping the row
+  /// and its watch history. The single-row counterpart to [markMissingUnder].
+  Future<void> markMissing(int id);
+
   /// Hard-deletes the row and cascades its `watch_history` — a deliberate
   /// "forget this title entirely". NOT for a file that merely disappeared: for
   /// a gone/offline file use [markMissingUnder], which keeps the row and its
@@ -196,5 +204,17 @@ class DriftLibraryRepository implements LibraryRepository {
         tmdbPosterPath: Value(posterPath),
       ),
     );
+  }
+
+  @override
+  Future<void> setKeep(int id, bool keep) async {
+    await (_db.update(_db.libraryItems)..where((t) => t.id.equals(id)))
+        .write(LibraryItemsCompanion(keep: Value(keep)));
+  }
+
+  @override
+  Future<void> markMissing(int id) async {
+    await (_db.update(_db.libraryItems)..where((t) => t.id.equals(id)))
+        .write(const LibraryItemsCompanion(missing: Value(true)));
   }
 }

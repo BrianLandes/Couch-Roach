@@ -13,6 +13,7 @@ import 'src/features/library/library_match_service.dart';
 import 'src/features/library/library_service.dart';
 import 'src/injection.dart';
 import 'src/services/acquisition/qbittorrent_process.dart';
+import 'src/services/cleanup/watched_reaper.dart';
 
 void main() {
   // Run everything inside a guarded zone so uncaught async errors are captured.
@@ -53,10 +54,19 @@ void main() {
       runApp(const ProviderScope(child: CouchRoachApp()));
 
       // Kick off an initial library scan in the background, then match against
-      // TMDB — neither blocks the UI (posters pop in as they resolve).
+      // TMDB — neither blocks the UI (posters pop in as they resolve). After the
+      // scan reconciles disk, reap fully-watched files past the grace period
+      // (the row is flagged missing, so watch history survives).
       unawaited(getIt<LibraryService>()
           .rescan()
-          .then((_) => getIt<LibraryMatchService>().matchUnmatched()));
+          .then((_) => getIt<LibraryMatchService>().matchUnmatched())
+          .then((_) => getIt<WatchedReaper>().sweep()));
+
+      // Re-sweep periodically so a long-running session still reclaims space.
+      Timer.periodic(
+        const Duration(hours: 6),
+        (_) => getIt<WatchedReaper>().sweep(),
+      );
     },
     (error, stack) {
       // Last-resort sink for anything the handlers above didn't catch.

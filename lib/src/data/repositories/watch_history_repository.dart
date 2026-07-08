@@ -56,6 +56,10 @@ abstract class WatchHistoryRepository {
   /// Distinct TMDB ids of recently-watched, matched shows (newest first) — the
   /// seed for the "Recommended For You" rail.
   Future<List<int>> recentlyWatchedTmdbIds({int limit});
+
+  /// Present, non-kept library items whose watch is `completed` and whose last
+  /// watch was before [before] — the auto-cleanup reaper's delete candidates.
+  Future<List<LibraryItem>> reapable(DateTime before);
 }
 
 @LazySingleton(as: WatchHistoryRepository)
@@ -165,6 +169,22 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
       }
     }
     return ids;
+  }
+
+  @override
+  Future<List<LibraryItem>> reapable(DateTime before) async {
+    final query = _db.select(_db.watchHistory).join([
+      innerJoin(
+        _db.libraryItems,
+        _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
+      ),
+    ])
+      ..where(_db.watchHistory.completed.equals(true) &
+          _db.watchHistory.lastWatchedAt.isSmallerThanValue(before) &
+          _db.libraryItems.keep.equals(false) &
+          _db.libraryItems.missing.equals(false));
+    final rows = await query.get();
+    return rows.map((r) => r.readTable(_db.libraryItems)).toList();
   }
 
   @override

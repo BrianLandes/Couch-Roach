@@ -34,6 +34,7 @@ import 'package:couch_roach/src/services/acquisition/qbittorrent_daemon.dart'
     as _i791;
 import 'package:couch_roach/src/services/acquisition/qbittorrent_process.dart'
     as _i312;
+import 'package:couch_roach/src/services/cleanup/watched_reaper.dart' as _i380;
 import 'package:couch_roach/src/services/discovery/tmdb_client.dart' as _i819;
 import 'package:couch_roach/src/services/subtitles/movie_hasher.dart' as _i403;
 import 'package:couch_roach/src/services/subtitles/opensubtitles_client.dart'
@@ -70,6 +71,8 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i657.ErrorLogService>(() => _i657.ErrorLogService());
     gh.lazySingleton<_i865.AppDatabase>(() => registerModule.database);
     gh.lazySingleton<_i519.Client>(() => registerModule.httpClient);
+    gh.lazySingleton<_i380.WatchedReaperConfig>(
+        () => registerModule.watchedReaperConfig);
     gh.lazySingleton<_i403.MovieHasher>(() => _i403.OpenSubtitlesMovieHasher());
     gh.lazySingleton<_i312.QbittorrentProcess>(
         () => _i312.QbittorrentProcess(gh<_i657.ErrorLogService>()));
@@ -122,6 +125,12 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i819.DiscoveryClient>(() => _i819.TmdbClient(
           gh<_i519.Client>(),
           gh<_i657.ErrorLogService>(),
+        ));
+    gh.lazySingleton<_i380.WatchedReaper>(() => _i380.DriftWatchedReaper(
+          gh<_i382.WatchHistoryRepository>(),
+          gh<_i877.LibraryRepository>(),
+          gh<_i657.ErrorLogService>(),
+          gh<_i380.WatchedReaperConfig>(),
         ));
     gh.lazySingleton<_i754.SubtitleService>(
         () => _i295.OpenSubtitlesSubtitleService(

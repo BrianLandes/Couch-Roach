@@ -6,6 +6,7 @@ import 'core/logging/error_log_service.dart';
 import 'core/storage/storage_manager.dart';
 import 'data/db/database.dart';
 import 'data/repositories/storage_repository.dart';
+import 'services/cleanup/watched_reaper.dart';
 
 import 'injection.config.dart';
 
@@ -33,4 +34,9 @@ abstract class RegisterModule {
   @lazySingleton
   StorageManager storageManager(StorageRepository repo, ErrorLogService log) =>
       ConfiguredStorageManager(repo, log: log);
+
+  // Auto-cleanup grace period + enable flag. A settings screen can replace how
+  // this is provided later; the default is a 7-day grace.
+  @lazySingleton
+  WatchedReaperConfig get watchedReaperConfig => const WatchedReaperConfig();
 }

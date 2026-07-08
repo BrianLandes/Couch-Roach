@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/db/database.dart';
+import '../../data/repositories/library_repository.dart';
+import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
@@ -13,13 +15,21 @@ import '../player/player_screen.dart';
 /// page, not the player" rule). Shows the poster, file info and watch state, and
 /// starts playback from the Play button here. TMDB-matched series also link out
 /// to the full show page.
-class LibraryDetailScreen extends StatelessWidget {
+class LibraryDetailScreen extends StatefulWidget {
   const LibraryDetailScreen({super.key, required this.item});
   final LibraryItem item;
 
+  @override
+  State<LibraryDetailScreen> createState() => _LibraryDetailScreenState();
+}
+
+class _LibraryDetailScreenState extends State<LibraryDetailScreen> {
+  late bool _keep = widget.item.keep;
+
+  LibraryItem get item => widget.item;
   bool get _isMatchedTv => item.tmdbId != null && item.mediaType == 'tv';
 
-  void _play(BuildContext context) {
+  void _play() {
     context.push(
       Routes.player,
       extra: PlayerArgs(
@@ -28,6 +38,12 @@ class LibraryDetailScreen extends StatelessWidget {
         libraryItemId: item.id,
       ),
     );
+  }
+
+  Future<void> _toggleKeep() async {
+    final next = !_keep;
+    setState(() => _keep = next); // optimistic
+    await getIt<LibraryRepository>().setKeep(item.id, next);
   }
 
   @override
@@ -66,9 +82,18 @@ class LibraryDetailScreen extends StatelessWidget {
                   children: [
                     FilledButton.icon(
                       autofocus: true,
-                      onPressed: () => _play(context),
+                      onPressed: _play,
                       icon: const Icon(Icons.play_arrow_rounded),
                       label: const Text('Play'),
+                    ),
+                    // Pin as "keep" so auto-cleanup never deletes it after a
+                    // watch — for the couple of rewatch titles.
+                    OutlinedButton.icon(
+                      onPressed: _toggleKeep,
+                      icon: Icon(_keep
+                          ? Icons.bookmark_rounded
+                          : Icons.bookmark_border_rounded),
+                      label: Text(_keep ? 'Kept' : 'Keep'),
                     ),
                     if (_isMatchedTv)
                       OutlinedButton.icon(
@@ -84,6 +109,14 @@ class LibraryDetailScreen extends StatelessWidget {
                       ),
                   ],
                 ),
+              if (_keep && !item.missing) ...[
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'Kept — exempt from auto-cleanup after watching.',
+                  style: text.labelMedium
+                      ?.copyWith(color: AppColors.textTertiary),
+                ),
+              ],
             ],
           ),
         ),
