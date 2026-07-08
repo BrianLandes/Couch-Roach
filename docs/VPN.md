@@ -1,7 +1,19 @@
 # VPN gating (ExpressVPN) — research & implementation plan
 
-_Status: **scoped, not built.** Orthogonal to M1–M4; slot in around/after M4._
-_Last updated: 2026-07-07_
+_Status: **seam + service + UI built** (2026-07-07). `VpnController` seam,
+`ExpressVpnController` (expressvpnctl wrapper + `parseVpnStatus`), `VpnService`
+(poll → `Stream<VpnState>` + `ensureConnected`), the Scheduled-Task elevation
+helper, and the landing-page status chip are in `lib/src/services/vpn/` +
+`lib/src/features/vpn/`._
+
+_**Spike done (2026-07-08):** real `status` strings captured + parser finalized;
+`status` runs unelevated. **Still needs the real TV PC / a decision:** (1) run the
+one-time elevated `VpnElevation.setUp` to register the connect/disconnect tasks
+(then verify `connect`/`disconnect` actually work via the scheduled tasks).
+(2) decide the **gating policy** (hard-gate vs. best-effort) and wire
+`ensureConnected()` into the acquire/play flow — the mechanism exists but isn't
+called from play yet._
+_Last updated: 2026-07-08_
 
 ## Goal
 
@@ -45,13 +57,34 @@ symmetric across our current (Windows) and future (Linux) targets.
 | `expressvpnctl logout`     | sign out (we won't use this)                    |
 | `expressvpnctl -h`         | list all commands                               |
 
-### ⚠️ Undocumented: exact `status` output strings
+### `status` output strings — captured (spike done, 2026-07-08)
 
-ExpressVPN's docs do **not** publish the literal text `status` prints for each
-state (connected / disconnected / not signed in / etc.). **First implementation
-step is a spike on the real TV PC:** run `expressvpnctl status` in each state and
-capture the exact output, then build the parser off those strings — not a guess.
-Until we have them, the `VpnState` mapping is a stub.
+Ran on the TV PC (expressvpnctl 12.69, `C:\Program Files\ExpressVPN\expressvpnctl.exe`),
+from a **normal** command prompt — so **`status` does not need admin** (the poll
+runs unelevated; only `connect`/`disconnect` need the elevated helper).
+
+The **first line** is the status; the rest are details. Crucially every state
+ends with `Network Lock: enabled when connected`, so the parser matches the first
+line only (whole-string matching would read them all as "connected").
+
+```
+Disconnected                              → VpnState.disconnected
+  Location: Smart (usa-salt-lake-city)
+  Network Lock: enabled when connected
+  Split Tunnel: disabled
+
+Connected to Smart (usa-salt-lake-city)   → VpnState.connected
+  Protocol in use: LightwayUdp
+  Network Lock: enabled when connected
+  Split Tunnel: disabled
+
+Not logged in.                            → VpnState.notSignedIn
+  Network Lock: enabled when connected
+  Split Tunnel: disabled
+```
+
+`parseVpnStatus` + `test/vpn_test.dart` encode these. Still unconfirmed: the
+`Connecting…` phrasing (parser assumes a first line containing "connecting").
 
 ## The admin problem (the design decision)
 
