@@ -48,7 +48,7 @@ class QbittorrentDaemon implements TorrentDaemon {
     // (the add endpoint doesn't return it) AND lets us detect an existing add.
     // Without a key, a unique tag per add. Tags can't contain commas.
     final tag = dedupeKey != null
-        ? 'cr-src-${dedupeKey.replaceAll(',', '_')}'
+        ? acquisitionTag(dedupeKey)
         : 'couchroach-${DateTime.now().microsecondsSinceEpoch}';
     final label = handle.displayName ?? handle.magnetOrUrl;
     _log.info('add "$label" (tag=$tag, savePath=$savePath)',
@@ -240,6 +240,10 @@ class QbittorrentDaemon implements TorrentDaemon {
     if (hash == null || hash.isEmpty || savePath == null) return null;
     return QbittorrentTask(this, hash: hash, savePath: savePath);
   }
+
+  @override
+  Future<TorrentTask?> taskForDedupeKey(String dedupeKey) =>
+      _taskForTag(acquisitionTag(dedupeKey));
 
   @override
   Future<List<TorrentStatus>> listTorrents() async {
@@ -774,6 +778,12 @@ TorrentStatus parseTorrentStatus(Map<String, dynamic> json) {
   int asInt(Object? v) => (v as num?)?.toInt() ?? 0;
   final eta = asInt(json['eta']);
   final progress = (json['progress'] as num?)?.toDouble() ?? 0;
+  // qBittorrent returns `tags` as a comma-separated string ('' when none).
+  final tags = (json['tags'] as String? ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .where((t) => t.isNotEmpty)
+      .toList(growable: false);
   return TorrentStatus(
     hash: json['hash'] as String? ?? '',
     name: json['name'] as String? ?? '',
@@ -784,6 +794,7 @@ TorrentStatus parseTorrentStatus(Map<String, dynamic> json) {
     downloadedBytes: asInt(json['downloaded']),
     etaSeconds:
         (eta <= 0 || eta >= _qbEtaUnknown || progress >= 1.0) ? null : eta,
+    tags: tags,
   );
 }
 

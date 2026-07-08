@@ -424,4 +424,78 @@ void main() {
       expect(findFileByName(const [], 'x.mkv'), isNull);
     });
   });
+
+  group('acquisition dedupe key / tag', () {
+    test('key encodes tmdb id + season/episode for an episode', () {
+      expect(
+        acquisitionDedupeKey(tmdbId: 125988, title: 'Silo', season: 1, episode: 1),
+        'cr-tmdb-125988-s1e1',
+      );
+    });
+
+    test('key omits season/episode for a movie', () {
+      expect(acquisitionDedupeKey(tmdbId: 550, title: 'Fight Club'),
+          'cr-tmdb-550');
+    });
+
+    test('key falls back to the title when there is no tmdb id', () {
+      expect(acquisitionDedupeKey(title: 'Some Show'), 'cr-tmdb-Some Show');
+    });
+
+    test('tag prefixes the key and strips commas', () {
+      expect(acquisitionTag('cr-tmdb-1,2'), 'cr-src-cr-tmdb-1_2');
+    });
+  });
+
+  group('taskForDedupeKey (reattach)', () {
+    test('returns the task for an already-added torrent bearing the tag',
+        () async {
+      http.Request? infoReq;
+      final client = MockClient((req) async {
+        infoReq = req;
+        return http.Response(
+            jsonEncode([{'hash': 'RA', 'save_path': '/data'}]), 200);
+      });
+      final task = await QbittorrentDaemon(client, ErrorLogService())
+          .taskForDedupeKey('cr-tmdb-1-s1e1') as QbittorrentTask?;
+
+      expect(task, isNotNull);
+      expect(task!.hash, 'RA');
+      expect(task.savePath, '/data');
+      // Looked the torrent up by the deterministic tag, not re-added it.
+      expect(infoReq!.method, 'GET');
+      expect(infoReq!.url.queryParameters['tag'], 'cr-src-cr-tmdb-1-s1e1');
+    });
+
+    test('is null when no torrent bears the tag', () async {
+      final client = MockClient((_) async => http.Response('[]', 200));
+      final task = await QbittorrentDaemon(client, ErrorLogService())
+          .taskForDedupeKey('cr-tmdb-9');
+      expect(task, isNull);
+    });
+  });
+
+  group('parseTorrentStatus tags', () {
+    test('splits qBittorrent comma-separated tags, trimming blanks', () {
+      final s = parseTorrentStatus({
+        'hash': 'H',
+        'name': 'n',
+        'progress': 0.5,
+        'tags': 'cr-src-cr-tmdb-125988-s1e1, other',
+      });
+      expect(s.tags, ['cr-src-cr-tmdb-125988-s1e1', 'other']);
+    });
+
+    test('empty tags string yields an empty list', () {
+      final s = parseTorrentStatus({'hash': 'H', 'name': 'n', 'tags': ''});
+      expect(s.tags, isEmpty);
+    });
+
+    test('round-trips the add tag back to a title via the tag helpers', () {
+      final tag =
+          acquisitionTag(acquisitionDedupeKey(tmdbId: 42, title: 'X', season: 2, episode: 3));
+      final s = parseTorrentStatus({'hash': 'H', 'name': 'n', 'tags': tag});
+      expect(s.tags.contains(tag), isTrue);
+    });
+  });
 }

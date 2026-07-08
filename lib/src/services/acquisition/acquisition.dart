@@ -25,6 +25,28 @@ abstract class AcquisitionResolver {
   Future<TorrentHandle?> resolve(ShowMeta meta, int? season, int? episode);
 }
 
+/// A stable per-title/episode key, used both as the daemon add's `dedupeKey`
+/// (so re-selecting reattaches instead of re-downloading) and to find a title's
+/// live download in [TorrentStatus.tags]. Keyed on the TMDB id when available so
+/// it survives release-title differences. Pure so the play flow and the
+/// download-badge lookup derive the same value.
+String acquisitionDedupeKey({
+  int? tmdbId,
+  required String title,
+  int? season,
+  int? episode,
+}) {
+  final base = 'cr-tmdb-${tmdbId ?? title}';
+  return (season != null && episode != null)
+      ? '$base-s${season}e$episode'
+      : base;
+}
+
+/// The daemon tag applied to a torrent added with [dedupeKey]. Tags can't contain
+/// commas. Pure + shared so [TorrentStatus.tags] can be matched back to a title.
+String acquisitionTag(String dedupeKey) =>
+    'cr-src-${dedupeKey.replaceAll(',', '_')}';
+
 /// Why a torrent operation failed, so the UI can explain it in plain language
 /// instead of "check the logs".
 enum TorrentErrorKind {
@@ -114,6 +136,11 @@ abstract class TorrentDaemon {
     String? dedupeKey,
   });
 
+  /// The task for an already-added torrent bearing [dedupeKey]'s tag, or null if
+  /// none exists — lets a caller reattach to a running download (reading its
+  /// hash + save path) without re-resolving or re-adding it.
+  Future<TorrentTask?> taskForDedupeKey(String dedupeKey);
+
   /// Snapshot of every torrent the daemon is managing — drives the Downloads
   /// activity screen. Returns [] if the daemon isn't reachable.
   Future<List<TorrentStatus>> listTorrents();
@@ -143,10 +170,15 @@ class TorrentStatus {
     required this.sizeBytes,
     required this.downloadedBytes,
     this.etaSeconds,
+    this.tags = const [],
   });
 
   final String hash;
   final String name;
+
+  /// The torrent's qBittorrent tags — includes the [acquisitionTag] we stamped
+  /// at add time, which maps it back to the title/episode that requested it.
+  final List<String> tags;
 
   /// 0.0–1.0.
   final double progress;

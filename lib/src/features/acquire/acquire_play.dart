@@ -16,13 +16,79 @@ import 'preparing_dialog.dart';
 const int _episodeEstimateBytes = 2 * 1024 * 1024 * 1024; // ~2 GB
 const int _movieEstimateBytes = 5 * 1024 * 1024 * 1024; // ~5 GB
 
-/// Download-and-watch a title the user doesn't have locally, sourced through the
-/// [AcquisitionResolver] seam (Internet Archive, then the user's own Jackett
-/// indexers — see CompositeAcquisitionResolver). Resolves [meta] (with optional
-/// [season]/[episode]) to a torrent, streams it once enough is buffered,
-/// registers a library item so it gets watch history + Continue Watching, then
-/// opens the player. Cancelling leaves the download running in the background.
-Future<void> acquireAndPlay(
+/// Prepare a not-local title for playback through the [AcquisitionResolver] seam
+/// (Internet Archive, then the user's own Jackett indexers). Reattaches to a
+/// running download for this title if one exists (no re-resolve/re-add), else
+/// resolves + adds it; waits until enough is buffered to stream; registers a
+/// library item (so the player records watch history + it surfaces in Continue
+/// Watching); and returns the streamable file.
+///
+/// [bindProgress] is handed the torrent's 0..1 progress stream so the caller can
+/// display it live (the inline Download control, or the archive PreparingDialog).
+Future<Prepared> prepareForPlayback({
+  required String title,
+  required ShowMeta meta,
+  int? season,
+  int? episode,
+  required void Function(Stream<double>) bindProgress,
+}) async {
+  final isEpisode = season != null && episode != null;
+  final dedupeKey = acquisitionDedupeKey(
+    tmdbId: meta.tmdbId,
+    title: meta.title,
+    season: season,
+    episode: episode,
+  );
+
+  // Reattach to an already-running download without re-resolving; else resolve
+  // a source and add it.
+  final daemon = getIt<TorrentDaemon>();
+  var task = await daemon.taskForDedupeKey(dedupeKey);
+  if (task == null) {
+    final handle =
+        await getIt<AcquisitionResolver>().resolve(meta, season, episode);
+    if (handle == null) {
+      throw TorrentDaemonException(
+        'no source found for "$title"',
+        kind: TorrentErrorKind.sourceNotFound,
+      );
+    }
+    final savePath = await getIt<StorageManager>().chooseTarget(
+      estimatedBytes: isEpisode ? _episodeEstimateBytes : _movieEstimateBytes,
+    );
+    if (savePath == null) {
+      throw TorrentDaemonException(
+        'not enough free disk space to download this',
+        kind: TorrentErrorKind.generic,
+      );
+    }
+    task = await daemon.add(handle, savePath: savePath, dedupeKey: dedupeKey);
+  }
+  bindProgress(task.progress);
+
+  final file = await task.prepareFile();
+
+  // Register as a library item (upsert dedupes on the file path) so the player
+  // records watch history / resume and it surfaces in Continue Watching. The
+  // TMDB link (tmdbId) is filled in later by the library matcher.
+  final library = getIt<LibraryRepository>();
+  await library.upsert(ScannedFile(
+    filePath: file,
+    title: title,
+    mediaType: meta.mediaType,
+    season: season,
+    episode: episode,
+  ));
+  final libraryItemId = (await library.findByPath(file))?.id;
+  return (filePath: file, libraryItemId: libraryItemId);
+}
+
+/// Open the blocking "preparing" dialog for a title and play it the moment it's
+/// ready to stream. Reattaches to the in-progress download (see
+/// [prepareForPlayback]), so it rides the same download the inline control
+/// started rather than kicking off a second one. Cancelling the dialog leaves
+/// the download running in the background.
+Future<void> playWhenReady(
   BuildContext context, {
   required String title,
   required ShowMeta meta,
@@ -36,7 +102,7 @@ Future<void> acquireAndPlay(
     barrierDismissible: false,
     builder: (_) => PreparingDialog(
       subtitle: title,
-      prepare: ({required bindProgress}) => _prepare(
+      prepare: ({required bindProgress}) => prepareForPlayback(
         title: title,
         meta: meta,
         season: season,
@@ -55,61 +121,6 @@ Future<void> acquireAndPlay(
       libraryItemId: prepared.libraryItemId,
     ),
   );
-}
-
-Future<Prepared> _prepare({
-  required String title,
-  required ShowMeta meta,
-  int? season,
-  int? episode,
-  required void Function(Stream<double>) bindProgress,
-}) async {
-  final isEpisode = season != null && episode != null;
-
-  final handle = await getIt<AcquisitionResolver>().resolve(meta, season, episode);
-  if (handle == null) {
-    throw TorrentDaemonException(
-      'no source found for "$title"',
-      kind: TorrentErrorKind.sourceNotFound,
-    );
-  }
-
-  final savePath = await getIt<StorageManager>().chooseTarget(
-    estimatedBytes: isEpisode ? _episodeEstimateBytes : _movieEstimateBytes,
-  );
-  if (savePath == null) {
-    throw TorrentDaemonException(
-      'not enough free disk space to download this',
-      kind: TorrentErrorKind.generic,
-    );
-  }
-
-  // Stable per logical title/episode so re-selecting reattaches to the running
-  // download instead of adding a duplicate.
-  final dedupeKey = 'cr-tmdb-${meta.tmdbId ?? meta.title}'
-      '${isEpisode ? '-s${season}e$episode' : ''}';
-  final task = await getIt<TorrentDaemon>().add(
-    handle,
-    savePath: savePath,
-    dedupeKey: dedupeKey,
-  );
-  bindProgress(task.progress);
-
-  final file = await task.prepareFile();
-
-  // Register as a library item (upsert dedupes on the file path) so the player
-  // records watch history / resume and it surfaces in Continue Watching. The
-  // TMDB link (tmdbId) is filled in later by the library matcher.
-  final library = getIt<LibraryRepository>();
-  await library.upsert(ScannedFile(
-    filePath: file,
-    title: title,
-    mediaType: meta.mediaType,
-    season: season,
-    episode: episode,
-  ));
-  final libraryItemId = (await library.findByPath(file))?.id;
-  return (filePath: file, libraryItemId: libraryItemId);
 }
 
 /// If the user requires a VPN for streaming, make sure the tunnel is up (bringing

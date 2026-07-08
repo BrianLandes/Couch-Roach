@@ -7,7 +7,7 @@ import '../../services/acquisition/acquisition.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/poster_art.dart';
-import '../acquire/acquire_play.dart';
+import '../acquire/acquire_button.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
 import 'discover_tile.dart';
@@ -67,19 +67,14 @@ class MovieDetailScreen extends ConsumerWidget {
                       label: const Text('Play'),
                     )
                   else
-                    FilledButton.icon(
+                    AcquireButton(
                       autofocus: true,
-                      onPressed: () => acquireAndPlay(
-                        context,
+                      title: tile.title,
+                      meta: ShowMeta(
                         title: tile.title,
-                        meta: ShowMeta(
-                          title: tile.title,
-                          tmdbId: tile.tmdbId,
-                          mediaType: 'movie',
-                        ),
+                        tmdbId: tile.tmdbId,
+                        mediaType: 'movie',
                       ),
-                      icon: const Icon(Icons.download_rounded),
-                      label: const Text('Download & Play'),
                     ),
                   if (trailerUrl != null)
                     OutlinedButton.icon(

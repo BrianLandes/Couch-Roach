@@ -12,7 +12,7 @@ import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/poster_art.dart';
 import '../../services/acquisition/acquisition.dart';
-import '../acquire/acquire_play.dart';
+import '../acquire/acquire_button.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
 import 'trailer_picker.dart';
@@ -387,34 +387,31 @@ class _Availability extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final item = local;
-    if (item == null) {
-      // Not on disk yet — acquire it through the resolver seam (IA, then the
-      // user's Jackett indexers) and stream once it's buffered.
+    // Already on disk → play it from the library (records watch history).
+    if (item != null) {
       return FilledButton.icon(
-        onPressed: () => acquireAndPlay(
-          context,
-          title: '$showName — S${seasonNumber.toString().padLeft(2, '0')}'
-              'E${episode.episodeNumber.toString().padLeft(2, '0')}'
-              '${episode.name.isEmpty ? '' : ' · ${episode.name}'}',
-          meta: ShowMeta(title: showName, tmdbId: tmdbId, mediaType: 'tv'),
-          season: seasonNumber,
-          episode: episode.episodeNumber,
+        onPressed: () => context.push(
+          Routes.player,
+          extra: PlayerArgs(
+            filePath: item.filePath,
+            title: item.tmdbName ?? item.title,
+            libraryItemId: item.id,
+          ),
         ),
-        icon: const Icon(Icons.download_rounded),
-        label: const Text('Download & Play'),
+        icon: const Icon(Icons.play_arrow_rounded),
+        label: const Text('Play'),
       );
     }
-    return FilledButton.icon(
-      onPressed: () => context.push(
-        Routes.player,
-        extra: PlayerArgs(
-          filePath: item.filePath,
-          title: item.tmdbName ?? item.title,
-          libraryItemId: item.id,
-        ),
-      ),
-      icon: const Icon(Icons.play_arrow_rounded),
-      label: const Text('Play'),
+
+    // Not local → inline Download → progress → Play.
+    final s = seasonNumber.toString().padLeft(2, '0');
+    final e = episode.episodeNumber.toString().padLeft(2, '0');
+    return AcquireButton(
+      title: '$showName — S${s}E$e'
+          '${episode.name.isEmpty ? '' : ' · ${episode.name}'}',
+      meta: ShowMeta(title: showName, tmdbId: tmdbId, mediaType: 'tv'),
+      season: seasonNumber,
+      episode: episode.episodeNumber,
     );
   }
 }

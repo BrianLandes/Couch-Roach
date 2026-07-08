@@ -21,6 +21,18 @@ final downloadsProvider =
   }
 });
 
+/// The live download bearing [tag] (the [acquisitionTag] stamped at add time),
+/// or null if none is active. Watches [downloadsProvider] so it ticks with the
+/// poll — the show/movie detail buttons use it to show "Downloading nn%".
+final downloadForTagProvider =
+    Provider.autoDispose.family<TorrentStatus?, String>((ref, tag) {
+  final torrents = ref.watch(downloadsProvider).asData?.value ?? const [];
+  for (final t in torrents) {
+    if (t.tags.contains(tag)) return t;
+  }
+  return null;
+});
+
 /// Whether the torrent daemon's Web API is reachable — drives the online/offline
 /// indicator on the Downloads screen. Polls a lightweight health ping.
 final daemonAliveProvider = StreamProvider.autoDispose<bool>((ref) async* {
