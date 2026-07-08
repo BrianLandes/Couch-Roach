@@ -21,6 +21,7 @@ void main() {
     expect(settings.cleanupGraceDays, 7);
     expect(settings.cleanupGracePeriod, const Duration(days: 7));
     expect(settings.preferSurroundAudio, isTrue);
+    expect(settings.excludeSignLanguage, isTrue);
   });
 
   test('setters update the live cache', () async {

@@ -33,17 +33,27 @@ Future<Prepared> prepareForPlayback({
   required void Function(Stream<double>) bindProgress,
 }) async {
   final isEpisode = season != null && episode != null;
-  final dedupeKey = acquisitionDedupeKey(
+  final episodeKey = acquisitionDedupeKey(
     tmdbId: meta.tmdbId,
     title: meta.title,
     season: season,
     episode: episode,
   );
+  // A season-scoped key tags a whole-season pack, so a second episode reuses the
+  // same download instead of re-fetching it (Tier 0).
+  final seasonKey = isEpisode
+      ? acquisitionDedupeKey(
+          tmdbId: meta.tmdbId, title: meta.title, season: season)
+      : null;
 
-  // Reattach to an already-running download without re-resolving; else resolve
-  // a source and add it.
+  // Tier 0 — reattach to an already-running download for this episode, or to a
+  // season pack we already fetched (extract this episode's file from it below);
+  // else resolve a source and add it.
   final daemon = getIt<TorrentDaemon>();
-  var task = await daemon.taskForDedupeKey(dedupeKey);
+  var task = await daemon.taskForDedupeKey(episodeKey);
+  if (task == null && seasonKey != null) {
+    task = await daemon.taskForDedupeKey(seasonKey);
+  }
   if (task == null) {
     final handle =
         await getIt<AcquisitionResolver>().resolve(meta, season, episode);
@@ -62,11 +72,16 @@ Future<Prepared> prepareForPlayback({
         kind: TorrentErrorKind.generic,
       );
     }
-    task = await daemon.add(handle, savePath: savePath, dedupeKey: dedupeKey);
+    // A season-pack fallback is keyed per-season so every episode played out of
+    // it shares one download; a single episode is keyed per-episode.
+    final addKey = handle.seasonPack ? seasonKey! : episodeKey;
+    task = await daemon.add(handle, savePath: savePath, dedupeKey: addKey);
   }
   bindProgress(task.progress);
 
-  final file = await task.prepareFile();
+  // Pass season/episode so a multi-file (season-pack) torrent hands back this
+  // exact episode's file rather than the largest video.
+  final file = await task.prepareFile(season: season, episode: episode);
 
   // Register as a library item (upsert dedupes on the file path) so the player
   // records watch history / resume and it surfaces in Continue Watching. The

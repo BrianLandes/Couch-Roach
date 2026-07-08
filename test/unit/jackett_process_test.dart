@@ -1,9 +1,15 @@
 import 'package:couch_roach/src/core/logging/error_log_service.dart';
+import 'package:couch_roach/src/core/settings/settings_service.dart';
+import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/services/acquisition/jackett_process.dart';
 import 'package:couch_roach/src/services/acquisition/jackett_resolver.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+SettingsService _settings() =>
+    SettingsService(AppDatabase.forTesting(NativeDatabase.memory()));
 
 void main() {
   // Nothing answering on the port (connection refused) → skips the "adopt an
@@ -15,7 +21,7 @@ void main() {
     // The test runner has no jackett/ tree vendored next to it, so the sidecar
     // never spawns — start() logs and returns without throwing, and the resolver
     // is left unconfigured (acquisition's indexer path stays off).
-    final resolver = JackettResolver(noServer(), ErrorLogService());
+    final resolver = JackettResolver(noServer(), ErrorLogService(), _settings());
     final process = JackettProcess(noServer(), ErrorLogService(), resolver);
 
     await process.start();
@@ -30,7 +36,7 @@ void main() {
 
   group('isAlive', () {
     JackettProcess make(http.Client c) =>
-        JackettProcess(c, ErrorLogService(), JackettResolver(c, ErrorLogService()));
+        JackettProcess(c, ErrorLogService(), JackettResolver(c, ErrorLogService(), _settings()));
 
     test('true when the endpoint answers (any status)', () async {
       expect(await make(okClient()).isAlive(), isTrue);

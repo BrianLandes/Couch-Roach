@@ -103,24 +103,10 @@ extension GetItInjectableX on _i174.GetIt {
               gh<_i519.Client>(),
               gh<_i657.ErrorLogService>(),
             ));
-    gh.lazySingleton<_i616.JackettResolver>(() => _i616.JackettResolver(
-          gh<_i519.Client>(),
-          gh<_i657.ErrorLogService>(),
-        ));
     gh.lazySingleton<_i877.LibraryRepository>(
         () => _i877.DriftLibraryRepository(gh<_i865.AppDatabase>()));
-    gh.lazySingleton<_i100.JackettProcess>(() => _i100.JackettProcess(
-          gh<_i519.Client>(),
-          gh<_i657.ErrorLogService>(),
-          gh<_i616.JackettResolver>(),
-        ));
     gh.lazySingleton<_i806.SubtitleAttemptsRepository>(
         () => _i806.DriftSubtitleAttemptsRepository(gh<_i865.AppDatabase>()));
-    gh.lazySingleton<_i559.SubtitleSearcher>(() => _i559.SubtitleSearcher(
-          gh<_i403.MovieHasher>(),
-          gh<_i1033.SubtitleClient>(),
-          gh<_i657.ErrorLogService>(),
-        ));
     gh.lazySingleton<_i516.VpnService>(
       () => _i516.VpnService(
         gh<_i698.VpnController>(),
@@ -142,18 +128,18 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i519.Client>(),
           gh<_i657.ErrorLogService>(),
         ));
+    gh.lazySingleton<_i559.SubtitleSearcher>(() => _i559.SubtitleSearcher(
+          gh<_i403.MovieHasher>(),
+          gh<_i1033.SubtitleClient>(),
+          gh<_i657.ErrorLogService>(),
+          gh<_i486.SettingsService>(),
+        ));
     gh.lazySingleton<_i380.WatchedReaper>(() => _i380.DriftWatchedReaper(
           gh<_i382.WatchHistoryRepository>(),
           gh<_i877.LibraryRepository>(),
           gh<_i657.ErrorLogService>(),
           gh<_i486.SettingsService>(),
         ));
-    gh.lazySingleton<_i156.AcquisitionResolver>(
-        () => _i669.CompositeAcquisitionResolver(
-              gh<_i98.InternetArchiveResolver>(),
-              gh<_i616.JackettResolver>(),
-              gh<_i657.ErrorLogService>(),
-            ));
     gh.lazySingleton<_i754.SubtitleService>(
         () => _i295.OpenSubtitlesSubtitleService(
               gh<_i1041.SubtitleSkipCheck>(),
@@ -164,9 +150,19 @@ extension GetItInjectableX on _i174.GetIt {
               gh<_i519.Client>(),
               gh<_i657.ErrorLogService>(),
             ));
+    gh.lazySingleton<_i616.JackettResolver>(() => _i616.JackettResolver(
+          gh<_i519.Client>(),
+          gh<_i657.ErrorLogService>(),
+          gh<_i486.SettingsService>(),
+        ));
     gh.lazySingleton<_i883.StorageManager>(() => registerModule.storageManager(
           gh<_i366.StorageRepository>(),
           gh<_i657.ErrorLogService>(),
+        ));
+    gh.lazySingleton<_i100.JackettProcess>(() => _i100.JackettProcess(
+          gh<_i519.Client>(),
+          gh<_i657.ErrorLogService>(),
+          gh<_i616.JackettResolver>(),
         ));
     gh.lazySingleton<_i495.LibraryMatchService>(() => _i495.LibraryMatchService(
           gh<_i877.LibraryRepository>(),
@@ -175,6 +171,12 @@ extension GetItInjectableX on _i174.GetIt {
         ));
     gh.lazySingleton<_i842.MediaScanner>(
         () => _i842.MediaScanner(gh<_i883.StorageManager>()));
+    gh.lazySingleton<_i156.AcquisitionResolver>(
+        () => _i669.CompositeAcquisitionResolver(
+              gh<_i98.InternetArchiveResolver>(),
+              gh<_i616.JackettResolver>(),
+              gh<_i657.ErrorLogService>(),
+            ));
     gh.lazySingleton<_i38.LibraryService>(() => _i38.LibraryService(
           gh<_i842.MediaScanner>(),
           gh<_i877.LibraryRepository>(),

@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../../core/logging/error_log_service.dart';
 import '../../core/media/video_extensions.dart';
+import '../subtitles/filename_media_info.dart';
 import 'acquisition.dart';
 import 'qbittorrent_process.dart';
 
@@ -446,26 +447,33 @@ class QbittorrentTask implements TorrentTask {
   final Set<int> _wanted = {};
 
   @override
-  Future<String> prepareFile({String? name}) async {
-    final file = await _resolveFile(name: name);
+  Future<String> prepareFile({String? name, int? season, int? episode}) async {
+    final file = await _resolveFile(name: name, season: season, episode: episode);
     await _awaitStreamable(file);
     // qBittorrent's file `name` is the path relative to the save path (including
     // any torrent root folder), so join to get the absolute path.
     return p.join(savePath, file.name);
   }
 
-  /// Resolve a file (the named one, or the primary when [name] is null): its
-  /// index, name and piece range, and focus the download on it (additive — other
-  /// unwanted files → priority 0). Cached per requested name.
-  Future<_TorrentFileRef> _resolveFile({String? name}) async {
-    final cached = _resolved[name];
+  /// Resolve the file to play and focus the download on it (additive — other
+  /// unwanted files → priority 0). Selection order: an exact [name]; else the
+  /// file matching [season]/[episode] (extracting one episode from a pack); else
+  /// the primary/largest video. Cached per selector.
+  Future<_TorrentFileRef> _resolveFile(
+      {String? name, int? season, int? episode}) async {
+    final hasEpisode = season != null && episode != null;
+    final selectorKey = name ?? (hasEpisode ? 's${season}e$episode' : null);
+    final cached = _resolved[selectorKey];
     if (cached != null) return cached;
 
     final deadline = DateTime.now().add(const Duration(seconds: 60));
     while (DateTime.now().isBefore(deadline)) {
       final files = await _daemon.torrentFiles(hash);
-      final chosen =
-          name == null ? pickPrimaryFile(files) : findFileByName(files, name);
+      final chosen = name != null
+          ? findFileByName(files, name)
+          : hasEpisode
+              ? findEpisodeFile(files, season, episode)
+              : pickPrimaryFile(files);
       if (chosen != null) {
         final index =
             (chosen['index'] as num?)?.toInt() ?? files.indexOf(chosen);
@@ -477,7 +485,7 @@ class QbittorrentTask implements TorrentTask {
           firstPiece: range?.$1,
           lastPiece: range?.$2,
         );
-        _resolved[name] = ref;
+        _resolved[selectorKey] = ref;
         _log.info(
             'file "${ref.name}" ${_fmtMb(ref.sizeBytes)} idx=${ref.index} '
             'pieces=${ref.firstPiece == null ? "n/a" : "[${ref.firstPiece}..${ref.lastPiece}]"} '
@@ -487,14 +495,15 @@ class QbittorrentTask implements TorrentTask {
         return ref;
       }
       // Metadata is present but the requested file isn't in it — fail fast
-      // rather than spin out the whole 60s window.
-      if (name != null && files.isNotEmpty) break;
+      // rather than spin out the whole 60s window. (Only the primary selector
+      // can wait: it resolves the moment any file appears.)
+      if (selectorKey != null && files.isNotEmpty) break;
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
     final e = TorrentDaemonException(
-        name == null
+        selectorKey == null
             ? 'no files resolved for torrent $hash'
-            : 'file "$name" not found in torrent $hash',
+            : 'no file for "$selectorKey" found in torrent $hash',
         kind: TorrentErrorKind.noVideo);
     _log.logError(e, source: 'QbittorrentTask.resolveFile');
     throw e;
@@ -723,6 +732,24 @@ Map<String, dynamic>? findFileByName(
     if (p.basename(fname).toLowerCase() == target) return f;
   }
   return null;
+}
+
+/// Find the video file in [files] whose name parses to [season]/[episode] — how
+/// one episode is extracted from a season pack (and how a single-episode torrent
+/// is confirmed to be the right episode). When no name parses to that S/E but
+/// the torrent has exactly one video file, that video is returned (the release
+/// title already vouched for it and its inner file lacks a marker). Null when the
+/// episode can't be identified among multiple videos. Pure + exposed for testing.
+Map<String, dynamic>? findEpisodeFile(
+    List<Map<String, dynamic>> files, int season, int episode) {
+  bool isVideo(Map<String, dynamic> f) => kVideoExtensions
+      .contains(p.extension((f['name'] as String? ?? '')).toLowerCase());
+  final videos = files.where(isVideo).toList();
+  for (final f in videos) {
+    final parsed = FilenameMediaInfo.parse(p.basename(f['name'] as String? ?? ''));
+    if (parsed.season == season && parsed.episode == episode) return f;
+  }
+  return videos.length == 1 ? videos.first : null;
 }
 
 /// Pick the file to hand the player: the largest **video** file, or the largest

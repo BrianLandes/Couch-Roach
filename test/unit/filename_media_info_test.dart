@@ -70,4 +70,70 @@ void main() {
     expect(r.season, 1);
     expect(r.episode, 5);
   });
+
+  group('normalizeTitle / titleMatches', () {
+    test('normalizes separators, case, and punctuation', () {
+      expect(FilenameMediaInfo.normalizeTitle('House.of.the.Dragon'),
+          'houseofthedragon');
+      expect(FilenameMediaInfo.normalizeTitle('House of the Dragon'),
+          'houseofthedragon');
+      expect(FilenameMediaInfo.normalizeTitle('house_of_the_dragon'),
+          'houseofthedragon');
+    });
+
+    test('a release matches its show despite extra tokens', () {
+      expect(
+          FilenameMediaInfo.titleMatches(
+              'House.of.the.Dragon.2022.S01E01.1080p', 'House of the Dragon'),
+          isTrue);
+    });
+
+    test('a different show does not match', () {
+      expect(
+          FilenameMediaInfo.titleMatches(
+              'Game.of.Thrones.S01E09', 'House of the Dragon'),
+          isFalse);
+    });
+
+    test('an empty query never matches', () {
+      expect(FilenameMediaInfo.titleMatches('Anything', ''), isFalse);
+    });
+  });
+
+  group('seasonPackNumber', () {
+    test('reads S01 / Season 1 / Series 1 as a pack', () {
+      expect(FilenameMediaInfo.seasonPackNumber('Game.of.Thrones.S01.1080p'), 1);
+      expect(FilenameMediaInfo.seasonPackNumber('Game of Thrones Season 2'), 2);
+      expect(FilenameMediaInfo.seasonPackNumber('The.Show.Series.3.Complete'), 3);
+    });
+
+    test('a single-episode name is not a pack', () {
+      expect(FilenameMediaInfo.seasonPackNumber('Show.S01E03.1080p'), isNull);
+      expect(FilenameMediaInfo.seasonPackNumber('Show - 1x03'), isNull);
+    });
+
+    test('no season marker at all is not a pack', () {
+      expect(FilenameMediaInfo.seasonPackNumber('Some.Movie.2020.1080p'), isNull);
+    });
+  });
+
+  group('looksLikeSignLanguage', () {
+    test('flags ASL/BSL/sign language cuts', () {
+      expect(FilenameMediaInfo.looksLikeSignLanguage('Show.S01E03.ASL.1080p'),
+          isTrue);
+      expect(FilenameMediaInfo.looksLikeSignLanguage('Show.S01E03.BSL'), isTrue);
+      expect(
+          FilenameMediaInfo.looksLikeSignLanguage('Show Sign Language Version'),
+          isTrue);
+    });
+
+    test('does not flag ordinary releases', () {
+      expect(
+          FilenameMediaInfo.looksLikeSignLanguage('Show.S01E03.1080p.WEB-DL'),
+          isFalse);
+      // "asl" only as a bounded token — not inside another word.
+      expect(FilenameMediaInfo.looksLikeSignLanguage('Hassle.2019.1080p'),
+          isFalse);
+    });
+  });
 }

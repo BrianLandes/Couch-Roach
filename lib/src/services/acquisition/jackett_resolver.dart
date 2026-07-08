@@ -5,6 +5,8 @@ import 'package:injectable/injectable.dart';
 import 'package:xml/xml.dart';
 
 import '../../core/logging/error_log_service.dart';
+import '../../core/settings/settings_service.dart';
+import '../subtitles/filename_media_info.dart';
 import 'acquisition.dart';
 
 /// [AcquisitionResolver] over a **Jackett** Torznab endpoint (DECISIONS §D).
@@ -20,10 +22,11 @@ import 'acquisition.dart';
 /// (acquisition simply degrades — the play flow can fall back or surface it).
 @LazySingleton()
 class JackettResolver implements AcquisitionResolver {
-  JackettResolver(this._http, this._log);
+  JackettResolver(this._http, this._log, this._settings);
 
   final http.Client _http;
   final ErrorLogService _log;
+  final SettingsService _settings;
 
   JackettConfig? _config;
 
@@ -44,15 +47,58 @@ class JackettResolver implements AcquisitionResolver {
       return null;
     }
 
-    final uri = buildTorznabUri(config, meta, season, episode);
+    final exclude = _settings.excludeSignLanguage;
     try {
-      final res = await _http.get(uri);
-      if (res.statusCode != 200) {
-        _log.warn('Jackett Torznab HTTP ${res.statusCode}',
+      // TV episode: verify the release actually is this episode — never trust the
+      // indexer's season/ep filtering, which routinely returns other episodes.
+      if (season != null && episode != null) {
+        // Tier 1 — a release whose title parses to exactly this S/E.
+        final episodeResults = await _query(config, meta, season, episode);
+        final episodeBest = pickBestTorznabResult(verifiedEpisodeResults(
+            episodeResults, meta, season, episode,
+            excludeSignLanguage: exclude));
+        if (episodeBest != null) {
+          _log.info(
+              'resolved S${season}E$episode as a single episode: '
+              '"${episodeBest.title}"',
+              source: 'JackettResolver');
+          return TorrentHandle(
+              magnetOrUrl: episodeBest.downloadUrl,
+              displayName: episodeBest.title);
+        }
+
+        // Tier 2 — no verified single episode: fall back to a verified season
+        // pack (separate season-only query); the daemon extracts this episode's
+        // file from it.
+        final packResults = await _query(config, meta, season, null);
+        final packBest = pickBestTorznabResult(seasonPackResults(
+            packResults, meta, season,
+            excludeSignLanguage: exclude));
+        if (packBest != null) {
+          _log.info(
+              'no verified single episode for S${season}E$episode — falling '
+              'back to season pack "${packBest.title}"',
+              source: 'JackettResolver');
+          return TorrentHandle(
+              magnetOrUrl: packBest.downloadUrl,
+              displayName: packBest.title,
+              seasonPack: true);
+        }
+
+        _log.info(
+            'no verified source for S${season}E$episode of "${meta.title}"',
             source: 'JackettResolver');
         return null;
       }
-      final best = pickBestTorznabResult(parseTorznabResults(res.body));
+
+      // Movie / unscoped search: rank by seed health, still dropping ASL/BSL cuts.
+      final results = await _query(config, meta, season, episode);
+      final pool = exclude
+          ? results
+              .where((r) => !FilenameMediaInfo.looksLikeSignLanguage(r.title))
+              .toList()
+          : results;
+      final best = pickBestTorznabResult(pool);
       if (best == null) return null;
       return TorrentHandle(
           magnetOrUrl: best.downloadUrl, displayName: best.title);
@@ -60,6 +106,18 @@ class JackettResolver implements AcquisitionResolver {
       _log.logError(e, stackTrace: st, source: 'JackettResolver.resolve');
       return null;
     }
+  }
+
+  /// Run one Torznab query and parse it; [] on a non-200 or empty feed.
+  Future<List<TorznabResult>> _query(
+      JackettConfig config, ShowMeta meta, int? season, int? episode) async {
+    final res = await _http.get(buildTorznabUri(config, meta, season, episode));
+    if (res.statusCode != 200) {
+      _log.warn('Jackett Torznab HTTP ${res.statusCode}',
+          source: 'JackettResolver');
+      return const [];
+    }
+    return parseTorznabResults(res.body);
   }
 }
 
@@ -92,19 +150,20 @@ class TorznabResult {
 }
 
 /// Build the aggregate Torznab request against `indexers/all`. Uses `tvsearch`
-/// (category 5000) with season/episode when both are known, else a movie
-/// `search` (category 2000). Pure + tested. Newznab category numbers:
-/// 2000 = Movies, 5000 = TV.
+/// (category 5000) whenever a [season] is given — with `ep` when an [episode] is
+/// too (single episode), or season-only (a season-pack query) when it's null —
+/// else a movie `search` (category 2000). Pure + tested. Newznab category
+/// numbers: 2000 = Movies, 5000 = TV.
 Uri buildTorznabUri(
     JackettConfig config, ShowMeta meta, int? season, int? episode) {
-  final isEpisode = season != null && episode != null;
+  final isTv = season != null;
   final params = <String, String>{
     'apikey': config.apiKey,
-    't': isEpisode ? 'tvsearch' : 'search',
+    't': isTv ? 'tvsearch' : 'search',
     'q': meta.title,
-    'cat': isEpisode ? '5000' : '2000',
-    if (isEpisode) 'season': '$season',
-    if (isEpisode) 'ep': '$episode',
+    'cat': isTv ? '5000' : '2000',
+    if (season != null) 'season': '$season',
+    if (episode != null) 'ep': '$episode',
   };
   final base = config.baseUrl.endsWith('/')
       ? config.baseUrl.substring(0, config.baseUrl.length - 1)
@@ -171,6 +230,56 @@ TorznabResult? pickBestTorznabResult(List<TorznabResult> results) {
       return b.sizeBytes.compareTo(a.sizeBytes);
     });
   return sorted.first;
+}
+
+/// Minimum plausible episode size — drops `.nfo`/sample/fake rows that sometimes
+/// out-seed the real release. Only applied when a size is reported.
+const int _minEpisodeBytes = 50 * 1024 * 1024; // 50 MB
+
+/// Keep only [results] that **verify** as the requested [season]/[episode] of
+/// [meta]'s show: the title must name the same show AND parse to exactly that
+/// `SxxExx`. This is the fix for "asked for episode 1, got episode 9" — the
+/// indexer's own season/ep filtering is not trusted. Sign-language cuts are
+/// dropped when [excludeSignLanguage]; implausibly tiny files are dropped.
+/// Order is preserved (rank with [pickBestTorznabResult]). Pure + tested.
+List<TorznabResult> verifiedEpisodeResults(
+  List<TorznabResult> results,
+  ShowMeta meta,
+  int season,
+  int episode, {
+  bool excludeSignLanguage = true,
+}) {
+  return results.where((r) {
+    if (excludeSignLanguage &&
+        FilenameMediaInfo.looksLikeSignLanguage(r.title)) {
+      return false;
+    }
+    if (r.sizeBytes > 0 && r.sizeBytes < _minEpisodeBytes) return false;
+    if (!FilenameMediaInfo.titleMatches(r.title, meta.title)) return false;
+    final parsed = FilenameMediaInfo.parse(r.title);
+    return parsed.season == season && parsed.episode == episode;
+  }).toList();
+}
+
+/// Keep only [results] that verify as a **whole-season pack** for [season] of
+/// [meta]'s show (right show + a season-pack marker for this season, and *not* a
+/// single different episode). The requested episode is later extracted from the
+/// pack's file list. Sign-language cuts dropped when [excludeSignLanguage].
+/// Order preserved. Pure + tested.
+List<TorznabResult> seasonPackResults(
+  List<TorznabResult> results,
+  ShowMeta meta,
+  int season, {
+  bool excludeSignLanguage = true,
+}) {
+  return results.where((r) {
+    if (excludeSignLanguage &&
+        FilenameMediaInfo.looksLikeSignLanguage(r.title)) {
+      return false;
+    }
+    if (!FilenameMediaInfo.titleMatches(r.title, meta.title)) return false;
+    return FilenameMediaInfo.seasonPackNumber(r.title) == season;
+  }).toList();
 }
 
 /// Read Jackett's auto-generated Torznab API key from the contents of its

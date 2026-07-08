@@ -1,11 +1,14 @@
 import 'dart:io';
 
 import 'package:couch_roach/src/core/logging/error_log_service.dart';
+import 'package:couch_roach/src/core/settings/settings_service.dart';
+import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/data/opensubtitles/download_response.dart';
 import 'package:couch_roach/src/data/opensubtitles/subtitle_result.dart';
 import 'package:couch_roach/src/services/subtitles/movie_hasher.dart';
 import 'package:couch_roach/src/services/subtitles/opensubtitles_client.dart';
 import 'package:couch_roach/src/services/subtitles/subtitle_searcher.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 SubtitleResult _res(
@@ -14,6 +17,7 @@ SubtitleResult _res(
   bool trusted = false,
   bool hi = false,
   bool withFile = true,
+  String? release,
 }) {
   return SubtitleResult(
     id: id,
@@ -21,6 +25,7 @@ SubtitleResult _res(
       downloadCount: downloads,
       fromTrusted: trusted,
       hearingImpaired: hi,
+      release: release,
       files: withFile ? [SubtitleFile(fileId: int.parse(id))] : const [],
     ),
   );
@@ -68,6 +73,12 @@ class _ThrowingHasher implements MovieHasher {
 
 void main() {
   final log = ErrorLogService();
+  late SettingsService settings;
+
+  setUp(() async {
+    settings = SettingsService(AppDatabase.forTesting(NativeDatabase.memory()));
+    await settings.load();
+  });
 
   group('pickBest', () {
     test('returns null on empty', () {
@@ -122,6 +133,35 @@ void main() {
       );
       expect(best!.id, '1');
     });
+
+    test('drops a sub whose release names a different episode', () {
+      final best = SubtitleSearcher.pickBest(
+        [
+          _res('1', downloads: 5000, release: 'Show.S01E09.1080p'), // wrong ep
+          _res('2', downloads: 10, release: 'Show.S01E01.1080p'),
+        ],
+        season: 1,
+        episode: 1,
+      );
+      expect(best!.id, '2');
+    });
+
+    test('drops a sign-language release when excluded', () {
+      final best = SubtitleSearcher.pickBest([
+        _res('1', downloads: 5000, release: 'Show.S01E01.ASL'),
+        _res('2', downloads: 10, release: 'Show.S01E01.1080p'),
+      ]);
+      expect(best!.id, '2');
+    });
+
+    test('a null release is never filtered out', () {
+      final best = SubtitleSearcher.pickBest(
+        [_res('1', downloads: 100)],
+        season: 1,
+        episode: 1,
+      );
+      expect(best!.id, '1');
+    });
   });
 
   group('findBest orchestration', () {
@@ -129,7 +169,7 @@ void main() {
       final client = _FakeClient([
         [_res('1', downloads: 10)],
       ]);
-      final searcher = SubtitleSearcher(_FakeHasher(), client, log);
+      final searcher = SubtitleSearcher(_FakeHasher(), client, log, settings);
       final best = await searcher.findBest('/movies/Film.mkv');
       expect(best!.id, '1');
       expect(client.calls, hasLength(1));
@@ -141,7 +181,7 @@ void main() {
         const [], // hash miss
         [_res('7', downloads: 20)], // fallback hit
       ]);
-      final searcher = SubtitleSearcher(_FakeHasher(), client, log);
+      final searcher = SubtitleSearcher(_FakeHasher(), client, log, settings);
       final best = await searcher.findBest(
         '/tv/Show.S02E05.mkv',
         tmdbId: 1234,
@@ -162,7 +202,7 @@ void main() {
         const [], // hash miss
         [_res('9', downloads: 5)],
       ]);
-      final searcher = SubtitleSearcher(_FakeHasher(), client, log);
+      final searcher = SubtitleSearcher(_FakeHasher(), client, log, settings);
       final best = await searcher.findBest('/tv/Cool.Show.S01E02.720p.mkv');
       expect(best!.id, '9');
       final fallback = client.calls[1];
@@ -176,7 +216,7 @@ void main() {
       final client = _FakeClient([
         [_res('4', downloads: 1)], // this would be the fallback response
       ]);
-      final searcher = SubtitleSearcher(_ThrowingHasher(), client, log);
+      final searcher = SubtitleSearcher(_ThrowingHasher(), client, log, settings);
       final best = await searcher.findBest('/tv/Show.S01E01.mkv');
       expect(best!.id, '4');
       // Hash threw before a request, so the first (and only) call is the
@@ -187,7 +227,7 @@ void main() {
 
     test('returns null when everything comes up empty', () async {
       final client = _FakeClient([const [], const []]);
-      final searcher = SubtitleSearcher(_FakeHasher(), client, log);
+      final searcher = SubtitleSearcher(_FakeHasher(), client, log, settings);
       expect(await searcher.findBest('/tv/Unknown.S01E01.mkv'), isNull);
     });
   });

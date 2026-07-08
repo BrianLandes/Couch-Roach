@@ -425,12 +425,46 @@ void main() {
     });
   });
 
+  group('findEpisodeFile', () {
+    final pack = [
+      file('GoT.S01/Game.of.Thrones.S01E01.mkv', 900000000),
+      file('GoT.S01/Game.of.Thrones.S01E02.mkv', 1200000000),
+      file('GoT.S01/Game.of.Thrones.S01E03.mkv', 1100000000),
+      file('GoT.S01/poster.jpg', 200000),
+    ];
+
+    test('picks the file matching the requested episode from a pack', () {
+      expect(findEpisodeFile(pack, 1, 3)!['name'],
+          'GoT.S01/Game.of.Thrones.S01E03.mkv');
+    });
+
+    test('does not pick the largest — picks the right episode', () {
+      // E02 is largest, but E01 is requested.
+      expect(findEpisodeFile(pack, 1, 1)!['name'],
+          'GoT.S01/Game.of.Thrones.S01E01.mkv');
+    });
+
+    test('falls back to the sole video when it lacks an S/E marker', () {
+      final single = [file('episode.mkv', 900000000), file('info.nfo', 500)];
+      expect(findEpisodeFile(single, 4, 7)!['name'], 'episode.mkv');
+    });
+
+    test('returns null when the episode is absent among multiple videos', () {
+      expect(findEpisodeFile(pack, 1, 9), isNull);
+    });
+  });
+
   group('acquisition dedupe key / tag', () {
     test('key encodes tmdb id + season/episode for an episode', () {
       expect(
         acquisitionDedupeKey(tmdbId: 125988, title: 'Silo', season: 1, episode: 1),
         'cr-tmdb-125988-s1e1',
       );
+    });
+
+    test('key encodes a season-only (pack) scope when episode is omitted', () {
+      expect(acquisitionDedupeKey(tmdbId: 125988, title: 'Silo', season: 1),
+          'cr-tmdb-125988-s1');
     });
 
     test('key omits season/episode for a movie', () {

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:couch_roach/src/core/logging/error_log_service.dart';
+import 'package:couch_roach/src/core/settings/settings_service.dart';
 import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/data/opensubtitles/download_response.dart';
 import 'package:couch_roach/src/data/opensubtitles/subtitle_result.dart';
@@ -54,7 +55,8 @@ class _FakeClient implements SubtitleClient {
 }
 
 class _FakeSearcher extends SubtitleSearcher {
-  _FakeSearcher(this._result) : super(_NoHasher(), _FakeClient(), ErrorLogService());
+  _FakeSearcher(this._result, SettingsService settings)
+      : super(_NoHasher(), _FakeClient(), ErrorLogService(), settings);
   final SubtitleResult? _result;
   @override
   Future<SubtitleResult?> findBest(
@@ -105,7 +107,7 @@ void main() {
   }) {
     return OpenSubtitlesSubtitleService(
       _FakeSkip(hasEnglish),
-      _FakeSearcher(searchResult),
+      _FakeSearcher(searchResult, SettingsService(db)),
       _FakeClient(download: download),
       attempts,
       library,

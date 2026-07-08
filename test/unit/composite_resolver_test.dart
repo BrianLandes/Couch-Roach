@@ -1,10 +1,13 @@
 import 'dart:convert';
 
 import 'package:couch_roach/src/core/logging/error_log_service.dart';
+import 'package:couch_roach/src/core/settings/settings_service.dart';
+import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/services/acquisition/acquisition.dart';
 import 'package:couch_roach/src/services/acquisition/composite_resolver.dart';
 import 'package:couch_roach/src/services/acquisition/internet_archive_resolver.dart';
 import 'package:couch_roach/src/services/acquisition/jackett_resolver.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -29,9 +32,11 @@ void main() {
   final log = ErrorLogService();
   const meta = ShowMeta(title: 'X', tmdbId: 42, mediaType: 'movie');
 
+  final settings = SettingsService(AppDatabase.forTesting(NativeDatabase.memory()));
+
   InternetArchiveResolver ia(http.Client c) => InternetArchiveResolver(c, log);
   JackettResolver jackett(http.Client c, {JackettConfig? config}) {
-    final r = JackettResolver(c, log);
+    final r = JackettResolver(c, log, settings);
     if (config != null) r.configure(config);
     return r;
   }

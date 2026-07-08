@@ -217,10 +217,13 @@ abstract class TorrentTask {
   ///
   /// [name] selects the file by its basename (as listed in the item's file
   /// list) — for multi-file torrents (IA bundles / whole seasons) this plays
-  /// exactly the chosen video. When null, the largest/primary video is used.
-  /// Selecting files is additive: previously prepared files stay wanted, so a
-  /// watched episode isn't dropped when the next is picked.
-  Future<String> prepareFile({String? name});
+  /// exactly the chosen video. When [name] is null but [season]/[episode] are
+  /// given, the file whose name parses to that `SxxExx` is selected (extracting
+  /// one episode from a season pack); if no file matches but the torrent has a
+  /// single video, that video is used. When all are null, the largest/primary
+  /// video is used. Selecting files is additive: previously prepared files stay
+  /// wanted, so a watched episode isn't dropped when the next is picked.
+  Future<String> prepareFile({String? name, int? season, int? episode});
 
   /// 0.0–1.0 download progress stream, for the show-detail availability badge.
   Stream<double> get progress;

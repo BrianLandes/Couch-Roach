@@ -1,11 +1,23 @@
 import 'package:couch_roach/src/core/logging/error_log_service.dart';
+import 'package:couch_roach/src/core/settings/settings_service.dart';
+import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/services/acquisition/acquisition.dart';
 import 'package:couch_roach/src/services/acquisition/jackett_resolver.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 const _config = JackettConfig(baseUrl: 'http://127.0.0.1:9117', apiKey: 'KEY');
+
+/// A settings service backed by an in-memory DB (defaults apply). [exclude]
+/// seeds the sign-language toggle for tests that care.
+Future<SettingsService> _settings({bool exclude = true}) async {
+  final s = SettingsService(AppDatabase.forTesting(NativeDatabase.memory()));
+  await s.load();
+  if (!exclude) await s.setExcludeSignLanguage(false);
+  return s;
+}
 
 // A Torznab (RSS) feed with the torznab namespace, mixing an enclosure-only row
 // and a magneturl row.
@@ -113,6 +125,123 @@ void main() {
     });
   });
 
+  group('verifiedEpisodeResults', () {
+    const meta = ShowMeta(title: 'Game of Thrones');
+    TorznabResult r(String title, {int seeders = 10, int size = 900000000}) =>
+        TorznabResult(
+            title: title, downloadUrl: 'magnet:$title', seeders: seeders, sizeBytes: size);
+
+    test('keeps only the exact requested episode of the right show', () {
+      final kept = verifiedEpisodeResults([
+        r('Game.of.Thrones.S01E01.1080p'),
+        r('Game.of.Thrones.S01E09.1080p'), // wrong episode
+        r('House.of.the.Dragon.S01E01.1080p'), // wrong show
+        r('Game.of.Thrones.S01.1080p'), // season pack (no episode)
+      ], meta, 1, 1);
+      expect(kept.map((e) => e.title), ['Game.of.Thrones.S01E01.1080p']);
+    });
+
+    test('drops sign-language cuts by default but keeps them when allowed', () {
+      final input = [
+        r('Game.of.Thrones.S01E01.ASL.1080p'),
+        r('Game.of.Thrones.S01E01.1080p'),
+      ];
+      expect(verifiedEpisodeResults(input, meta, 1, 1).map((e) => e.title),
+          ['Game.of.Thrones.S01E01.1080p']);
+      expect(
+          verifiedEpisodeResults(input, meta, 1, 1, excludeSignLanguage: false)
+              .length,
+          2);
+    });
+
+    test('drops implausibly tiny files', () {
+      final kept = verifiedEpisodeResults(
+          [r('Game.of.Thrones.S01E01.1080p', size: 1024)], meta, 1, 1);
+      expect(kept, isEmpty);
+    });
+  });
+
+  group('seasonPackResults', () {
+    const meta = ShowMeta(title: 'Game of Thrones');
+    TorznabResult r(String title) =>
+        TorznabResult(title: title, downloadUrl: 'magnet:$title', seeders: 10);
+
+    test('keeps whole-season packs for the requested season only', () {
+      final kept = seasonPackResults([
+        r('Game.of.Thrones.S01.1080p'),
+        r('Game.of.Thrones.Season.2.1080p'), // wrong season
+        r('Game.of.Thrones.S01E05.1080p'), // single episode, not a pack
+        r('House.of.the.Dragon.S01.1080p'), // wrong show
+      ], meta, 1);
+      expect(kept.map((e) => e.title), ['Game.of.Thrones.S01.1080p']);
+    });
+  });
+
+  group('resolve — episode tiers', () {
+    const meta = ShowMeta(title: 'Game of Thrones');
+
+    String feed(List<String> titles) => '''<?xml version="1.0"?>
+<rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel>
+${titles.map((t) => '<item><title>$t</title>'
+            '<torznab:attr name="magneturl" value="magnet:$t"/>'
+            '<torznab:attr name="seeders" value="50"/>'
+            '<size>900000000</size></item>').join('\n')}
+</channel></rss>''';
+
+    test('Tier 1: returns a verified single episode, ignoring wrong ones',
+        () async {
+      final r = JackettResolver(
+        MockClient((_) async => http.Response(
+            feed(['Game.of.Thrones.S01E09.1080p', 'Game.of.Thrones.S01E01.1080p']),
+            200)),
+        ErrorLogService(),
+        await _settings(),
+      )..configure(_config);
+
+      final handle = await r.resolve(meta, 1, 1);
+      expect(handle, isNotNull);
+      expect(handle!.displayName, 'Game.of.Thrones.S01E01.1080p');
+      expect(handle.seasonPack, isFalse);
+    });
+
+    test('Tier 2: falls back to a season pack when no single episode verifies',
+        () async {
+      var call = 0;
+      final r = JackettResolver(
+        MockClient((req) async {
+          call++;
+          // First query (season+ep) → only a wrong episode; second (season-only)
+          // → the pack.
+          return http.Response(
+              req.url.queryParameters.containsKey('ep')
+                  ? feed(['Game.of.Thrones.S01E09.1080p'])
+                  : feed(['Game.of.Thrones.S01.1080p']),
+              200);
+        }),
+        ErrorLogService(),
+        await _settings(),
+      )..configure(_config);
+
+      final handle = await r.resolve(meta, 1, 1);
+      expect(handle, isNotNull);
+      expect(handle!.displayName, 'Game.of.Thrones.S01.1080p');
+      expect(handle.seasonPack, isTrue);
+      expect(call, 2, reason: 'episode query, then a season-only pack query');
+    });
+
+    test('Tier 3: no verified source → null (fail loudly, no wrong guess)',
+        () async {
+      final r = JackettResolver(
+        MockClient((_) async =>
+            http.Response(feed(['Game.of.Thrones.S01E09.1080p']), 200)),
+        ErrorLogService(),
+        await _settings(),
+      )..configure(_config);
+
+      expect(await r.resolve(meta, 1, 1), isNull);
+    });
+  });
+
   group('parseJackettApiKey', () {
     test('reads the APIKey field', () {
       expect(parseJackettApiKey('{"APIKey":"abc123","Port":9117}'), 'abc123');
@@ -125,12 +254,12 @@ void main() {
   });
 
   group('resolve', () {
-    JackettResolver resolver(http.Client client) =>
-        JackettResolver(client, ErrorLogService());
+    Future<JackettResolver> resolver(http.Client client) async =>
+        JackettResolver(client, ErrorLogService(), await _settings());
 
     test('returns null when not configured (sidecar not up)', () async {
       var called = false;
-      final r = resolver(MockClient((_) async {
+      final r = await resolver(MockClient((_) async {
         called = true;
         return http.Response(_feed, 200);
       }));
@@ -139,10 +268,10 @@ void main() {
     });
 
     test('returns the best hit as a TorrentHandle when configured', () async {
-      final r = resolver(MockClient((req) async {
+      final r = (await resolver(MockClient((req) async {
         expect(req.url.queryParameters['apikey'], 'KEY');
         return http.Response(_feed, 200);
-      }))
+      })))
         ..configure(_config);
 
       final handle = await r.resolve(const ShowMeta(title: 'Some Movie'), null, null);
@@ -152,14 +281,14 @@ void main() {
     });
 
     test('null on a non-200 response', () async {
-      final r = resolver(MockClient((_) async => http.Response('nope', 500)))
+      final r = (await resolver(MockClient((_) async => http.Response('nope', 500))))
         ..configure(_config);
       expect(await r.resolve(const ShowMeta(title: 'x'), null, null), isNull);
     });
 
     test('null when the feed has no items', () async {
       const empty = '<rss><channel></channel></rss>';
-      final r = resolver(MockClient((_) async => http.Response(empty, 200)))
+      final r = (await resolver(MockClient((_) async => http.Response(empty, 200))))
         ..configure(_config);
       expect(await r.resolve(const ShowMeta(title: 'x'), null, null), isNull);
     });
