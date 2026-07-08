@@ -9,7 +9,6 @@ import '../../core/settings/settings_service.dart';
 import '../../core/window/window_service.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/watch_history_repository.dart';
-import '../../data/tmdb/tv_show_summary.dart';
 import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
@@ -17,9 +16,10 @@ import '../../widgets/fullscreen_toggle_button.dart';
 import '../archive/archive_poster_card.dart';
 import '../archive/archive_providers.dart';
 import '../../services/acquisition/archive_browse_service.dart';
+import '../discover/discover_nav.dart';
 import '../discover/discover_poster_card.dart';
 import '../discover/discover_providers.dart';
-import '../discover/show_detail_screen.dart';
+import '../discover/discover_tile.dart';
 import '../vpn/vpn_status_chip.dart';
 import '../player/player_screen.dart';
 import 'continue_watching_card.dart';
@@ -40,6 +40,10 @@ class LibraryScreen extends ConsumerWidget {
     final itemsAsync = ref.watch(libraryItemsProvider);
     final trending = ref.watch(trendingTvProvider).asData?.value ?? const [];
     final recommended = ref.watch(recommendedProvider).asData?.value ?? const [];
+    final popularMovies =
+        ref.watch(trendingMoviesProvider).asData?.value ?? const [];
+    final documentaries =
+        ref.watch(documentaryMoviesProvider).asData?.value ?? const [];
     final archivePicks = ref.watch(archivePicksProvider).asData?.value ?? const [];
     final resumable = continueAsync.asData?.value ?? const [];
 
@@ -62,14 +66,28 @@ class LibraryScreen extends ConsumerWidget {
                     SliverToBoxAdapter(
                       child: _DiscoverRail(
                         label: 'Recommended For You',
-                        shows: recommended,
+                        tiles: recommended.map(DiscoverTile.fromTv).toList(),
                       ),
                     ),
                   if (trending.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _DiscoverRail(
-                        label: 'What to Watch Next',
-                        shows: trending,
+                        label: 'TV Shows',
+                        tiles: trending.map(DiscoverTile.fromTv).toList(),
+                      ),
+                    ),
+                  if (popularMovies.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DiscoverRail(
+                        label: 'Movies',
+                        tiles: popularMovies,
+                      ),
+                    ),
+                  if (documentaries.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DiscoverRail(
+                        label: 'Documentaries',
+                        tiles: documentaries,
                       ),
                     ),
                   if (archivePicks.isNotEmpty)
@@ -281,13 +299,13 @@ class _ContinueWatchingRail extends StatelessWidget {
 }
 
 class _DiscoverRail extends StatelessWidget {
-  const _DiscoverRail({required this.label, required this.shows});
+  const _DiscoverRail({required this.label, required this.tiles});
   final String label;
-  final List<TvShowSummary> shows;
+  final List<DiscoverTile> tiles;
 
   @override
   Widget build(BuildContext context) {
-    final top = shows.take(10).toList(growable: false);
+    final top = tiles.take(10).toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -300,13 +318,10 @@ class _DiscoverRail extends StatelessWidget {
             itemCount: top.length,
             separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.lg),
             itemBuilder: (context, i) {
-              final show = top[i];
+              final tile = top[i];
               return DiscoverPosterCard(
-                show: show,
-                onPressed: () => context.push(
-                  Routes.showDetail,
-                  extra: ShowDetailArgs(tmdbId: show.tmdbId, name: show.name),
-                ),
+                tile: tile,
+                onPressed: () => openDiscoverTile(context, tile),
               );
             },
           ),

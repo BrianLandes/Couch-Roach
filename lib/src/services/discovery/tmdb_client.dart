@@ -21,6 +21,10 @@ abstract class DiscoveryClient {
   Future<List<TvShowSummary>> trendingTv();
   Future<List<MovieSummary>> trendingMovies();
 
+  /// Discover movies, optionally within a genre (e.g. 99 = Documentary), sorted
+  /// by popularity — the source for the category rails.
+  Future<List<MovieSummary>> discoverMovies({int? genreId});
+
   /// Recommendations for a show — the "similar to what you watched" feed.
   Future<List<TvShowSummary>> recommendedTv(int tmdbId);
 }
@@ -107,6 +111,16 @@ class TmdbClient implements DiscoveryClient {
   @override
   Future<List<MovieSummary>> trendingMovies() async =>
       _results(await _get('/trending/movie/week'), MovieSummary.fromJson);
+
+  @override
+  Future<List<MovieSummary>> discoverMovies({int? genreId}) async => _results(
+        await _get('/discover/movie', {
+          'sort_by': 'popularity.desc',
+          'vote_count.gte': '50', // trim obscure/noise entries
+          if (genreId != null) 'with_genres': '$genreId',
+        }),
+        MovieSummary.fromJson,
+      );
 
   @override
   Future<List<TvShowSummary>> recommendedTv(int tmdbId) async =>

@@ -1,20 +1,21 @@
 import 'package:flutter/material.dart';
 
-import '../../data/tmdb/tv_show_summary.dart';
 import '../../theme/theme.dart';
 import '../../widgets/focusable_card.dart';
 import '../../widgets/poster_art.dart';
+import 'discover_tile.dart';
 
-/// A portrait poster card for a discovery item (trending / recommendations).
+/// A portrait poster card for a discovery item (trending / recommendations /
+/// search), for either a TV show or a movie.
 class DiscoverPosterCard extends StatelessWidget {
   const DiscoverPosterCard({
     super.key,
-    required this.show,
+    required this.tile,
     this.onPressed,
     this.autofocus = false,
   });
 
-  final TvShowSummary show;
+  final DiscoverTile tile;
   final VoidCallback? onPressed;
   final bool autofocus;
 
@@ -33,7 +34,7 @@ class DiscoverPosterCard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                PosterArt(posterPath: show.posterPath, seed: show.name),
+                PosterArt(posterPath: tile.posterPath, seed: tile.title),
                 const DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -49,7 +50,7 @@ class DiscoverPosterCard extends StatelessWidget {
                   child: Align(
                     alignment: Alignment.bottomLeft,
                     child: Text(
-                      show.name,
+                      tile.title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: text.labelLarge,

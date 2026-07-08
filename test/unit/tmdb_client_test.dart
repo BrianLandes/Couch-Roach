@@ -92,11 +92,37 @@ void main() {
     expect(season.episodes.single.runtime, 62);
   });
 
+  test('discoverMovies parses list results (documentary genre)', () async {
+    http.Request? captured;
+    final client = TmdbClient(
+      MockClient((req) async {
+        captured = req;
+        return http.Response(
+          jsonEncode({
+            'results': [
+              {'id': 7, 'title': 'Some Doc', 'poster_path': '/d.jpg', 'release_date': '2019-02-01'},
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+      ErrorLogService(),
+    );
+
+    final movies = await client.discoverMovies(genreId: 99);
+    expect(movies.single.title, 'Some Doc');
+    expect(captured!.url.path, contains('/discover/movie'));
+    expect(captured!.url.queryParameters['with_genres'], '99');
+    expect(captured!.url.queryParameters['sort_by'], 'popularity.desc');
+  });
+
   test('non-200 degrades to empty/null (logged, not thrown)', () async {
     final client = clientFor({}); // everything 404
     expect(await client.searchTv('x'), isEmpty);
     expect(await client.tvDetails(1), isNull);
     expect(await client.trendingMovies(), isEmpty);
+    expect(await client.discoverMovies(genreId: 99), isEmpty);
   });
 
   test('TmdbImages builds CDN urls and passes nulls through', () {

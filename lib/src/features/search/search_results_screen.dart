@@ -8,6 +8,10 @@ import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/search_field.dart';
 import '../archive/archive_poster_card.dart';
+import '../discover/discover_nav.dart';
+import '../discover/discover_poster_card.dart';
+import '../discover/discover_providers.dart';
+import '../discover/discover_tile.dart';
 import 'search_providers.dart';
 
 /// Internet Archive search results, shown as poster tiles like the landing page.
@@ -28,6 +32,10 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   @override
   Widget build(BuildContext context) {
     final resultsAsync = ref.watch(searchResultsProvider(_query));
+    // TMDB matches are supplementary — they surface above the IA grid as they
+    // arrive, without gating the (IA-driven) loading state below.
+    final tmdbTiles =
+        ref.watch(tmdbSearchProvider(_query)).asData?.value ?? const [];
 
     return Scaffold(
       body: AmbientBackground(
@@ -64,7 +72,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                     'Search error — see the error log.',
                     color: AppColors.danger,
                   ),
-                  data: (results) => _results(results),
+                  data: (results) => _body(tmdbTiles, results),
                 ),
               ),
             ],
@@ -74,37 +82,95 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     );
   }
 
-  Widget _results(List<ArchiveItem> results) {
+  Widget _body(List<DiscoverTile> tmdbTiles, List<ArchiveItem> ia) {
     if (_query.trim().isEmpty) {
       return const _Centered(
-        'Type a movie or show title to search the Internet Archive.',
+        'Type a movie or show title to search.',
         color: AppColors.textSecondary,
       );
     }
-    if (results.isEmpty) {
-      return _Centered('No results on the Internet Archive for “$_query”.',
-          color: AppColors.textSecondary);
-    }
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.screenPadding,
-        AppSpacing.sm,
-        AppSpacing.screenPadding,
-        AppSpacing.screenPadding,
-      ),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 160,
-        childAspectRatio: 2 / 3,
-        crossAxisSpacing: AppSpacing.lg,
-        mainAxisSpacing: AppSpacing.lg,
-      ),
-      itemCount: results.length,
-      itemBuilder: (context, i) => ArchivePosterCard(
-        item: results[i],
-        autofocus: i == 0,
-        // Open the profile page first; pushing keeps this search screen (and its
-        // cached results + scroll position) mounted underneath for the back trip.
-        onPressed: () => context.push(Routes.archiveDetail, extra: results[i]),
+
+    return CustomScrollView(
+      slivers: [
+        // TMDB matches (TV + movies) as a horizontal rail up top.
+        if (tmdbTiles.isNotEmpty) ...[
+          const _SliverSectionLabel('From TMDB'),
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: 240,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.screenPadding),
+                itemCount: tmdbTiles.length,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(width: AppSpacing.lg),
+                itemBuilder: (context, i) => DiscoverPosterCard(
+                  tile: tmdbTiles[i],
+                  onPressed: () => openDiscoverTile(context, tmdbTiles[i]),
+                ),
+              ),
+            ),
+          ),
+        ],
+
+        // Internet Archive results as the main grid.
+        const _SliverSectionLabel('On the Internet Archive'),
+        if (ia.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.screenPadding),
+              child: Text(
+                'No public-domain results on the Internet Archive for “$_query”.',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.screenPadding,
+              AppSpacing.sm,
+              AppSpacing.screenPadding,
+              AppSpacing.screenPadding,
+            ),
+            sliver: SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 160,
+                childAspectRatio: 2 / 3,
+                crossAxisSpacing: AppSpacing.lg,
+                mainAxisSpacing: AppSpacing.lg,
+              ),
+              itemCount: ia.length,
+              itemBuilder: (context, i) => ArchivePosterCard(
+                item: ia[i],
+                // Open the profile page first; pushing keeps this search screen
+                // (cached results + scroll) mounted underneath for the back trip.
+                onPressed: () =>
+                    context.push(Routes.archiveDetail, extra: ia[i]),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SliverSectionLabel extends StatelessWidget {
+  const _SliverSectionLabel(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.screenPadding, AppSpacing.md, AppSpacing.screenPadding, 0),
+        child: Text(
+          label.toUpperCase(),
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: AppColors.textTertiary, letterSpacing: 1.5),
+        ),
       ),
     );
   }

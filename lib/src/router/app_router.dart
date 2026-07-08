@@ -1,6 +1,8 @@
 import 'package:go_router/go_router.dart';
 
 import '../features/dev/style_showcase_page.dart';
+import '../features/discover/movie_detail_screen.dart';
+import '../features/discover/discover_tile.dart';
 import '../features/discover/show_detail_screen.dart';
 import '../features/downloads/downloads_screen.dart';
 import '../features/library/library_detail_screen.dart';
@@ -23,6 +25,9 @@ abstract class Routes {
 
   /// TMDB show detail. Pass a [ShowDetailArgs] as the route `extra`.
   static const showDetail = '/show';
+
+  /// TMDB movie detail. Pass a [DiscoverTile] (a movie) as the route `extra`.
+  static const movieDetail = '/movie';
 
   /// Profile page for a local library title. Pass a [LibraryItem] as `extra`.
   static const libraryDetail = '/title';
@@ -66,6 +71,11 @@ final appRouter = GoRouter(
       path: Routes.showDetail,
       builder: (context, state) =>
           ShowDetailScreen(args: state.extra as ShowDetailArgs),
+    ),
+    GoRoute(
+      path: Routes.movieDetail,
+      builder: (context, state) =>
+          MovieDetailScreen(tile: state.extra as DiscoverTile),
     ),
     GoRoute(
       path: Routes.libraryDetail,
