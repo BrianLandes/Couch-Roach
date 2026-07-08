@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../router/app_router.dart';
 import '../../services/acquisition/archive_browse_service.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/search_field.dart';
-import '../archive/archive_play.dart';
 import '../archive/archive_poster_card.dart';
 import 'search_providers.dart';
 
@@ -101,7 +102,9 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
       itemBuilder: (context, i) => ArchivePosterCard(
         item: results[i],
         autofocus: i == 0,
-        onPressed: () => playArchiveItem(context, results[i]),
+        // Open the profile page first; pushing keeps this search screen (and its
+        // cached results + scroll position) mounted underneath for the back trip.
+        onPressed: () => context.push(Routes.archiveDetail, extra: results[i]),
       ),
     );
   }
