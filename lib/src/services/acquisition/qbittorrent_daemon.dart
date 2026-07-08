@@ -287,12 +287,16 @@ class QbittorrentDaemon implements TorrentDaemon {
 
 /// A single added torrent, tracked by its info hash.
 ///
-/// Streaming readiness is piece-level, not a progress fraction: once the primary
-/// file is known we download **only** it (others → priority 0) with first/last
-/// piece priority, then wait until that file's leading pieces (header + a buffer)
-/// **and** its last piece (mp4 `moov` / container index often live at the tail)
-/// are actually present — otherwise mpv opens a file whose start isn't there yet
-/// and fails with "couldn't recognize the file format".
+/// Streaming readiness is piece-level, not a progress fraction: once the chosen
+/// file is known we download **only** the wanted file(s) (others → priority 0)
+/// with first/last piece priority, then wait until that file's leading pieces
+/// (header + a buffer) **and** its last piece (mp4 `moov` / container index often
+/// live at the tail) are actually present — otherwise mpv opens a file whose
+/// start isn't there yet and fails with "couldn't recognize the file format".
+///
+/// Multi-file torrents (IA bundles / whole seasons) are supported: [prepareFile]
+/// takes a file name, and selection is additive — each prepared file stays
+/// wanted, so watching one episode then another doesn't drop the first.
 class QbittorrentTask implements TorrentTask {
   QbittorrentTask(this._daemon, {required this.hash, required this.savePath});
 
@@ -315,113 +319,125 @@ class QbittorrentTask implements TorrentTask {
   static bool downloadFully(int sizeBytes) =>
       sizeBytes > 0 && sizeBytes <= smallFileThresholdBytes;
 
-  _PrimaryFile? _primary;
+  /// Resolved files, keyed by the requested name (null = the primary).
+  final Map<String?, _TorrentFileRef> _resolved = {};
 
-  /// Resolve the primary video file (index, name, piece range) once, and focus
-  /// the download on just that file so IA's many derivative encodings don't
-  /// starve streaming.
-  Future<_PrimaryFile> _resolvePrimary() async {
-    if (_primary != null) return _primary!;
+  /// File indices we've committed to downloading — kept high across selections
+  /// so preparing a second file doesn't un-want the first.
+  final Set<int> _wanted = {};
+
+  @override
+  Future<String> prepareFile({String? name}) async {
+    final file = await _resolveFile(name: name);
+    await _awaitStreamable(file);
+    // qBittorrent's file `name` is the path relative to the save path (including
+    // any torrent root folder), so join to get the absolute path.
+    return p.join(savePath, file.name);
+  }
+
+  /// Resolve a file (the named one, or the primary when [name] is null): its
+  /// index, name and piece range, and focus the download on it (additive — other
+  /// unwanted files → priority 0). Cached per requested name.
+  Future<_TorrentFileRef> _resolveFile({String? name}) async {
+    final cached = _resolved[name];
+    if (cached != null) return cached;
+
     final deadline = DateTime.now().add(const Duration(seconds: 60));
     while (DateTime.now().isBefore(deadline)) {
       final files = await _daemon.torrentFiles(hash);
-      final chosen = pickPrimaryFile(files);
+      final chosen =
+          name == null ? pickPrimaryFile(files) : findFileByName(files, name);
       if (chosen != null) {
         final index =
             (chosen['index'] as num?)?.toInt() ?? files.indexOf(chosen);
         final range = pieceRangeOf(chosen['piece_range']);
-        final primary = _PrimaryFile(
+        final ref = _TorrentFileRef(
           index: index,
           name: chosen['name'] as String,
           sizeBytes: (chosen['size'] as num?)?.toInt() ?? 0,
           firstPiece: range?.$1,
           lastPiece: range?.$2,
         );
-        _primary = primary;
+        _resolved[name] = ref;
         _log.info(
-            'primary file "${primary.name}" ${_fmtMb(primary.sizeBytes)} '
-            'idx=${primary.index} pieces='
-            '${primary.firstPiece == null ? "n/a" : "[${primary.firstPiece}..${primary.lastPiece}]"} '
+            'file "${ref.name}" ${_fmtMb(ref.sizeBytes)} idx=${ref.index} '
+            'pieces=${ref.firstPiece == null ? "n/a" : "[${ref.firstPiece}..${ref.lastPiece}]"} '
             '(of ${files.length} files in the torrent)',
-            source: 'QbittorrentTask.resolvePrimary');
-        await _focusDownloadOn(primary.index, files);
-        _log.info('focused download on the primary file (other files skipped)',
-            source: 'QbittorrentTask.resolvePrimary');
-        return primary;
+            source: 'QbittorrentTask.resolveFile');
+        await _focusDownloadOn(ref.index, files);
+        return ref;
       }
+      // Metadata is present but the requested file isn't in it — fail fast
+      // rather than spin out the whole 60s window.
+      if (name != null && files.isNotEmpty) break;
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    final e = TorrentDaemonException('no files resolved for torrent $hash');
-    _log.logError(e, source: 'QbittorrentTask.resolvePrimary');
+    final e = TorrentDaemonException(name == null
+        ? 'no files resolved for torrent $hash'
+        : 'file "$name" not found in torrent $hash');
+    _log.logError(e, source: 'QbittorrentTask.resolveFile');
     throw e;
   }
 
-  /// Download only the primary file: every other file → priority 0, the primary
-  /// → maximal. Best-effort (streaming still works if the daemon rejects it).
+  /// Mark [index] wanted and reassert priorities: every wanted file → maximal,
+  /// everything else → skipped. Additive, so previously prepared files keep
+  /// downloading. Best-effort (streaming still works if the daemon rejects it).
   Future<void> _focusDownloadOn(
-      int primaryIndex, List<Map<String, dynamic>> files) async {
+      int index, List<Map<String, dynamic>> files) async {
+    _wanted.add(index);
     final others = <int>[];
     for (var i = 0; i < files.length; i++) {
       final idx = (files[i]['index'] as num?)?.toInt() ?? i;
-      if (idx != primaryIndex) others.add(idx);
+      if (!_wanted.contains(idx)) others.add(idx);
     }
     try {
       if (others.isNotEmpty) await _daemon.setFilePriority(hash, others, 0);
-      await _daemon.setFilePriority(hash, [primaryIndex], 7);
+      await _daemon.setFilePriority(hash, _wanted.toList(), 7);
     } catch (_) {
       // Non-fatal — fall back to streaming whatever downloads.
     }
   }
 
-  @override
-  Future<String> get primaryFile async {
-    // qBittorrent's file `name` is the path relative to the save path (including
-    // any torrent root folder), so join to get the absolute path.
-    return p.join(savePath, (await _resolvePrimary()).name);
-  }
-
-  @override
-  Future<void> readyToStream() async {
-    final primary = await _resolvePrimary();
+  Future<void> _awaitStreamable(_TorrentFileRef file) async {
     final deadline = DateTime.now().add(const Duration(minutes: 8));
 
     // Small files: download fully first. Streaming's tail-stall risk (a single
     // IA web seed trickling the final pieces, which our first/last-piece wait
     // then blocks on) isn't worth it when the file finishes quickly. Switch to a
     // parallel download so qBittorrent pulls it as fast as the seed allows.
-    if (downloadFully(primary.sizeBytes)) {
+    if (downloadFully(file.sizeBytes)) {
       _log.info(
-          'readyToStream: small file (${_fmtMb(primary.sizeBytes)}) — '
+          'readyToStream: small file (${_fmtMb(file.sizeBytes)}) — '
           'downloading fully before play',
           source: 'QbittorrentTask.readyToStream');
       await _daemon.setSequentialDownload(hash, false);
       await _daemon.setFirstLastPiecePrio(hash, false);
-      return _awaitFileProgress(deadline, 0.999);
+      return _awaitFileProgress(deadline, 0.999, file);
     }
 
     // Large files: stream. Enforce sequential + first/last-piece explicitly here
     // rather than trusting the add-time flags to have taken effect, so the mode
     // is deterministic regardless of daemon version.
     _log.info(
-        'readyToStream: large file (${_fmtMb(primary.sizeBytes)}) — streaming '
+        'readyToStream: large file (${_fmtMb(file.sizeBytes)}) — streaming '
         '(sequential + first/last piece)',
         source: 'QbittorrentTask.readyToStream');
     await _daemon.setSequentialDownload(hash, true);
     await _daemon.setFirstLastPiecePrio(hash, true);
 
     // Fall back to near-complete when the daemon doesn't expose piece ranges.
-    if (primary.firstPiece == null || primary.lastPiece == null) {
+    if (file.firstPiece == null || file.lastPiece == null) {
       _log.info(
           'readyToStream: daemon reported no piece_range — waiting for '
           'near-complete instead',
           source: 'QbittorrentTask.readyToStream');
-      return _awaitFileProgress(deadline, 0.99);
+      return _awaitFileProgress(deadline, 0.99, file);
     }
 
     final props = await _daemon.torrentProperties(hash);
     final pieceSize = (props['piece_size'] as num?)?.toInt() ?? (1 << 20);
-    final first = primary.firstPiece!;
-    final last = primary.lastPiece!;
+    final first = file.firstPiece!;
+    final last = file.lastPiece!;
     final headPieces = headPieceCount(pieceSize, last - first + 1);
     _log.info(
         'streaming: piece_size=${(pieceSize / 1024).toStringAsFixed(0)}KB, '
@@ -439,7 +455,7 @@ class QbittorrentTask implements TorrentTask {
       final now = DateTime.now();
       if (now.difference(lastLog).inSeconds >= 4) {
         lastLog = now;
-        _log.info(_bufferStatus(states, first, last, headPieces, primary.name),
+        _log.info(_bufferStatus(states, first, last, headPieces, file.name),
             source: 'QbittorrentTask.readyToStream');
       }
       await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -450,17 +466,22 @@ class QbittorrentTask implements TorrentTask {
     throw e;
   }
 
-  Future<void> _awaitFileProgress(DateTime deadline, double target) async {
+  Future<void> _awaitFileProgress(
+      DateTime deadline, double target, _TorrentFileRef file) async {
     var lastLog = DateTime.now();
     while (DateTime.now().isBefore(deadline)) {
-      final chosen = pickPrimaryFile(await _daemon.torrentFiles(hash));
-      final progress = (chosen?['progress'] as num?)?.toDouble() ?? 0;
+      final files = await _daemon.torrentFiles(hash);
+      final match = files.firstWhere(
+        (f) => ((f['index'] as num?)?.toInt() ?? -1) == file.index,
+        orElse: () => const <String, dynamic>{},
+      );
+      final progress = (match['progress'] as num?)?.toDouble() ?? 0;
       if (progress >= target) return;
       final now = DateTime.now();
       if (now.difference(lastLog).inSeconds >= 4) {
         lastLog = now;
         _log.info(
-            'downloading: ${(progress * 100).toStringAsFixed(1)}% '
+            'downloading "${file.name}": ${(progress * 100).toStringAsFixed(1)}% '
             '(target ${(target * 100).toStringAsFixed(1)}%)',
             source: 'QbittorrentTask.readyToStream');
       }
@@ -493,10 +514,10 @@ class QbittorrentTask implements TorrentTask {
   }
 }
 
-/// A resolved primary file within a torrent. Piece indices are null when the
-/// daemon doesn't report a `piece_range`.
-class _PrimaryFile {
-  _PrimaryFile({
+/// A resolved file within a torrent. Piece indices are null when the daemon
+/// doesn't report a `piece_range`.
+class _TorrentFileRef {
+  _TorrentFileRef({
     required this.index,
     required this.name,
     required this.sizeBytes,
@@ -556,6 +577,20 @@ bool headAndTailReady(
     if (states[i] != 2) return false;
   }
   return true;
+}
+
+/// Find the torrent file whose basename matches [name] (case-insensitively).
+/// The item's file list (IA metadata) and the torrent share filenames, but the
+/// torrent `name` may include a root folder, so compare basenames. Null when
+/// nothing matches. Pure + exposed for testing.
+Map<String, dynamic>? findFileByName(
+    List<Map<String, dynamic>> files, String name) {
+  final target = p.basename(name).toLowerCase();
+  for (final f in files) {
+    final fname = f['name'] as String? ?? '';
+    if (p.basename(fname).toLowerCase() == target) return f;
+  }
+  return null;
 }
 
 /// Pick the file to hand the player: the largest **video** file, or the largest

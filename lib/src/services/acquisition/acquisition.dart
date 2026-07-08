@@ -96,12 +96,16 @@ class TorrentStatus {
 }
 
 abstract class TorrentTask {
-  /// Absolute path to the largest/primary video file once known.
-  Future<String> get primaryFile;
-
-  /// Completes when enough of the file is buffered (incl. first/last pieces)
-  /// to begin playback.
-  Future<void> readyToStream();
+  /// Prepare a single file for playback and return its absolute path: focus the
+  /// download on it, then wait until enough is buffered (incl. first/last
+  /// pieces) to begin playback.
+  ///
+  /// [name] selects the file by its basename (as listed in the item's file
+  /// list) — for multi-file torrents (IA bundles / whole seasons) this plays
+  /// exactly the chosen video. When null, the largest/primary video is used.
+  /// Selecting files is additive: previously prepared files stay wanted, so a
+  /// watched episode isn't dropped when the next is picked.
+  Future<String> prepareFile({String? name});
 
   /// 0.0–1.0 download progress stream, for the show-detail availability badge.
   Stream<double> get progress;

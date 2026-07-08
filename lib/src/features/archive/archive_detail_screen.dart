@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../services/acquisition/archive_browse_service.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
+import '../../widgets/focusable_card.dart';
 import '../../widgets/poster_art.dart';
 import '../downloads/download_format.dart' show formatBytes;
 import 'archive_play.dart';
@@ -82,32 +83,35 @@ class ArchiveDetailScreen extends ConsumerWidget {
       ],
       if (detail.videos.length > 1) ...[
         const SizedBox(height: AppSpacing.xl),
-        Text('In this item · ${detail.videos.length} videos',
+        Text('In this item · ${detail.videos.length} videos · tap to play',
             style: text.labelMedium?.copyWith(
                 color: AppColors.textTertiary, letterSpacing: 1.2)),
         const SizedBox(height: AppSpacing.sm),
         for (final v in detail.videos)
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: GlassSurface(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-              child: Row(
-                children: [
-                  const Icon(Icons.movie_outlined,
-                      size: 18, color: AppColors.textTertiary),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(v.displayName,
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ),
-                  if (v.sizeBytes > 0) ...[
+            child: FocusableCard(
+              onPressed: () => playArchiveItem(context, item, file: v),
+              child: GlassSurface(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                child: Row(
+                  children: [
+                    const Icon(Icons.play_arrow_rounded,
+                        size: 20, color: AppColors.textSecondary),
                     const SizedBox(width: AppSpacing.sm),
-                    Text(formatBytes(v.sizeBytes),
-                        style: text.labelSmall
-                            ?.copyWith(color: AppColors.textTertiary)),
+                    Expanded(
+                      child: Text(v.displayName,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                    if (v.sizeBytes > 0) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(formatBytes(v.sizeBytes),
+                          style: text.labelSmall
+                              ?.copyWith(color: AppColors.textTertiary)),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

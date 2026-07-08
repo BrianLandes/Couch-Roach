@@ -23,26 +23,35 @@ typedef _Prepared = ({String filePath, int? libraryItemId});
 /// enough buffer to stream, registers it as a library item so it gets watch
 /// history + Continue Watching, then opens the player. Cancelling leaves the
 /// download running in the background (it shows up on the Downloads screen).
-Future<void> playArchiveItem(BuildContext context, ArchiveItem item) async {
+///
+/// [file] picks a specific video out of a multi-file item (an IA bundle or whole
+/// season); when null the item's largest/primary video is played.
+Future<void> playArchiveItem(
+  BuildContext context,
+  ArchiveItem item, {
+  ArchiveVideoFile? file,
+}) async {
+  final title = file?.displayName ?? item.title;
   final prepared = await showDialog<_Prepared>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => _ArchivePreparingDialog(item: item),
+    builder: (_) => _ArchivePreparingDialog(item: item, file: file),
   );
   if (prepared == null || !context.mounted) return;
   context.push(
     Routes.player,
     extra: PlayerArgs(
       filePath: prepared.filePath,
-      title: item.title,
+      title: title,
       libraryItemId: prepared.libraryItemId,
     ),
   );
 }
 
 class _ArchivePreparingDialog extends StatefulWidget {
-  const _ArchivePreparingDialog({required this.item});
+  const _ArchivePreparingDialog({required this.item, this.file});
   final ArchiveItem item;
+  final ArchiveVideoFile? file;
 
   @override
   State<_ArchivePreparingDialog> createState() =>
@@ -62,8 +71,14 @@ class _ArchivePreparingDialogState extends State<_ArchivePreparingDialog> {
 
   Future<void> _run() async {
     try {
-      final savePath = await getIt<StorageManager>()
-          .chooseTarget(estimatedBytes: widget.item.sizeBytes);
+      final chosen = widget.file;
+      // Estimate against the specific file when we're playing one out of a
+      // multi-file item, else the whole item.
+      final estimate = (chosen != null && chosen.sizeBytes > 0)
+          ? chosen.sizeBytes
+          : widget.item.sizeBytes;
+      final savePath =
+          await getIt<StorageManager>().chooseTarget(estimatedBytes: estimate);
       if (savePath == null) {
         _fail('Not enough free disk space to download this.');
         return;
@@ -80,16 +95,17 @@ class _ArchivePreparingDialogState extends State<_ArchivePreparingDialog> {
       _progressSub = task.progress.listen((p) {
         if (mounted) setState(() => _progress = p);
       });
-      await task.readyToStream();
-      final file = await task.primaryFile;
+      // Prepare the chosen file (or the primary video when none is specified).
+      final file = await task.prepareFile(name: chosen?.name);
 
       // Register the downloaded file as a library item so the player records
       // watch history and it surfaces in Continue Watching (upsert dedupes on
-      // the unique file path — safe on replays).
+      // the unique file path — safe on replays). A specific file gets its own
+      // row keyed by its path, so each episode tracks resume independently.
       final library = getIt<LibraryRepository>();
       await library.upsert(ScannedFile(
         filePath: file,
-        title: widget.item.title,
+        title: chosen?.displayName ?? widget.item.title,
         mediaType: 'movie',
       ));
       final libraryItemId = (await library.findByPath(file))?.id;
@@ -133,7 +149,7 @@ class _ArchivePreparingDialogState extends State<_ArchivePreparingDialog> {
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              widget.item.title,
+              widget.file?.displayName ?? widget.item.title,
               style: text.bodyMedium?.copyWith(color: AppColors.textSecondary),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,

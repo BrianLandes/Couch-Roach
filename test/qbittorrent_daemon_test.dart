@@ -296,4 +296,29 @@ void main() {
       expect(pickPrimaryFile(files)!['name'], 'b.mkv');
     });
   });
+
+  group('findFileByName', () {
+    final files = [
+      file('Show/S01E01.mkv', 900000000),
+      file('Show/S01E02.mkv', 1200000000),
+      file('Show/readme.txt', 1000),
+    ];
+
+    test('matches by basename even when the torrent name has a root folder', () {
+      // The IA metadata name is just the basename; the torrent prefixes a folder.
+      expect(findFileByName(files, 'S01E02.mkv')!['name'], 'Show/S01E02.mkv');
+    });
+
+    test('matches case-insensitively', () {
+      expect(findFileByName(files, 's01e01.MKV')!['name'], 'Show/S01E01.mkv');
+    });
+
+    test('returns null when nothing matches', () {
+      expect(findFileByName(files, 'S03E09.mkv'), isNull);
+    });
+
+    test('returns null for an empty list', () {
+      expect(findFileByName(const [], 'x.mkv'), isNull);
+    });
+  });
 }
