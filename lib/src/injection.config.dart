@@ -10,6 +10,7 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:couch_roach/src/core/logging/error_log_service.dart' as _i657;
+import 'package:couch_roach/src/core/settings/settings_service.dart' as _i486;
 import 'package:couch_roach/src/core/storage/storage_manager.dart' as _i883;
 import 'package:couch_roach/src/data/db/database.dart' as _i865;
 import 'package:couch_roach/src/data/repositories/library_repository.dart'
@@ -71,8 +72,6 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i657.ErrorLogService>(() => _i657.ErrorLogService());
     gh.lazySingleton<_i865.AppDatabase>(() => registerModule.database);
     gh.lazySingleton<_i519.Client>(() => registerModule.httpClient);
-    gh.lazySingleton<_i380.WatchedReaperConfig>(
-        () => registerModule.watchedReaperConfig);
     gh.lazySingleton<_i403.MovieHasher>(() => _i403.OpenSubtitlesMovieHasher());
     gh.lazySingleton<_i312.QbittorrentProcess>(
         () => _i312.QbittorrentProcess(gh<_i657.ErrorLogService>()));
@@ -109,6 +108,8 @@ extension GetItInjectableX on _i174.GetIt {
       ),
       dispose: (i) => i.dispose(),
     );
+    gh.lazySingleton<_i486.SettingsService>(
+        () => _i486.SettingsService(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i156.AcquisitionResolver>(
         () => _i98.InternetArchiveResolver(
               gh<_i519.Client>(),
@@ -130,7 +131,7 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i382.WatchHistoryRepository>(),
           gh<_i877.LibraryRepository>(),
           gh<_i657.ErrorLogService>(),
-          gh<_i380.WatchedReaperConfig>(),
+          gh<_i486.SettingsService>(),
         ));
     gh.lazySingleton<_i754.SubtitleService>(
         () => _i295.OpenSubtitlesSubtitleService(

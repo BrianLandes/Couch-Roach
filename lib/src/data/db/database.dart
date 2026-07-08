@@ -81,6 +81,17 @@ class SubtitleAttempts extends Table {
       dateTime().withDefault(currentDateAndTime)();
 }
 
+/// App-wide user preferences as a generic key/value store. Typed access lives in
+/// `SettingsService`; keeping the table generic means a new setting never needs a
+/// schema migration.
+class Settings extends Table {
+  TextColumn get key => text()();
+  TextColumn get value => text()();
+
+  @override
+  Set<Column> get primaryKey => {key};
+}
+
 /// Configured storage roots. Content spreads across these by free space
 /// (see DECISIONS: multi-disk storage).
 class StorageLocations extends Table {
@@ -92,7 +103,7 @@ class StorageLocations extends Table {
 }
 
 @DriftDatabase(
-  tables: [LibraryItems, WatchHistory, SubtitleAttempts, StorageLocations],
+  tables: [LibraryItems, WatchHistory, SubtitleAttempts, Settings, StorageLocations],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
@@ -101,7 +112,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -112,6 +123,9 @@ class AppDatabase extends _$AppDatabase {
           if (from < 3) {
             await m.addColumn(libraryItems, libraryItems.tmdbName);
             await m.addColumn(libraryItems, libraryItems.tmdbPosterPath);
+          }
+          if (from < 4) {
+            await m.createTable(settings);
           }
         },
         beforeOpen: (details) async {

@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'src/app.dart';
 import 'src/core/logging/error_log_service.dart';
+import 'src/core/settings/settings_service.dart';
 import 'src/core/storage/storage_manager.dart';
 import 'src/core/window/window_service.dart';
 import 'src/features/library/library_match_service.dart';
@@ -50,6 +51,9 @@ void main() {
 
       // Hydrate the configured storage roots so scanning/placement see every disk.
       await getIt<StorageManager>().load();
+
+      // Load user preferences into the cache so services read them synchronously.
+      await getIt<SettingsService>().load();
 
       runApp(const ProviderScope(child: CouchRoachApp()));
 

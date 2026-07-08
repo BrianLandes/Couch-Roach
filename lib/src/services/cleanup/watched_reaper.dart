@@ -4,6 +4,7 @@ import 'package:injectable/injectable.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/logging/error_log_service.dart';
+import '../../core/settings/settings_service.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../data/repositories/watch_history_repository.dart';
 
@@ -20,17 +21,8 @@ import '../../data/repositories/watch_history_repository.dart';
 /// "What I watched / where I left off" has to survive the video being gone, so
 /// the row persists as the durable record and only its bytes on disk are freed.
 ///
-/// Runs on startup and periodically (wired in `main()`).
-class WatchedReaperConfig {
-  const WatchedReaperConfig({
-    this.enabled = true,
-    this.gracePeriod = const Duration(days: 7),
-  });
-
-  final bool enabled;
-  final Duration gracePeriod;
-}
-
+/// Runs on startup and periodically (wired in `main()`). Whether it runs and the
+/// grace period come from [SettingsService] (user-configurable in Settings).
 abstract class WatchedReaper {
   /// Scans for eligible files and deletes them. Returns paths removed.
   Future<List<String>> sweep();
@@ -38,12 +30,12 @@ abstract class WatchedReaper {
 
 @LazySingleton(as: WatchedReaper)
 class DriftWatchedReaper implements WatchedReaper {
-  DriftWatchedReaper(this._history, this._library, this._log, this._config);
+  DriftWatchedReaper(this._history, this._library, this._log, this._settings);
 
   final WatchHistoryRepository _history;
   final LibraryRepository _library;
   final ErrorLogService _log;
-  final WatchedReaperConfig _config;
+  final SettingsService _settings;
 
   /// English sidecars the app itself may have written next to the video. A bare
   /// `.srt` is deliberately left alone — it may be a user's own subtitle.
@@ -51,8 +43,8 @@ class DriftWatchedReaper implements WatchedReaper {
 
   @override
   Future<List<String>> sweep() async {
-    if (!_config.enabled) return const [];
-    final cutoff = DateTime.now().subtract(_config.gracePeriod);
+    if (!_settings.cleanupEnabled) return const [];
+    final cutoff = DateTime.now().subtract(_settings.cleanupGracePeriod);
     final candidates = await _history.reapable(cutoff);
     if (candidates.isEmpty) return const [];
 

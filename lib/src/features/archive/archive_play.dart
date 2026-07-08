@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/logging/error_log_service.dart';
+import '../../core/settings/settings_service.dart';
 import '../../core/storage/storage_manager.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../injection.dart';
@@ -11,6 +12,7 @@ import '../../router/app_router.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../../services/acquisition/archive_browse_service.dart';
 import '../../services/acquisition/internet_archive_resolver.dart';
+import '../../services/vpn/vpn_service.dart';
 import '../../theme/theme.dart';
 import '../player/player_screen.dart';
 
@@ -71,6 +73,18 @@ class _ArchivePreparingDialogState extends State<_ArchivePreparingDialog> {
 
   Future<void> _run() async {
     try {
+      // If the user requires a VPN for streaming, make sure the tunnel is up
+      // (bring it up if it's merely disconnected) before touching the network.
+      if (getIt<SettingsService>().requireVpn) {
+        final state = await getIt<VpnService>().ensureConnected();
+        if (!state.isConnected) {
+          _fail('A VPN is required to stream, but it is not connected. '
+              'Connect ExpressVPN (or turn off "Require VPN" in Settings) and '
+              'try again.');
+          return;
+        }
+      }
+
       final chosen = widget.file;
       // Estimate against the specific file when we're playing one out of a
       // multi-file item, else the whole item.

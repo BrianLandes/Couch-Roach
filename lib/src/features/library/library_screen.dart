@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/settings/settings_service.dart';
 import '../../core/window/window_service.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/watch_history_repository.dart';
@@ -210,7 +211,8 @@ class _Header extends StatelessWidget {
                       await getIt<LibraryMatchService>().matchUnmatched();
                       // Kick the quota-aware subtitle queue in the background so
                       // it never hammers the daily quota on a big first scan.
-                      if (const AppConfig().hasOpenSubtitlesKey) {
+                      if (const AppConfig().hasOpenSubtitlesKey &&
+                          getIt<SettingsService>().autoDownloadSubtitles) {
                         unawaited(getIt<SubtitleService>().processQueue());
                       }
                     },
@@ -230,9 +232,9 @@ class _Header extends StatelessWidget {
             tooltip: 'Downloads',
           ),
           IconButton(
-            onPressed: () => context.push(Routes.storageSettings),
-            icon: const Icon(Icons.folder_rounded),
-            tooltip: 'Manage storage',
+            onPressed: () => context.push(Routes.settings),
+            icon: const Icon(Icons.settings_rounded),
+            tooltip: 'Settings',
           ),
           const FullscreenToggleButton(),
           const IconButton(
@@ -394,9 +396,9 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.lg),
             FilledButton.icon(
-              onPressed: () => context.push(Routes.storageSettings),
-              icon: const Icon(Icons.folder_rounded),
-              label: const Text('Manage storage'),
+              onPressed: () => context.push(Routes.settings),
+              icon: const Icon(Icons.settings_rounded),
+              label: const Text('Open settings'),
             ),
           ],
         ),

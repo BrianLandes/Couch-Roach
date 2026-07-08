@@ -7,7 +7,7 @@ import '../features/library/library_detail_screen.dart';
 import '../features/library/library_screen.dart';
 import '../features/search/search_results_screen.dart';
 import '../features/player/player_screen.dart';
-import '../features/settings/storage_settings_screen.dart';
+import '../features/settings/settings_screen.dart';
 import '../data/db/database.dart';
 import '../features/archive/archive_detail_screen.dart';
 import '../services/acquisition/archive_browse_service.dart';
@@ -30,8 +30,8 @@ abstract class Routes {
   /// Profile page for an Internet Archive title. Pass an [ArchiveItem] as `extra`.
   static const archiveDetail = '/archive';
 
-  /// Manage the library folders content spreads across.
-  static const storageSettings = '/settings/storage';
+  /// App settings: library folders, feature toggles, cleanup grace period.
+  static const settings = '/settings';
 
   /// Live activity for the background torrent daemon (progress + ETA).
   static const downloads = '/downloads';
@@ -78,8 +78,8 @@ final appRouter = GoRouter(
           ArchiveDetailScreen(item: state.extra as ArchiveItem),
     ),
     GoRoute(
-      path: Routes.storageSettings,
-      builder: (context, state) => const StorageSettingsScreen(),
+      path: Routes.settings,
+      builder: (context, state) => const SettingsScreen(),
     ),
     GoRoute(
       path: Routes.downloads,

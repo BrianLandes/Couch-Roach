@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:couch_roach/src/core/logging/error_log_service.dart';
+import 'package:couch_roach/src/core/settings/settings_service.dart';
 import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/data/repositories/library_repository.dart';
 import 'package:couch_roach/src/data/repositories/watch_history_repository.dart';
@@ -61,19 +62,19 @@ void main() {
         );
   }
 
-  DriftWatchedReaper reaper({bool enabled = true}) => DriftWatchedReaper(
-        history,
-        library,
-        ErrorLogService(),
-        WatchedReaperConfig(enabled: enabled),
-      );
+  Future<DriftWatchedReaper> reaper({bool enabled = true}) async {
+    final settings = SettingsService(db);
+    await settings.load();
+    if (!enabled) await settings.setCleanupEnabled(false);
+    return DriftWatchedReaper(history, library, ErrorLogService(), settings);
+  }
 
   test('reaps a completed, past-grace, non-kept file + its sidecar', () async {
     final id = await addItem('A.mkv', withSidecar: true);
     await watched(id, completed: true, daysAgo: 8);
     final path = p.join(tmp.path, 'A.mkv');
 
-    final removed = await reaper().sweep();
+    final removed = await (await reaper()).sweep();
 
     expect(removed, [path]);
     expect(File(path).existsSync(), isFalse); // video gone
@@ -91,7 +92,7 @@ void main() {
     final id = await addItem('keep.mkv', keep: true);
     await watched(id, completed: true, daysAgo: 30);
 
-    expect(await reaper().sweep(), isEmpty);
+    expect(await (await reaper()).sweep(), isEmpty);
     expect(File(p.join(tmp.path, 'keep.mkv')).existsSync(), isTrue);
   });
 
@@ -99,7 +100,7 @@ void main() {
     final id = await addItem('recent.mkv');
     await watched(id, completed: true, daysAgo: 1); // < 7-day grace
 
-    expect(await reaper().sweep(), isEmpty);
+    expect(await (await reaper()).sweep(), isEmpty);
     expect(File(p.join(tmp.path, 'recent.mkv')).existsSync(), isTrue);
   });
 
@@ -107,14 +108,14 @@ void main() {
     final id = await addItem('midway.mkv');
     await watched(id, completed: false, daysAgo: 30);
 
-    expect(await reaper().sweep(), isEmpty);
+    expect(await (await reaper()).sweep(), isEmpty);
     expect(File(p.join(tmp.path, 'midway.mkv')).existsSync(), isTrue);
   });
 
   test('never reaps a title with no watch history', () async {
     await addItem('unwatched.mkv');
 
-    expect(await reaper().sweep(), isEmpty);
+    expect(await (await reaper()).sweep(), isEmpty);
     expect(File(p.join(tmp.path, 'unwatched.mkv')).existsSync(), isTrue);
   });
 
@@ -126,7 +127,7 @@ void main() {
     await watched(b, completed: true, daysAgo: 10);
     await watched(keep, completed: true, daysAgo: 10);
 
-    final removed = await reaper().sweep();
+    final removed = await (await reaper()).sweep();
 
     expect(removed.map((r) => p.basename(r)), containsAll(['a.mkv', 'b.mkv']));
     expect(removed, hasLength(2));
@@ -137,7 +138,7 @@ void main() {
     final id = await addItem('a.mkv');
     await watched(id, completed: true, daysAgo: 10);
 
-    expect(await reaper(enabled: false).sweep(), isEmpty);
+    expect(await (await reaper(enabled: false)).sweep(), isEmpty);
     expect(File(p.join(tmp.path, 'a.mkv')).existsSync(), isTrue);
   });
 

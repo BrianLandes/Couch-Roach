@@ -34,6 +34,9 @@ dependencies:
   # for free-space probing without any native runner code.
   ffi: ^2.1.0
 
+  # OS-native folder picker (Windows/Linux/macOS) for adding library folders.
+  file_selector: ^1.0.3
+
   # HTTP for TMDB + OpenSubtitles (Dart-only, no extra process).
   http: ^1.2.1
 

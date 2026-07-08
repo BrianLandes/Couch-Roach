@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
+import '../../core/settings/settings_service.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
 import '../../services/subtitles/subtitle_service.dart';
@@ -137,6 +138,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// failure here never disrupts playback.
   Future<void> _ensureSubtitles() async {
     if (!const AppConfig().hasOpenSubtitlesKey) return;
+    if (!getIt<SettingsService>().autoDownloadSubtitles) return;
     try {
       final srtPath =
           await getIt<SubtitleService>().ensureEnglish(widget.filePath);
@@ -185,6 +187,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // afterwards the user's manual track choice is respected.
   void _onTracks(Tracks tracks) {
     if (_audioAutoSelected) return;
+    // Respect the user's preference — leave mpv's default audio track as-is.
+    if (!getIt<SettingsService>().preferSurroundAudio) return;
 
     // Only real, selectable tracks — skip the synthetic "auto"/"no" entries.
     final selectable = tracks.audio
