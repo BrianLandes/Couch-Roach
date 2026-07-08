@@ -129,3 +129,4 @@ app.*.symbols
 /third_party/qbittorrent/
 /third_party/yt-dlp/
 /third_party/ffprobe/
+/third_party/jackett/

@@ -13,6 +13,7 @@ import 'src/core/window/window_service.dart';
 import 'src/features/library/library_match_service.dart';
 import 'src/features/library/library_service.dart';
 import 'src/injection.dart';
+import 'src/services/acquisition/jackett_process.dart';
 import 'src/services/acquisition/qbittorrent_process.dart';
 import 'src/services/cleanup/watched_reaper.dart';
 
@@ -34,19 +35,30 @@ void main() {
       FlutterError.onError = log.onFlutterError;
       PlatformDispatcher.instance.onError = log.onPlatformError;
 
-      // Spawn the invisible qBittorrent-nox daemon and shut it down when the
-      // window closes. Non-fatal: if it can't start, the app still runs (local
-      // playback works; acquisition is just unavailable) — the failure is logged.
+      // Spawn the invisible sidecars (qBittorrent-nox daemon + Jackett indexer)
+      // and shut them down when the window closes. Non-fatal: if they can't
+      // start, the app still runs (local playback works; acquisition is just
+      // unavailable) — the failures are logged.
       final daemon = getIt<QbittorrentProcess>();
+      final jackett = getIt<JackettProcess>();
 
       // Launch the TV window (windowed; F11 or the in-app button toggles
-      // fullscreen). The close hook kills the daemon child before the app exits
-      // so nothing is orphaned.
-      await initFullscreenWindow(onClose: daemon.stop);
+      // fullscreen). The close hook kills the sidecar children before the app
+      // exits so nothing is orphaned.
+      await initFullscreenWindow(onClose: () async {
+        await daemon.stop();
+        await jackett.stop();
+      });
 
       unawaited(daemon.start().catchError((Object e, StackTrace st) {
         getIt<ErrorLogService>()
             .logError(e, stackTrace: st, source: 'main.startDaemon');
+      }));
+      // Jackett's own start() swallows/logs its failures, but guard the future
+      // too so a throw can't escape into the zone.
+      unawaited(jackett.start().catchError((Object e, StackTrace st) {
+        getIt<ErrorLogService>()
+            .logError(e, stackTrace: st, source: 'main.startJackett');
       }));
 
       // Hydrate the configured storage roots so scanning/placement see every disk.

@@ -31,6 +31,8 @@ import 'package:couch_roach/src/services/acquisition/archive_browse_service.dart
     as _i477;
 import 'package:couch_roach/src/services/acquisition/internet_archive_resolver.dart'
     as _i98;
+import 'package:couch_roach/src/services/acquisition/jackett_process.dart'
+    as _i100;
 import 'package:couch_roach/src/services/acquisition/jackett_resolver.dart'
     as _i616;
 import 'package:couch_roach/src/services/acquisition/qbittorrent_daemon.dart'
@@ -100,6 +102,11 @@ extension GetItInjectableX on _i174.GetIt {
         ));
     gh.lazySingleton<_i877.LibraryRepository>(
         () => _i877.DriftLibraryRepository(gh<_i865.AppDatabase>()));
+    gh.lazySingleton<_i100.JackettProcess>(() => _i100.JackettProcess(
+          gh<_i519.Client>(),
+          gh<_i657.ErrorLogService>(),
+          gh<_i616.JackettResolver>(),
+        ));
     gh.lazySingleton<_i806.SubtitleAttemptsRepository>(
         () => _i806.DriftSubtitleAttemptsRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i559.SubtitleSearcher>(() => _i559.SubtitleSearcher(

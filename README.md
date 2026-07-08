@@ -88,24 +88,27 @@ release configs — pick the Linux device in the status bar and press **F5**.
 
 ## Bundled binaries (sidecars)
 
-Three helper binaries ride **next to the app executable**, each vendored on demand
-(pinned version + SHA-256, idempotent scripts) rather than committed —
-`third_party/{qbittorrent,yt-dlp,ffprobe}/` are all gitignored:
+Four helpers ride **next to the app executable**, each vendored on demand (pinned
+version + SHA-256, idempotent scripts) rather than committed —
+`third_party/{qbittorrent,yt-dlp,ffprobe,jackett}/` are all gitignored:
 
 | Binary       | Why                                                                    |
 | ------------ | ---------------------------------------------------------------------- |
 | qBittorrent  | invisible localhost torrent daemon (see [`DECISIONS.md`](docs/DECISIONS.md) §E) |
 | `yt-dlp`     | lets libmpv's `ytdl_hook` resolve YouTube URLs (inline trailers)       |
 | `ffprobe`    | fast subtitle-stream probe in the subtitle skip-check                  |
+| Jackett      | invisible localhost Torznab indexer sidecar ([`DECISIONS.md`](docs/DECISIONS.md) §D) — a whole self-contained .NET tree bundled as `jackett/` |
 
 Run the scripts for your platform **once** before building; the runner CMake copies
-each binary next to the app executable, from where the app resolves it at runtime.
+each binary (or, for Jackett, its directory) next to the app executable, from where
+the app resolves it at runtime.
 
 ```powershell
-# Windows (each extracts a self-contained binary; qBittorrent needs 7-Zip on PATH):
+# Windows (each extracts a self-contained payload; qBittorrent needs 7-Zip on PATH):
 ./tool/fetch_qbittorrent_windows.ps1   # GUI qbittorrent.exe from the signed installer
 ./tool/fetch_ytdlp_windows.ps1         # official yt-dlp.exe (bundles its own Python)
 ./tool/fetch_ffprobe_windows.ps1       # ffprobe.exe from BtbN's LGPL static FFmpeg build
+./tool/fetch_jackett_windows.ps1       # self-contained Jackett tree (bundles .NET 9)
 ```
 
 ```bash
@@ -113,10 +116,17 @@ each binary next to the app executable, from where the app resolves it at runtim
 ./tool/fetch_qbittorrent_linux.sh      # fully static qbittorrent-nox (no Qt deps)
 ./tool/fetch_ytdlp_linux.sh            # standalone yt-dlp (bundles its own Python)
 ./tool/fetch_ffprobe_linux.sh          # ffprobe from BtbN's LGPL static FFmpeg build
+./tool/fetch_jackett_linux.sh          # self-contained Jackett tree (bundles .NET 9)
 ```
 
-The Windows CI build (`.github/workflows/windows-build.yml`) runs all three fetch
+The Windows CI build (`.github/workflows/windows-build.yml`) runs all four fetch
 steps automatically before `flutter build windows`.
+
+> **Jackett is content-agnostic infrastructure** ([`DECISIONS.md`](docs/DECISIONS.md) §D):
+> we ship stock, unmodified Jackett bound to `127.0.0.1` only (`--ListenPrivate`).
+> No indexer is enabled by default — you configure your own legal/public-domain
+> indexers in the local Jackett UI, and that choice (and its legal responsibility)
+> is yours, not this repo's.
 
 > **Dev note:** the app launches fine without any of these — each feature degrades
 > gracefully (the daemon fails to start / logged and non-fatal; the Trailer button

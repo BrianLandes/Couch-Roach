@@ -117,6 +117,13 @@ scope** for **personal, single-machine, legal / public-domain use**.
 - **No account / no external key:** Jackett is fully local; the Torznab **API key is
   auto-generated on first run** into `ServerConfig.json` under `--DataFolder`, and the app
   reads it there.
+- **Localhost-only:** spawned with `--ListenPrivate` — Jackett otherwise defaults to
+  `AllowExternal` (binds all interfaces, exposing its unauthenticated dashboard/API to the
+  LAN); this keeps it a true invisible localhost child.
+- **FlareSolverr: out of scope (2026-07-08).** Cloudflare-bypass (a bundled headless
+  Chromium, ~700 MB–1 GB/platform) is **not** bundled — prefer non-Cloudflare legal /
+  public-domain indexers (needing FlareSolverr usually signals a commercial tracker, which
+  is out of scope anyway). Could be added later as an *optional* fetch-on-demand sidecar.
 - **Milestone:** M4-family (needs the `TorrentDaemon` impl + play flow). Groundwork/tasks
   captured now; resolver body built at M4.
 - **Open:** bundle-size cost (~50–100 MB/platform, self-contained .NET); ranking policy

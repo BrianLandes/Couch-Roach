@@ -130,6 +130,20 @@ if(EXISTS "${FFPROBE_DIR}/linux-x64/ffprobe")
     DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
 endif()
 
+# The Jackett indexer sidecar is a whole self-contained .NET tree, not a single
+# file — bundle the directory as <bundle>/jackett/ (JackettProcess launches
+# jackett/jackett there). Populated by tool/fetch_jackett_linux.sh; guarded so a
+# build without it still succeeds (acquisition's indexer path just stays off).
+set(JACKETT_DIR "${CMAKE_SOURCE_DIR}/../third_party/jackett")
+if(EXISTS "${JACKETT_DIR}/linux-x64/jackett")
+  install(DIRECTORY "${JACKETT_DIR}/linux-x64/"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/jackett"
+    COMPONENT Runtime
+    USE_SOURCE_PERMISSIONS)
+  install(FILES "${JACKETT_DIR}/LICENSE-jackett.txt"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/jackett" COMPONENT Runtime OPTIONAL)
+endif()
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 

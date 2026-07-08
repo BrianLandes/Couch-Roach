@@ -72,6 +72,13 @@ jobs:
         shell: pwsh
         run: ./tool/fetch_ffprobe_windows.ps1
 
+      # Jackett indexer sidecar (self-contained .NET tree) — extracted into
+      # third_party/ so the CMake rule bundles it as jackett/ next to the app exe.
+      # See tool/fetch_jackett_windows.ps1.
+      - name: Vendor Jackett
+        shell: pwsh
+        run: ./tool/fetch_jackett_windows.ps1
+
       - name: Build Windows (${{ inputs.build_mode }})
         run: flutter build windows --${{ inputs.build_mode }} --dart-define-from-file=dart_define.json
 
