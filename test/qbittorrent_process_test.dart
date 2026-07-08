@@ -24,6 +24,13 @@ void main() {
       expect(conf, contains('General\\StartMinimized=true'));
       expect(conf, contains('General\\MinimizeToTray=true'));
     });
+
+    test('seeds WebUI credentials so qBittorrent 5.x will start the Web API', () {
+      // Without a password set, qBittorrent 5.x logs "Credentials are not set"
+      // and never binds the Web API.
+      expect(conf, contains('WebUI\\Username=admin'));
+      expect(conf, contains('WebUI\\Password_PBKDF2=@ByteArray('));
+    });
   });
 
   test('baseUrl points at the fixed localhost endpoint', () {
@@ -78,6 +85,23 @@ void main() {
       final once = QbittorrentProcess.enforceConfig(null);
       final twice = QbittorrentProcess.enforceConfig(once);
       expect(twice, once);
+    });
+
+    test('preserves a user-set WebUI password instead of overwriting it', () {
+      const existing = '[Preferences]\n'
+          'WebUI\\Username=me\n'
+          'WebUI\\Password_PBKDF2=@ByteArray(custom==:hash==)\n';
+      final merged = QbittorrentProcess.enforceConfig(existing);
+      expect(merged, contains('WebUI\\Username=me'));
+      expect(merged, contains('WebUI\\Password_PBKDF2=@ByteArray(custom==:hash==)'));
+      // The seeded default must not be added on top.
+      expect(merged, isNot(contains('WebUI\\Username=admin')));
+    });
+
+    test('the @ByteArray password entry is written unquoted', () {
+      final conf = QbittorrentProcess.enforceConfig(null);
+      // QSettings only treats @ByteArray(...) as a byte-array type when unquoted.
+      expect(conf, isNot(contains('"@ByteArray(')));
     });
   });
 }

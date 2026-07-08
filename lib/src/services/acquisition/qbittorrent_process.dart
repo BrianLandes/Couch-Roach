@@ -189,6 +189,20 @@ class QbittorrentProcess {
         },
       };
 
+  static const _webUiUsername = 'admin';
+
+  /// PBKDF2-HMAC-SHA512 (100k iterations) of a fixed password with a fixed salt,
+  /// in qBittorrent's `@ByteArray(base64(salt):base64(hash))` form. qBittorrent
+  /// 5.x refuses to start the Web API when no credentials are set ("WebUI:
+  /// Credentials are not set"), so this exists purely to satisfy that gate — it
+  /// is **not a secret**: the Web API binds to 127.0.0.1 with `LocalHostAuth`
+  /// bypass, so the password is never used to authenticate a client. Written
+  /// unquoted so QSettings parses it as a byte-array type. Only seeded when no
+  /// password is already set, so a user's own WebUI password is preserved.
+  static const _webUiPasswordPbkdf2 =
+      '@ByteArray(Y291Y2hyb2FjaHNhbHQxNg==:AtmWvuanDiGbcUBPGIC40uHAwLPtzqr/'
+      'zNAXglK9Ytp+dVFfvQrdvO5SXxdKuv1yAYF5k+YO9kaa1/Z9ZPrM+A==)';
+
   /// Merge [_requiredConfig] into [existing] qBittorrent INI text (or produce a
   /// fresh config when null), preserving every other section/key in order. Pure
   /// and static so the merge is unit-testable.
@@ -221,6 +235,17 @@ class QbittorrentProcess {
       data[section]!.addAll(kv);
     });
 
+    // Seed WebUI credentials only when none exist yet — qBittorrent 5.x won't
+    // start the Web API without them, but a user who set their own password
+    // keeps it. Treat an empty value as "not set" too (that's exactly the state
+    // that logs "Credentials are not set").
+    final prefs = data['Preferences']!;
+    final existingPw = prefs['WebUI\\Password_PBKDF2'];
+    if (existingPw == null || existingPw.isEmpty) {
+      prefs['WebUI\\Username'] = _webUiUsername;
+      prefs['WebUI\\Password_PBKDF2'] = _webUiPasswordPbkdf2;
+    }
+
     final buf = StringBuffer();
     for (final section in sectionOrder) {
       buf.writeln('[$section]');
@@ -233,23 +258,42 @@ class QbittorrentProcess {
   /// The fresh-install config (exposed for testing).
   static String defaultConfig() => enforceConfig(null);
 
-  /// Log every qBittorrent config file under the profile, so a timeout can be
-  /// diagnosed: if the daemon wrote a config somewhere other than where we
-  /// seeded, our WebUI keys never took effect.
+  /// On a readiness timeout, dump what the daemon itself is telling us: the
+  /// config files it wrote (to catch a path mismatch) and the tail of its own
+  /// log (which says *why* the Web UI didn't bind — bad port, blocking prompt,
+  /// etc.). Diagnostic only; never masks the original timeout.
   void _logDiscoveredConfigs(Directory profileDir) {
     try {
-      final found = profileDir
+      final files = profileDir
           .listSync(recursive: true, followLinks: false)
           .whereType<File>()
+          .toList();
+
+      final configs = files
           .where((f) {
-        final name = p.basename(f.path).toLowerCase();
-        return name.endsWith('.ini') || name.endsWith('.conf');
-      }).map((f) => f.path);
+            final n = p.basename(f.path).toLowerCase();
+            return n.endsWith('.ini') || n.endsWith('.conf');
+          })
+          .map((f) => f.path)
+          .toList();
       _log.warn(
         'qBittorrent WebUI never came up. Config files under the profile: '
-        '${found.isEmpty ? '(none found)' : found.join(', ')}',
+        '${configs.isEmpty ? '(none found)' : configs.join(', ')}',
         source: 'QbittorrentProcess',
       );
+
+      // qBittorrent writes <profile>/qBittorrent/data/logs/qbittorrent.log —
+      // its own log explains a WebUI that won't start.
+      for (final logFile in files.where(
+          (f) => p.basename(f.path).toLowerCase() == 'qbittorrent.log')) {
+        final lines = logFile.readAsLinesSync();
+        final tail = lines.length <= 40 ? lines : lines.sublist(lines.length - 40);
+        _log.warn(
+          'qBittorrent log (${logFile.path}), last ${tail.length} lines:\n'
+          '${tail.join('\n')}',
+          source: 'QbittorrentProcess',
+        );
+      }
     } catch (_) {
       // Diagnostic only — never let it mask the original timeout.
     }
