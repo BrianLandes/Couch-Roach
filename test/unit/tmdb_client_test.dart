@@ -134,6 +134,24 @@ void main() {
     expect((await client.videos(tmdbId: 550, isTv: false)).single.type, 'Teaser');
   });
 
+  test('seasonVideos hits the per-season endpoint', () async {
+    final client = clientFor({
+      '/tv/1399/season/2/videos': {
+        'results': [
+          {
+            'key': 's2',
+            'site': 'YouTube',
+            'type': 'Trailer',
+            'name': 'Season 2 Trailer',
+          },
+        ],
+      },
+    });
+    final vids = await client.seasonVideos(tmdbId: 1399, seasonNumber: 2);
+    expect(vids.single.key, 's2');
+    expect(vids.single.name, 'Season 2 Trailer');
+  });
+
   test('non-200 degrades to empty/null (logged, not thrown)', () async {
     final client = clientFor({}); // everything 404
     expect(await client.searchTv('x'), isEmpty);

@@ -86,36 +86,52 @@ release configs — pick the Linux device in the status bar and press **F5**.
 > (`sudo apt install git-crypt`, then `git-crypt unlock /path/to/key`; see
 > [Secrets](#secrets)), or drop your own keys into a local `dart_define.json`.
 
-## Bundled binaries (torrent daemon)
+## Bundled binaries (sidecars)
 
-The app spawns qBittorrent as an invisible localhost child (see
-[`docs/DECISIONS.md`](docs/DECISIONS.md) §E). The binary is **vendored on demand**,
-not committed — `third_party/qbittorrent/` is gitignored and populated by a fetch
-script (pinned version + SHA-256, idempotent):
+Three helper binaries ride **next to the app executable**, each vendored on demand
+(pinned version + SHA-256, idempotent scripts) rather than committed —
+`third_party/{qbittorrent,yt-dlp,ffprobe}/` are all gitignored:
+
+| Binary       | Why                                                                    |
+| ------------ | ---------------------------------------------------------------------- |
+| qBittorrent  | invisible localhost torrent daemon (see [`DECISIONS.md`](docs/DECISIONS.md) §E) |
+| `yt-dlp`     | lets libmpv's `ytdl_hook` resolve YouTube URLs (inline trailers)       |
+| `ffprobe`    | fast subtitle-stream probe in the subtitle skip-check                  |
+
+Run the scripts for your platform **once** before building; the runner CMake copies
+each binary next to the app executable, from where the app resolves it at runtime.
 
 ```powershell
-# Windows: extracts the self-contained qbittorrent.exe from the official signed
-# installer (needs 7-Zip on PATH or at its default install location).
-./tool/fetch_qbittorrent_windows.ps1
+# Windows (each extracts a self-contained binary; qBittorrent needs 7-Zip on PATH):
+./tool/fetch_qbittorrent_windows.ps1   # GUI qbittorrent.exe from the signed installer
+./tool/fetch_ytdlp_windows.ps1         # official yt-dlp.exe (bundles its own Python)
+./tool/fetch_ffprobe_windows.ps1       # ffprobe.exe from BtbN's LGPL static FFmpeg build
 ```
 
 ```bash
-# Linux: downloads a fully static qbittorrent-nox (no Qt/shared-lib deps).
-./tool/fetch_qbittorrent_linux.sh
+# Linux:
+./tool/fetch_qbittorrent_linux.sh      # fully static qbittorrent-nox (no Qt deps)
+./tool/fetch_ytdlp_linux.sh            # standalone yt-dlp (bundles its own Python)
+./tool/fetch_ffprobe_linux.sh          # ffprobe from BtbN's LGPL static FFmpeg build
 ```
 
-Run the script for your platform **once** before building; the runner CMake copies
-the binary next to the app executable, from where the app resolves it at runtime.
-The Windows CI build (`.github/workflows/windows-build.yml`) runs the fetch step
-automatically before `flutter build windows`.
+The Windows CI build (`.github/workflows/windows-build.yml`) runs all three fetch
+steps automatically before `flutter build windows`.
 
-> **Dev note:** the app launches fine without this — the daemon just fails to start
-> (logged, non-fatal) and local playback still works. For acquisition to actually
-> function on a dev machine, either run the fetch script once (then `flutter run`
-> bundles it) or have `qbittorrent-nox` on your `PATH`. Windows has no official
-> headless nox, so the GUI `qbittorrent.exe` is bundled and run hidden (minimized
-> to tray) — a user-supplied real `qbittorrent-nox.exe` in the bundle dir is
-> preferred if present.
+> **Dev note:** the app launches fine without any of these — each feature degrades
+> gracefully (the daemon fails to start / logged and non-fatal; the Trailer button
+> shows the player's error state; the subtitle check falls back to a slower libmpv
+> probe). For a feature to work on a dev machine, either run its fetch script once
+> (then `flutter run` bundles it) or have the tool on your `PATH`. Windows has no
+> official headless qbittorrent-nox, so the GUI `qbittorrent.exe` is bundled and run
+> hidden (minimized to tray) — a user-supplied `qbittorrent-nox.exe` in the bundle
+> dir is preferred if present.
+>
+> **Updating yt-dlp:** YouTube periodically breaks extractors; bump the pinned
+> `$Version`/`VERSION` in `tool/fetch_ytdlp_*` (and the SHA-256 from that release's
+> `SHA2-256SUMS`) to refresh. The BtbN FFmpeg autobuild tag pinned for `ffprobe`
+> is eventually pruned upstream — if that fetch 404s, bump it to a current
+> autobuild release and refresh its SHA-256.
 
 ## Layout
 

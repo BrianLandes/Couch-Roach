@@ -31,6 +31,14 @@ abstract class DiscoveryClient {
 
   /// Videos (trailers/teasers) for a title — the preview source.
   Future<List<TmdbVideo>> videos({required int tmdbId, required bool isTv});
+
+  /// Season-specific videos for a TV title — trailers/teasers TMDB attaches to
+  /// an individual season (`/tv/{id}/season/{n}/videos`), which the show-level
+  /// [videos] call doesn't return.
+  Future<List<TmdbVideo>> seasonVideos({
+    required int tmdbId,
+    required int seasonNumber,
+  });
 }
 
 @LazySingleton(as: DiscoveryClient)
@@ -137,6 +145,16 @@ class TmdbClient implements DiscoveryClient {
   }) async =>
       _results(
         await _get('/${isTv ? 'tv' : 'movie'}/$tmdbId/videos'),
+        TmdbVideo.fromJson,
+      );
+
+  @override
+  Future<List<TmdbVideo>> seasonVideos({
+    required int tmdbId,
+    required int seasonNumber,
+  }) async =>
+      _results(
+        await _get('/tv/$tmdbId/season/$seasonNumber/videos'),
         TmdbVideo.fromJson,
       );
 }

@@ -59,13 +59,48 @@ final localTitleProvider =
 });
 
 /// The YouTube trailer URL for a title, or null when there's no usable preview.
-/// Keyed by (tmdbId, isTv).
+/// Keyed by (tmdbId, isTv). Cheap (one show-level call) — drives whether the
+/// Trailer button is shown at all; the full list is loaded lazily by
+/// [trailerOptionsProvider] only when the picker opens.
 final trailerUrlProvider =
     FutureProvider.family<String?, (int, bool)>((ref, key) async {
   final videos =
       await getIt<DiscoveryClient>().videos(tmdbId: key.$1, isTv: key.$2);
   final trailer = pickTrailer(videos);
   return trailer == null ? null : youtubeWatchUrl(trailer.key);
+});
+
+/// Every previewable video for a title, grouped for the trailer picker. For a TV
+/// title this also pulls per-season videos (one call per numbered season, run in
+/// parallel) and tags them with their season. Keyed by (tmdbId, isTv). Watched
+/// only when the picker sheet is open, so the extra season calls are on-demand.
+final trailerOptionsProvider =
+    FutureProvider.family<List<TrailerGroup>, (int, bool)>((ref, key) async {
+  final tmdb = getIt<DiscoveryClient>();
+  final tmdbId = key.$1;
+  final isTv = key.$2;
+
+  final options = [
+    for (final v in await tmdb.videos(tmdbId: tmdbId, isTv: isTv))
+      TrailerOption(v),
+  ];
+
+  if (isTv) {
+    final details = await tmdb.tvDetails(tmdbId);
+    final seasonNumbers = (details?.seasons ?? const [])
+        .map((s) => s.seasonNumber)
+        .where((n) => n >= 1)
+        .toList(growable: false);
+    final perSeason = await Future.wait(seasonNumbers.map((n) async {
+      final vids = await tmdb.seasonVideos(tmdbId: tmdbId, seasonNumber: n);
+      return [for (final v in vids) TrailerOption(v, seasonNumber: n)];
+    }));
+    for (final list in perSeason) {
+      options.addAll(list);
+    }
+  }
+
+  return groupTrailerOptions(options);
 });
 
 /// "Recommended For You" — TMDB recommendations seeded by the shows you've

@@ -9,6 +9,7 @@ import '../../widgets/poster_art.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
 import 'discover_tile.dart';
+import 'trailer_picker.dart';
 
 /// Metadata page for a TMDB **movie** (the movie counterpart to the TV show
 /// detail page). Shows poster, year, rating and overview; if the movie is
@@ -66,15 +67,14 @@ class MovieDetailScreen extends ConsumerWidget {
                   if (trailerUrl != null)
                     OutlinedButton.icon(
                       autofocus: local == null,
-                      onPressed: () => context.push(
-                        Routes.player,
-                        extra: PlayerArgs(
-                          filePath: trailerUrl,
-                          title: '${tile.title} — Trailer',
-                        ),
+                      onPressed: () => showTrailerPicker(
+                        context,
+                        tmdbId: tile.tmdbId,
+                        isTv: false,
+                        title: tile.title,
                       ),
                       icon: const Icon(Icons.movie_outlined),
-                      label: const Text('Trailer'),
+                      label: const Text('Trailers'),
                     ),
                 ],
               ),

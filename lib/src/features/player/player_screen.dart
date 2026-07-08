@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
+import '../../core/media/ytdlp.dart';
 import '../../core/settings/settings_service.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
@@ -58,7 +59,22 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  late final Player _player = Player();
+  // True when the source is a network URL (a YouTube trailer resolved through
+  // yt-dlp), as opposed to a local library file. Gates the ytdl_hook wiring and
+  // verbose mpv logging below.
+  late final bool _isNetworkSource = _isNetworkUrl(widget.filePath);
+
+  late final Player _player = Player(
+    configuration: PlayerConfiguration(
+      // On the trailer path, raise mpv's own logging and (below) mirror it into
+      // our file log. A crash in libmpv's yt-dlp/ytdl_hook resolve pipeline is
+      // native — it never surfaces as a Dart exception — so the file log (which
+      // survives the crash) is the only trail we get. `v` over `debug` on
+      // purpose: our log writer appends asynchronously, and debug's flood would
+      // leave the crash-adjacent lines queued (unwritten) when the process dies.
+      logLevel: _isNetworkSource ? MPVLogLevel.v : MPVLogLevel.error,
+    ),
+  );
 
   // Hardware acceleration is disabled: with GPU rendering, some Windows setups
   // decode fine but render a solid-color (e.g. blue) frame. CPU rendering is the
@@ -119,6 +135,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (mounted) setState(() => _error = message);
       }));
 
+      // Mirror libmpv's own log into our file log for network/trailer playback.
+      // A crash in the yt-dlp/ytdl_hook resolve pipeline is native and leaves
+      // nothing in the Dart error stream, so these lines are the trail up to it.
+      if (_isNetworkSource) {
+        _subs.add(_player.stream.log.listen((l) {
+          getIt<ErrorLogService>().info(
+            '[mpv ${l.level}] ${l.prefix}: ${l.text.trim()}',
+            source: 'PlayerScreen.mpv',
+          );
+        }));
+      }
+
+      // For a network URL (a YouTube trailer), point libmpv's ytdl_hook at the
+      // bundled yt-dlp so it can resolve the stream — it only searches PATH, not
+      // the app directory. No-op for local files and when yt-dlp isn't bundled
+      // (libmpv then falls back to a PATH lookup / its graceful error state).
+      await _configureYtdlp();
+
       // Seek is applied on the first ready position tick (see _onPosition).
       await _player.open(Media(widget.filePath));
 
@@ -129,6 +163,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'PlayerScreen.open');
       if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  static bool _isNetworkUrl(String path) {
+    final uri = Uri.tryParse(path);
+    return uri != null && (uri.isScheme('http') || uri.isScheme('https'));
+  }
+
+  /// Prepare libmpv to resolve a network URL (a trailer) through yt-dlp. Only
+  /// runs for network sources; any failure is logged and swallowed so it never
+  /// blocks playback (a missing/failed resolve surfaces as the player's own
+  /// error state). No-op for local files.
+  Future<void> _configureYtdlp() async {
+    if (!_isNetworkSource) return;
+    final platform = _player.platform;
+    if (platform is! NativePlayer) return;
+    try {
+      // Point mpv's builtin ytdl_hook at the bundled yt-dlp (it only searches
+      // PATH, not the app dir). Null when yt-dlp isn't bundled — leave mpv's
+      // default PATH lookup in place for dev machines that have it installed.
+      final scriptOpt = ytdlHookScriptOpt();
+      if (scriptOpt != null) {
+        await platform.setProperty('script-opts', scriptOpt);
+      }
+      // Force a single pre-muxed stream. mpv's default for YouTube pulls
+      // *separate* best-video + best-audio and stitches them with an internal
+      // `edl://` — a fragile path in libmpv that can hard-crash the process. A
+      // muxed 'best' avoids the merge entirely (YouTube muxed formats cap around
+      // 720p, which is plenty for an inline trailer).
+      await platform.setProperty('ytdl-format', 'best');
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.configureYtdlp');
     }
   }
 

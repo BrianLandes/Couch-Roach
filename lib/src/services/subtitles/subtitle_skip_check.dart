@@ -6,6 +6,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/logging/error_log_service.dart';
+import '../../core/process/bundled_executable.dart';
 
 /// Decides whether a video already has English subtitles, so the fetcher can
 /// skip it (HANDOFF §4.6 step 1). Tries cheapest-first:
@@ -47,9 +48,20 @@ class SubtitleSkipCheck {
   }
 
   // ── 2. ffprobe (null when unavailable → fall through) ──────────────────────
+
+  /// The ffprobe command to run: the copy the packaging step bundles next to the
+  /// app executable if present (resolved by absolute path — Linux `Process.run`
+  /// doesn't search the exe's own directory), else the bare name off PATH so a
+  /// dev machine with ffmpeg installed still works. Static + pure-ish (only reads
+  /// the filesystem) so the resolution is exercised in tests.
+  static String ffprobeCommand() {
+    final name = Platform.isWindows ? 'ffprobe.exe' : 'ffprobe';
+    return bundledExecutable([name]) ?? name;
+  }
+
   Future<bool?> _ffprobeEmbeddedEnglish(String path) async {
     try {
-      final res = await Process.run('ffprobe', [
+      final res = await Process.run(ffprobeCommand(), [
         '-v', 'quiet',
         '-print_format', 'json',
         '-show_streams',

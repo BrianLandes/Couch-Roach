@@ -13,6 +13,7 @@ import '../../widgets/app_back_button.dart';
 import '../../widgets/poster_art.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
+import 'trailer_picker.dart';
 
 /// Arguments for the show detail screen (passed via go_router `extra`).
 class ShowDetailArgs {
@@ -104,15 +105,14 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
           Align(
             alignment: Alignment.centerLeft,
             child: OutlinedButton.icon(
-              onPressed: () => context.push(
-                Routes.player,
-                extra: PlayerArgs(
-                  filePath: trailerUrl,
-                  title: '${details.name} — Trailer',
-                ),
+              onPressed: () => showTrailerPicker(
+                context,
+                tmdbId: details.tmdbId,
+                isTv: true,
+                title: details.name,
               ),
               icon: const Icon(Icons.movie_outlined),
-              label: const Text('Trailer'),
+              label: const Text('Trailers'),
             ),
           ),
         ],

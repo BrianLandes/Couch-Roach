@@ -87,6 +87,29 @@ if(EXISTS "${QBITTORRENT_DIR}/win-x64/qbittorrent.exe")
     DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
 endif()
 
+# Same pattern for the two sidecar tools that also sit beside the app exe:
+#   yt-dlp.exe  — libmpv's ytdl_hook shells out to it to resolve YouTube trailers
+#   ffprobe.exe — the fast subtitle-stream probe in SubtitleSkipCheck
+# Populated by tool/fetch_ytdlp_windows.ps1 and tool/fetch_ffprobe_windows.ps1
+# (run before this build); resolved next to the app exe at runtime. Guarded so a
+# build without them still succeeds (the app falls back to a PATH lookup / its
+# slower probe).
+set(YTDLP_DIR "${CMAKE_SOURCE_DIR}/../third_party/yt-dlp")
+if(EXISTS "${YTDLP_DIR}/win-x64/yt-dlp.exe")
+  install(PROGRAMS "${YTDLP_DIR}/win-x64/yt-dlp.exe"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+  install(FILES "${YTDLP_DIR}/LICENSE-yt-dlp.txt"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
+endif()
+
+set(FFPROBE_DIR "${CMAKE_SOURCE_DIR}/../third_party/ffprobe")
+if(EXISTS "${FFPROBE_DIR}/win-x64/ffprobe.exe")
+  install(PROGRAMS "${FFPROBE_DIR}/win-x64/ffprobe.exe"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+  install(FILES "${FFPROBE_DIR}/LICENSE-ffmpeg.txt"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
+endif()
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 

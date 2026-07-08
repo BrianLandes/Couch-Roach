@@ -124,6 +124,8 @@ app.*.symbols
 # Local secrets (dart_define.json) are committed ENCRYPTED via git-crypt — see
 # .gitattributes — so they are intentionally NOT ignored here.
 
-# Vendored third-party binaries — large, fetched on demand by
-# tool/fetch_qbittorrent_{linux.sh,windows.ps1} (and the Windows CI build).
+# Vendored third-party binaries — large, fetched on demand by the
+# tool/fetch_*_{linux.sh,windows.ps1} scripts (and the Windows CI build).
 /third_party/qbittorrent/
+/third_party/yt-dlp/
+/third_party/ffprobe/

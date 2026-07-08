@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/logging/error_log_service.dart';
+import '../../core/process/bundled_executable.dart';
 
 /// Owns the **qBittorrent-nox child process** lifecycle (HANDOFF §4.1/§4.7).
 ///
@@ -125,12 +126,9 @@ class QbittorrentProcess {
     final candidates = Platform.isWindows
         ? const ['qbittorrent-nox.exe', 'qbittorrent.exe']
         : const ['qbittorrent-nox'];
-    final exeDir = p.dirname(Platform.resolvedExecutable);
-    for (final name in candidates) {
-      final bundled = File(p.join(exeDir, name));
-      if (bundled.existsSync()) return bundled.path;
-    }
-    return candidates.first; // bare name → resolved off PATH (dev machines)
+    // Bundled next to the app exe (packaging step) → absolute path; else the
+    // bare name resolved off PATH (dev machines with qBittorrent installed).
+    return bundledExecutable(candidates) ?? candidates.first;
   }
 
   Future<Directory> _profileDirectory() async {

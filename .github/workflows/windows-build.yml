@@ -61,6 +61,17 @@ jobs:
         shell: pwsh
         run: ./tool/fetch_qbittorrent_windows.ps1
 
+      # yt-dlp lets libmpv resolve YouTube trailers; ffprobe is the fast
+      # subtitle-stream probe. Both are extracted into third_party/ so the CMake
+      # install rules bundle them next to the app exe. See tool/fetch_*_windows.ps1.
+      - name: Vendor yt-dlp
+        shell: pwsh
+        run: ./tool/fetch_ytdlp_windows.ps1
+
+      - name: Vendor ffprobe
+        shell: pwsh
+        run: ./tool/fetch_ffprobe_windows.ps1
+
       - name: Build Windows (${{ inputs.build_mode }})
         run: flutter build windows --${{ inputs.build_mode }} --dart-define-from-file=dart_define.json
 

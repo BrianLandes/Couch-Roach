@@ -107,6 +107,29 @@ if(EXISTS "${QBITTORRENT_DIR}/linux-x64/qbittorrent-nox")
     DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
 endif()
 
+# Same pattern for the two sidecar tools that also sit beside the executable:
+#   yt-dlp  — libmpv's ytdl_hook shells out to it to resolve YouTube trailers
+#   ffprobe — the fast subtitle-stream probe in SubtitleSkipCheck
+# Both are resolved by absolute path at runtime (Linux Process.start / libmpv
+# don't search the exe's own directory). Populated by tool/fetch_ytdlp_linux.sh
+# and tool/fetch_ffprobe_linux.sh; guarded so a build without them still succeeds
+# (the app falls back to a PATH lookup / its slower probe).
+set(YTDLP_DIR "${CMAKE_SOURCE_DIR}/../third_party/yt-dlp")
+if(EXISTS "${YTDLP_DIR}/linux-x64/yt-dlp")
+  install(PROGRAMS "${YTDLP_DIR}/linux-x64/yt-dlp"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+  install(FILES "${YTDLP_DIR}/LICENSE-yt-dlp.txt"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
+endif()
+
+set(FFPROBE_DIR "${CMAKE_SOURCE_DIR}/../third_party/ffprobe")
+if(EXISTS "${FFPROBE_DIR}/linux-x64/ffprobe")
+  install(PROGRAMS "${FFPROBE_DIR}/linux-x64/ffprobe"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+  install(FILES "${FFPROBE_DIR}/LICENSE-ffmpeg.txt"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
+endif()
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 

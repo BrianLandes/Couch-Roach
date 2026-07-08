@@ -78,6 +78,15 @@ void main() {
     });
   });
 
+  group('ffprobeCommand', () {
+    test('falls back to the bare platform name when none is bundled', () {
+      // The test runner has no ffprobe vendored next to it, so the resolver
+      // returns the bare name (resolved off PATH at runtime).
+      final expected = Platform.isWindows ? 'ffprobe.exe' : 'ffprobe';
+      expect(SubtitleSkipCheck.ffprobeCommand(), expected);
+    });
+  });
+
   group('ffprobeJsonHasEnglish', () {
     test('true for a subtitle stream tagged language=eng', () {
       const json = '''
