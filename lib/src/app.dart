@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'core/app_scroll_behavior.dart';
 import 'router/app_router.dart';
 import 'theme/theme.dart';
 
@@ -15,6 +16,7 @@ class CouchRoachApp extends StatelessWidget {
       title: 'Couch Roach',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
+      scrollBehavior: const AppScrollBehavior(),
       routerConfig: appRouter,
     );
   }
