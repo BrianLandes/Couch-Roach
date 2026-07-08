@@ -200,32 +200,69 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   /// Ask the subtitle service for an English track (skip-check → search →
-  /// download → `<name>.en.srt`). If it produces a sidecar and libmpv doesn't
-  /// already have an English subtitle track, load + select it. Best-effort; a
-  /// failure here never disrupts playback.
+  /// download → `<name>.en.srt`), then make sure an English subtitle is
+  /// actually *selected* for display: an already-present track (embedded, or a
+  /// sidecar libmpv auto-loaded) is switched on if it isn't already, otherwise
+  /// the freshly-downloaded sidecar is loaded + selected. Best-effort; a failure
+  /// here never disrupts playback.
   Future<void> _ensureSubtitles() async {
+    final log = getIt<ErrorLogService>();
     // Only real library titles get subtitle fetching — trailers and other
     // ad-hoc streams have no library item (and no local file to hash/search).
-    if (widget.libraryItemId == null) return;
-    if (!const AppConfig().hasOpenSubtitlesKey) return;
-    if (!getIt<SettingsService>().autoDownloadSubtitles) return;
+    if (widget.libraryItemId == null) {
+      log.info('subtitles skipped: no library item (trailer/ad-hoc stream)',
+          source: 'PlayerScreen.ensureSubtitles');
+      return;
+    }
+    if (!const AppConfig().hasOpenSubtitlesKey) {
+      log.info('subtitles skipped: no OpenSubtitles API key configured',
+          source: 'PlayerScreen.ensureSubtitles');
+      return;
+    }
+    if (!getIt<SettingsService>().autoDownloadSubtitles) {
+      log.info('subtitles skipped: auto-download disabled in settings',
+          source: 'PlayerScreen.ensureSubtitles');
+      return;
+    }
     try {
+      log.info('ensuring English subtitles for ${widget.filePath}',
+          source: 'PlayerScreen.ensureSubtitles');
       final srtPath =
           await getIt<SubtitleService>().ensureEnglish(widget.filePath);
-      if (srtPath == null || !mounted) return;
-      // A pre-existing sidecar libmpv already auto-loaded shows up as an English
-      // track — don't add a duplicate.
-      final alreadyHasEnglish = _player.state.tracks.subtitle
-          .any((s) => SubtitleSkipCheck.isEnglish(s.language, s.title));
-      if (alreadyHasEnglish) return;
+      if (!mounted) return;
+
+      // If libmpv already exposes an English track — an embedded stream, or a
+      // sidecar it auto-loaded — select it if it isn't the active one. mpv
+      // won't necessarily display it on its own, so we turn it on explicitly.
+      final existing = _player.state.tracks.subtitle
+          .where((s) => SubtitleSkipCheck.isEnglish(s.language, s.title))
+          .toList();
+      if (existing.isNotEmpty) {
+        final track = existing.first;
+        if (_player.state.track.subtitle.id != track.id) {
+          await _player.setSubtitleTrack(track);
+          log.info('Enabled existing English subtitle track ${track.id}',
+              source: 'PlayerScreen.ensureSubtitles');
+        } else {
+          log.info('English subtitle track ${track.id} already selected',
+              source: 'PlayerScreen.ensureSubtitles');
+        }
+        return;
+      }
+
+      if (srtPath == null) {
+        log.info('no English subtitles available (none found or downloaded)',
+            source: 'PlayerScreen.ensureSubtitles');
+        return;
+      }
+
       await _player.setSubtitleTrack(
         SubtitleTrack.uri(srtPath, title: 'English', language: 'en'),
       );
-      getIt<ErrorLogService>()
-          .info('Loaded English subtitles: $srtPath', source: 'PlayerScreen');
+      log.info('Loaded + selected English subtitles: $srtPath',
+          source: 'PlayerScreen.ensureSubtitles');
     } catch (e, st) {
-      getIt<ErrorLogService>().logError(e,
-          stackTrace: st, source: 'PlayerScreen.ensureSubtitles');
+      log.logError(e, stackTrace: st, source: 'PlayerScreen.ensureSubtitles');
     }
   }
 
@@ -349,6 +386,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   MaterialDesktopVideoControlsThemeData _controlsTheme() {
     return MaterialDesktopVideoControlsThemeData(
       toggleFullscreenOnDoublePress: false,
+      // Hide the mouse pointer together with the controls when they fade out, so
+      // a fullscreen TV appliance shows nothing over the video while playing.
+      hideMouseOnControlsRemoval: true,
       topButtonBar: [
         IconButton(
           onPressed: _back,

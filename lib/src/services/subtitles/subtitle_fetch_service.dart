@@ -115,10 +115,19 @@ class OpenSubtitlesSubtitleService implements SubtitleService {
         return (path: null, status: SubtitleAttemptStatus.notFound);
       }
 
+      _log.info('requesting download for subtitle fileId=${result.fileId}',
+          source: 'SubtitleService.ensure');
       final saved = await _downloadAndSave(result, videoPath);
       final status = saved != null
           ? SubtitleAttemptStatus.found
           : SubtitleAttemptStatus.quota; // download refused → treat as quota
+      if (saved != null) {
+        _log.info('downloaded English subtitle → $saved',
+            source: 'SubtitleService.ensure');
+      } else {
+        _log.warn('subtitle download refused (quota or link failure)',
+            source: 'SubtitleService.ensure');
+      }
       await _record(item, status);
       return (path: saved, status: status);
     } catch (e, st) {

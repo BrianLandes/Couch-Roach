@@ -20,12 +20,28 @@ class SubtitleSkipCheck {
   final ErrorLogService _log;
 
   Future<bool> hasEnglish(String videoPath) async {
-    if (hasEnglishSidecar(videoPath)) return true;
+    final sidecar = englishSidecarPath(videoPath);
+    if (sidecar != null) {
+      _log.info('skip-check: English sidecar already present ($sidecar)',
+          source: 'SubtitleSkipCheck');
+      return true;
+    }
 
     final viaFfprobe = await _ffprobeEmbeddedEnglish(videoPath);
-    if (viaFfprobe != null) return viaFfprobe;
+    if (viaFfprobe != null) {
+      _log.info(
+          'skip-check: ffprobe ${viaFfprobe ? 'found an' : 'found no'} '
+          'embedded English subtitle track',
+          source: 'SubtitleSkipCheck');
+      return viaFfprobe;
+    }
 
-    return _mediaKitEmbeddedEnglish(videoPath);
+    final viaMediaKit = await _mediaKitEmbeddedEnglish(videoPath);
+    _log.info(
+        'skip-check: ffprobe unavailable, media_kit '
+        '${viaMediaKit ? 'found an' : 'found no'} embedded English track',
+        source: 'SubtitleSkipCheck');
+    return viaMediaKit;
   }
 
   // ── 1. Sidecar ─────────────────────────────────────────────────────────────
