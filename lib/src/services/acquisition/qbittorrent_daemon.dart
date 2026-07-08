@@ -26,6 +26,14 @@ class QbittorrentDaemon implements TorrentDaemon {
   final http.Client _http;
   final ErrorLogService _log;
 
+  /// Per-attempt windows to wait for a newly-added torrent to appear; the add is
+  /// re-POSTed before each. Two attempts absorb a slow/dropped first add right
+  /// after daemon startup. Overridable in tests to keep them fast.
+  static List<Duration> addResolveWindows = const [
+    Duration(seconds: 25),
+    Duration(seconds: 45),
+  ];
+
   String get _api => '${QbittorrentProcess.baseUrl}/api/v2';
 
   @override
@@ -49,17 +57,40 @@ class QbittorrentDaemon implements TorrentDaemon {
       if (existing != null) return existing;
     }
 
+    final body = {
+      'urls': handle.magnetOrUrl,
+      'savepath': savePath,
+      'sequentialDownload': '$sequential',
+      'firstLastPiecePrio': '$firstLastPiecePriority',
+      'tags': tag,
+    };
+
+    // The first URL-based add right after the daemon starts can be slow or
+    // silently dropped before its torrent session is warm, so the torrent never
+    // appears — retry once with a longer window. The tag is stable across
+    // attempts, so a re-POST of the same URL is a safe no-op (qBittorrent dedupes
+    // by infohash) and the retry catches it once the session is ready.
+    String? hash;
+    for (var attempt = 0;
+        attempt < addResolveWindows.length && hash == null;
+        attempt++) {
+      await _postAdd(body, handle);
+      hash = await _tryResolveHashByTag(tag, addResolveWindows[attempt]);
+    }
+    if (hash == null) {
+      final e = TorrentDaemonException(
+          'torrent for tag "$tag" never appeared in qBittorrent');
+      _log.logError(e, source: 'QbittorrentDaemon.add');
+      throw e;
+    }
+    return QbittorrentTask(this, hash: hash, savePath: savePath);
+  }
+
+  Future<void> _postAdd(
+      Map<String, String> body, TorrentHandle handle) async {
     try {
-      final res = await _http.post(
-        Uri.parse('$_api/torrents/add'),
-        body: {
-          'urls': handle.magnetOrUrl,
-          'savepath': savePath,
-          'sequentialDownload': '$sequential',
-          'firstLastPiecePrio': '$firstLastPiecePriority',
-          'tags': tag,
-        },
-      );
+      final res =
+          await _http.post(Uri.parse('$_api/torrents/add'), body: body);
       if (addResponseIsFailure(res.statusCode, res.body)) {
         throw TorrentDaemonException(
           'add failed (${res.statusCode}: ${res.body.trim()}) for '
@@ -70,9 +101,6 @@ class QbittorrentDaemon implements TorrentDaemon {
       _log.logError(e, stackTrace: st, source: 'QbittorrentDaemon.add');
       rethrow;
     }
-
-    final hash = await _resolveHashByTag(tag);
-    return QbittorrentTask(this, hash: hash, savePath: savePath);
   }
 
   /// A task for an already-added torrent bearing [tag], or null if none exists.
@@ -130,10 +158,11 @@ class QbittorrentDaemon implements TorrentDaemon {
     }
   }
 
-  /// Poll until the tagged torrent appears (magnet metadata resolution can lag
-  /// the add call), then return its hash.
-  Future<String> _resolveHashByTag(String tag) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 30));
+  /// Poll up to [window] for the tagged torrent to appear (a URL/magnet add lags
+  /// while the .torrent is fetched / metadata resolves), returning its hash or
+  /// null if it never shows.
+  Future<String?> _tryResolveHashByTag(String tag, Duration window) async {
+    final deadline = DateTime.now().add(window);
     while (DateTime.now().isBefore(deadline)) {
       final list = await torrentsInfo(tag: tag);
       if (list.isNotEmpty) {
@@ -142,11 +171,7 @@ class QbittorrentDaemon implements TorrentDaemon {
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    final e = TorrentDaemonException(
-      'torrent for tag "$tag" never appeared in qBittorrent',
-    );
-    _log.logError(e, source: 'QbittorrentDaemon._resolveHashByTag');
-    throw e;
+    return null;
   }
 
   /// `GET /torrents/info` — filter by [tag] or [hashes]. Returns [] on error.

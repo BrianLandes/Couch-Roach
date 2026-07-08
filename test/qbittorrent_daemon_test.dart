@@ -45,6 +45,52 @@ void main() {
     });
   });
 
+  group('add retry', () {
+    setUp(() => QbittorrentDaemon.addResolveWindows = const [
+          Duration(milliseconds: 150),
+          Duration(milliseconds: 400),
+        ]);
+    tearDown(() => QbittorrentDaemon.addResolveWindows = const [
+          Duration(seconds: 25),
+          Duration(seconds: 45),
+        ]);
+
+    test('re-adds when the torrent misses the first window, then resolves',
+        () async {
+      var posts = 0;
+      final client = MockClient((req) async {
+        if (req.method == 'POST') {
+          posts++;
+          return http.Response('Ok.', 200);
+        }
+        // The torrent only shows up after the second POST (session warmed up).
+        return http.Response(
+            posts >= 2 ? jsonEncode([{'hash': 'H2', 'save_path': '/x'}]) : '[]',
+            200);
+      });
+      final task = await QbittorrentDaemon(client, ErrorLogService()).add(
+        const TorrentHandle(magnetOrUrl: 'u'),
+        savePath: '/x',
+        dedupeKey: 'k',
+      ) as QbittorrentTask;
+
+      expect(posts, 2, reason: 'first window misses → one retry');
+      expect(task.hash, 'H2');
+    });
+
+    test('throws when the torrent never appears across all attempts', () async {
+      final client = MockClient((req) async =>
+          http.Response(req.method == 'POST' ? 'Ok.' : '[]', 200));
+      expect(
+        () => QbittorrentDaemon(client, ErrorLogService()).add(
+          const TorrentHandle(magnetOrUrl: 'u'),
+          savePath: '/x',
+        ),
+        throwsA(isA<TorrentDaemonException>()),
+      );
+    });
+  });
+
   group('add dedupe', () {
     test('reattaches when a torrent for the dedupe key already exists', () async {
       http.Request? post;
