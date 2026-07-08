@@ -30,20 +30,38 @@ class ExpressVpnController implements VpnController {
     r'C:\Program Files (x86)\ExpressVPN',
     r'C:\Program Files\ExpressVPN',
   ];
-  static const _linuxCliCandidates = [
-    '/usr/bin/expressvpn',
-    '/usr/local/bin/expressvpn',
+  // Linux CLI: the new Qt app ships `expressvpnctl` (same as Windows, e.g.
+  // /usr/local/bin/expressvpnctl → /opt/expressvpn/bin); the classic app used
+  // `expressvpn`. Prefer the former. We search known dirs + $PATH.
+  static const _linuxCliNames = ['expressvpnctl', 'expressvpn'];
+  static const _linuxCliDirs = [
+    '/usr/local/bin',
+    '/usr/bin',
+    '/opt/expressvpn/bin',
   ];
 
   /// The CLI path, or null if it isn't installed. Probing an absolute path
   /// (rather than a bare name) means a machine without ExpressVPN reports
   /// `notInstalled` cleanly instead of throwing a ProcessException every poll.
   String? resolveCliPath() {
-    final candidates = Platform.isWindows
-        ? _windowsCliCandidates
-        : (Platform.isLinux ? _linuxCliCandidates : const <String>[]);
-    for (final c in candidates) {
-      if (File(c).existsSync()) return c;
+    if (Platform.isWindows) {
+      for (final c in _windowsCliCandidates) {
+        if (File(c).existsSync()) return c;
+      }
+      return null;
+    }
+    if (Platform.isLinux) {
+      final dirs = [
+        ..._linuxCliDirs,
+        ...?Platform.environment['PATH']?.split(':'),
+      ];
+      for (final name in _linuxCliNames) {
+        for (final dir in dirs) {
+          if (dir.isEmpty) continue;
+          final candidate = '$dir/$name';
+          if (File(candidate).existsSync()) return candidate;
+        }
+      }
     }
     return null;
   }
