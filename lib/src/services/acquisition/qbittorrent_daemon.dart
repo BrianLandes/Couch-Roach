@@ -339,8 +339,13 @@ class QbittorrentTask implements TorrentTask {
       return _awaitFileProgress(deadline, 0.999);
     }
 
-    // Large files: stream. Fall back to near-complete when the daemon doesn't
-    // expose piece ranges.
+    // Large files: stream. Enforce sequential + first/last-piece explicitly here
+    // rather than trusting the add-time flags to have taken effect, so the mode
+    // is deterministic regardless of daemon version.
+    await _daemon.setSequentialDownload(hash, true);
+    await _daemon.setFirstLastPiecePrio(hash, true);
+
+    // Fall back to near-complete when the daemon doesn't expose piece ranges.
     if (primary.firstPiece == null || primary.lastPiece == null) {
       return _awaitFileProgress(deadline, 0.99);
     }
