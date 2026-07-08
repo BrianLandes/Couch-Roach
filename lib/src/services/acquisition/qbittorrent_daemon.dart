@@ -64,19 +64,16 @@ class QbittorrentDaemon implements TorrentDaemon {
       }
     }
 
-    final body = {
-      'urls': handle.magnetOrUrl,
-      'savepath': savePath,
-      'sequentialDownload': '$sequential',
-      'firstLastPiecePrio': '$firstLastPiecePriority',
-      'tags': tag,
-    };
+    // Fetch the .torrent ourselves for http(s) sources (IA now, Jackett later)
+    // so a failed download surfaces as a real HTTP status here instead of
+    // qBittorrent silently never creating the torrent after returning Ok. Throws
+    // with the reason on a bad fetch; magnets pass through unchanged (null).
+    final torrentBytes = await _fetchTorrent(handle);
 
-    // The first URL-based add right after the daemon starts can be slow or
-    // silently dropped before its torrent session is warm, so the torrent never
-    // appears — retry once with a longer window. The tag is stable across
-    // attempts, so a re-POST of the same URL is a safe no-op (qBittorrent dedupes
-    // by infohash) and the retry catches it once the session is ready.
+    // A slow/dropped first add right after daemon startup can leave the torrent
+    // missing — retry with a longer window. The tag is stable across attempts, so
+    // re-adding is a safe no-op (qBittorrent dedupes by infohash) that catches it
+    // once the session is ready.
     String? hash;
     for (var attempt = 0;
         attempt < addResolveWindows.length && hash == null;
@@ -86,12 +83,18 @@ class QbittorrentDaemon implements TorrentDaemon {
           'add attempt ${attempt + 1}/${addResolveWindows.length}: POSTing, '
           'waiting up to ${window.inSeconds}s for the torrent to appear',
           source: 'QbittorrentDaemon.add');
-      await _postAdd(body, handle);
+      await _postAdd(handle,
+          tag: tag,
+          savePath: savePath,
+          sequential: sequential,
+          firstLastPiecePriority: firstLastPiecePriority,
+          torrentBytes: torrentBytes);
       hash = await _tryResolveHashByTag(tag, window);
     }
     if (hash == null) {
       final e = TorrentDaemonException(
-          'torrent for tag "$tag" never appeared in qBittorrent');
+          'torrent for tag "$tag" never appeared in qBittorrent',
+          kind: TorrentErrorKind.notInClient);
       _log.logError(e, source: 'QbittorrentDaemon.add');
       throw e;
     }
@@ -99,13 +102,84 @@ class QbittorrentDaemon implements TorrentDaemon {
     return QbittorrentTask(this, hash: hash, savePath: savePath);
   }
 
-  Future<void> _postAdd(Map<String, String> body, TorrentHandle handle) async {
+  /// For an http(s) `.torrent` URL, fetch the file ourselves (following
+  /// redirects) and return its bytes — so a 404/403/503/HTML-error surfaces here
+  /// with a real status instead of qBittorrent silently failing the async
+  /// download. Magnet and any non-http handle pass through as `urls` (null).
+  Future<List<int>?> _fetchTorrent(TorrentHandle handle) async {
+    final uri = Uri.tryParse(handle.magnetOrUrl);
+    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
+      return null;
+    }
+    final label = handle.displayName ?? handle.magnetOrUrl;
+    _log.info('fetching .torrent for "$label" from $uri',
+        source: 'QbittorrentDaemon.add');
+    final http.Response res;
     try {
-      final res = await _http.post(Uri.parse('$_api/torrents/add'), body: body);
+      res = await _http.get(uri); // package:http follows redirects
+    } catch (e, st) {
+      _log.logError(e, stackTrace: st, source: 'QbittorrentDaemon.fetchTorrent');
+      throw TorrentDaemonException('could not fetch .torrent from $uri: $e',
+          kind: TorrentErrorKind.network);
+    }
+    if (res.statusCode != 200) {
+      final e = TorrentDaemonException(
+          'fetching .torrent from $uri returned HTTP ${res.statusCode}',
+          kind: res.statusCode == 404
+              ? TorrentErrorKind.sourceNotFound
+              : TorrentErrorKind.sourceUnavailable,
+          statusCode: res.statusCode);
+      _log.logError(e, source: 'QbittorrentDaemon.fetchTorrent');
+      throw e;
+    }
+    // A .torrent is a bencoded dictionary — it starts with 'd' (0x64). Guards
+    // against an HTML/JSON error page served with a 200.
+    final bytes = res.bodyBytes;
+    if (bytes.isEmpty || bytes.first != 0x64) {
+      final e = TorrentDaemonException(
+          'data from $uri is not a .torrent (${bytes.length} bytes)',
+          kind: TorrentErrorKind.badTorrent);
+      _log.logError(e, source: 'QbittorrentDaemon.fetchTorrent');
+      throw e;
+    }
+    _log.info('.torrent fetched (${bytes.length} bytes)',
+        source: 'QbittorrentDaemon.add');
+    return bytes;
+  }
+
+  Future<void> _postAdd(
+    TorrentHandle handle, {
+    required String tag,
+    required String savePath,
+    required bool sequential,
+    required bool firstLastPiecePriority,
+    required List<int>? torrentBytes,
+  }) async {
+    final fields = {
+      'savepath': savePath,
+      'sequentialDownload': '$sequential',
+      'firstLastPiecePrio': '$firstLastPiecePriority',
+      'tags': tag,
+    };
+    try {
+      final http.Response res;
+      if (torrentBytes != null) {
+        // Upload the fetched bytes as the multipart `torrents` file.
+        final req =
+            http.MultipartRequest('POST', Uri.parse('$_api/torrents/add'))
+              ..fields.addAll(fields)
+              ..files.add(http.MultipartFile.fromBytes('torrents', torrentBytes,
+                  filename: 'source.torrent'));
+        res = await http.Response.fromStream(await _http.send(req));
+      } else {
+        res = await _http.post(Uri.parse('$_api/torrents/add'),
+            body: {'urls': handle.magnetOrUrl, ...fields});
+      }
       if (addResponseIsFailure(res.statusCode, res.body)) {
         throw TorrentDaemonException(
           'add failed (${res.statusCode}: ${res.body.trim()}) for '
           '${handle.displayName ?? handle.magnetOrUrl}',
+          kind: TorrentErrorKind.addFailed,
         );
       }
     } catch (e, st) {
@@ -372,9 +446,11 @@ class QbittorrentTask implements TorrentTask {
       if (name != null && files.isNotEmpty) break;
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    final e = TorrentDaemonException(name == null
-        ? 'no files resolved for torrent $hash'
-        : 'file "$name" not found in torrent $hash');
+    final e = TorrentDaemonException(
+        name == null
+            ? 'no files resolved for torrent $hash'
+            : 'file "$name" not found in torrent $hash',
+        kind: TorrentErrorKind.noVideo);
     _log.logError(e, source: 'QbittorrentTask.resolveFile');
     throw e;
   }
@@ -461,7 +537,8 @@ class QbittorrentTask implements TorrentTask {
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
     final e = TorrentDaemonException(
-        'torrent $hash did not buffer enough to stream in time');
+        'torrent $hash did not buffer enough to stream in time',
+        kind: TorrentErrorKind.timeout);
     _log.logError(e, source: 'QbittorrentTask.readyToStream');
     throw e;
   }
@@ -488,7 +565,8 @@ class QbittorrentTask implements TorrentTask {
       await Future<void>.delayed(const Duration(seconds: 1));
     }
     final e = TorrentDaemonException(
-        'torrent $hash did not download enough to play in time');
+        'torrent $hash did not download enough to play in time',
+        kind: TorrentErrorKind.timeout);
     _log.logError(e, source: 'QbittorrentTask.readyToStream');
     throw e;
   }
@@ -659,11 +737,3 @@ TorrentStatus parseTorrentStatus(Map<String, dynamic> json) {
   );
 }
 
-/// Raised when a qBittorrent Web API operation fails. Surfaced to the caller so
-/// the play flow can degrade with a user-facing error.
-class TorrentDaemonException implements Exception {
-  TorrentDaemonException(this.message);
-  final String message;
-  @override
-  String toString() => 'TorrentDaemonException: $message';
-}

@@ -25,6 +25,77 @@ abstract class AcquisitionResolver {
   Future<TorrentHandle?> resolve(ShowMeta meta, int? season, int? episode);
 }
 
+/// Why a torrent operation failed, so the UI can explain it in plain language
+/// instead of "check the logs".
+enum TorrentErrorKind {
+  /// The source returned 404 — the title's torrent isn't there.
+  sourceNotFound,
+
+  /// The source refused or errored (403 / 5xx) — usually transient.
+  sourceUnavailable,
+
+  /// Couldn't reach the source at all (DNS/TLS/offline).
+  network,
+
+  /// Got a response, but it isn't a valid `.torrent` (e.g. an HTML error page).
+  badTorrent,
+
+  /// The daemon rejected the add.
+  addFailed,
+
+  /// Added, but the torrent never showed up in the client.
+  notInClient,
+
+  /// Downloading too slowly to start playing within the time budget.
+  timeout,
+
+  /// No playable video file could be resolved in the torrent.
+  noVideo,
+
+  generic,
+}
+
+/// Raised when a torrent daemon operation fails. [message] is the technical
+/// detail (logged); [userMessage] is a friendly explanation for the 10-foot UI.
+class TorrentDaemonException implements Exception {
+  TorrentDaemonException(
+    this.message, {
+    this.kind = TorrentErrorKind.generic,
+    this.statusCode,
+  });
+
+  final String message;
+  final TorrentErrorKind kind;
+
+  /// HTTP status, when the failure came from fetching the `.torrent`.
+  final int? statusCode;
+
+  /// A friendly, source-agnostic explanation to show the user.
+  String get userMessage => switch (kind) {
+        TorrentErrorKind.sourceNotFound =>
+          "This title isn't available to download from its source anymore.",
+        TorrentErrorKind.sourceUnavailable =>
+          'The source is busy or unavailable right now. Please try again in a little while.',
+        TorrentErrorKind.network =>
+          "Couldn't reach the source — check your internet connection and try again.",
+        TorrentErrorKind.badTorrent =>
+          "This title's download couldn't be read — the file may be missing or broken on the source.",
+        TorrentErrorKind.addFailed =>
+          "The download couldn't be started by the torrent client.",
+        TorrentErrorKind.notInClient =>
+          "The download didn't start. Please try again.",
+        TorrentErrorKind.timeout =>
+          "This is downloading too slowly to start playing — no one may be sharing it right now. Try again later.",
+        TorrentErrorKind.noVideo =>
+          'No playable video was found in this title.',
+        TorrentErrorKind.generic =>
+          'Something went wrong starting this video. Please try again.',
+      };
+
+  @override
+  String toString() => 'TorrentDaemonException: $message';
+}
+
 /// Drives the torrent daemon (qBittorrent-nox) over its Web API. Streaming is
 /// the target: sequential download + first/last-piece priority, then hand the
 /// primary file to the player once enough buffer exists
