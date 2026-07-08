@@ -55,7 +55,7 @@ class JackettProcess {
     // DataFolder, so its ServerConfig.json holds the API key we need — point the
     // resolver at it and skip spawning. Without this, the doomed spawn's exit
     // would tear the resolver's config back down and disable indexer search.
-    if (await _isServing()) {
+    if (await isAlive()) {
       final config = await _readConfig(await _dataFolder());
       if (config != null) {
         _resolver.configure(config);
@@ -169,9 +169,9 @@ class JackettProcess {
     return dir;
   }
 
-  /// Whether something is already answering on the port (any HTTP response means
-  /// a server is listening — almost certainly a Jackett we or the user started).
-  Future<bool> _isServing() async {
+  /// Whether the sidecar's web/Torznab API is answering (any HTTP response means
+  /// it's listening) — drives the settings status indicator and the adopt check.
+  Future<bool> isAlive() async {
     try {
       await _http.get(Uri.parse(baseUrl)).timeout(const Duration(seconds: 2));
       return true;

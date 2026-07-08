@@ -5,11 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/logging/error_log_service.dart';
+import '../../core/platform/open_url.dart';
 import '../../core/settings/settings_service.dart';
 import '../../core/storage/storage_manager.dart';
 import '../../injection.dart';
+import '../../services/acquisition/jackett_process.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
+import '../../widgets/status_pill.dart';
+import '../acquire/jackett_providers.dart';
 import 'storage_providers.dart';
 
 /// The one place to manage the app: library folders (add with an OS folder
@@ -103,6 +107,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 value: _settings.preferSurroundAudio,
                 onChanged: (v) => _set(_settings.setPreferSurroundAudio(v)),
               ),
+              _ToggleRow(
+                title: 'Skip sign-language versions',
+                subtitle:
+                    'Ignore ASL/BSL release and subtitle variants when matching '
+                    'an episode.',
+                value: _settings.excludeSignLanguage,
+                onChanged: (v) => _set(_settings.setExcludeSignLanguage(v)),
+              ),
 
               // ── Streaming / VPN ───────────────────────────────────────────
               const SizedBox(height: AppSpacing.xl),
@@ -114,6 +126,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 value: _settings.requireVpn,
                 onChanged: (v) => _set(_settings.setRequireVpn(v)),
               ),
+
+              // ── Indexers ──────────────────────────────────────────────────
+              const SizedBox(height: AppSpacing.xl),
+              _SectionLabel('Indexers', text: text),
+              Text(
+                'Downloads come from the indexers you configure in Jackett. Add '
+                'your own legal / public-domain indexers in its web interface — '
+                'nothing is enabled by default.',
+                style: text.bodyMedium?.copyWith(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              const _IndexerService(),
 
               // ── Cleanup ───────────────────────────────────────────────────
               const SizedBox(height: AppSpacing.xl),
@@ -249,6 +273,60 @@ class _SectionLabel extends StatelessWidget {
         label.toUpperCase(),
         style: text.labelMedium
             ?.copyWith(color: AppColors.textTertiary, letterSpacing: 1.5),
+      ),
+    );
+  }
+}
+
+/// The indexer-service card: Jackett's online/offline status + a button to open
+/// its local web UI (where the user adds their own legal/public-domain indexers).
+class _IndexerService extends ConsumerWidget {
+  const _IndexerService();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    final alive = ref.watch(jackettAliveProvider).asData?.value;
+    return GlassSurface(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('Jackett indexer service', style: text.titleMedium),
+              ),
+              StatusPill.health(
+                alive: alive,
+                onlineLabel: 'Online',
+                offlineLabel: 'Offline',
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Runs locally at ${JackettProcess.baseUrl}. Open its web interface to '
+            'add and manage your indexers.',
+            style: text.bodyMedium?.copyWith(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          FilledButton.icon(
+            onPressed: alive == false
+                ? null
+                : () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    if (!await openUrl(JackettProcess.baseUrl)) {
+                      messenger.showSnackBar(const SnackBar(
+                        content: Text('Could not open the browser — '
+                            'see the error log.'),
+                      ));
+                    }
+                  },
+            icon: const Icon(Icons.open_in_browser_rounded),
+            label: const Text('Open Jackett'),
+          ),
+        ],
       ),
     );
   }

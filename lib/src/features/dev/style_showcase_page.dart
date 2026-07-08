@@ -4,6 +4,7 @@ import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/focusable_card.dart';
 import '../../widgets/search_field.dart';
+import '../../widgets/status_pill.dart';
 
 /// Living component gallery for the liquid-glass design system. Reachable at
 /// [Routes.styleShowcase]. Use it as the palette when building UI, and **add new
@@ -188,6 +189,22 @@ class StyleShowcasePage extends StatelessWidget {
                 child: SizedBox(
                   width: 420,
                   child: SearchField(onSubmitted: (_) {}),
+                ),
+              ),
+
+              _Section(
+                title: 'Status pill',
+                child: Wrap(
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    StatusPill.health(
+                        alive: true, onlineLabel: 'Online', offlineLabel: 'Offline'),
+                    StatusPill.health(
+                        alive: false, onlineLabel: 'Online', offlineLabel: 'Offline'),
+                    StatusPill.health(
+                        alive: null, onlineLabel: 'Online', offlineLabel: 'Offline'),
+                  ],
                 ),
               ),
             ],

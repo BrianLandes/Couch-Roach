@@ -5,6 +5,7 @@ import '../../services/acquisition/acquisition.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/focusable_card.dart';
+import '../../widgets/status_pill.dart';
 import 'download_format.dart';
 import 'downloads_providers.dart';
 import 'manage_download.dart';
@@ -42,7 +43,11 @@ class DownloadsScreen extends ConsumerWidget {
                     const SizedBox(width: AppSpacing.sm),
                     Text('Downloads', style: text.headlineMedium),
                     const Spacer(),
-                    _DaemonStatusChip(alive: alive),
+                    StatusPill.health(
+                      alive: alive,
+                      onlineLabel: 'Client online',
+                      offlineLabel: 'Client offline',
+                    ),
                   ],
                 ),
               ),
@@ -214,49 +219,6 @@ class _StateChip extends StatelessWidget {
                 .labelMedium
                 ?.copyWith(color: color),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Small online/offline pill for the torrent daemon. [alive] is null while the
-/// first health ping is still in flight.
-class _DaemonStatusChip extends StatelessWidget {
-  const _DaemonStatusChip({required this.alive});
-  final bool? alive;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color) = switch (alive) {
-      true => ('Client online', AppColors.success),
-      false => ('Client offline', AppColors.danger),
-      null => ('Checking…', AppColors.textSecondary),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: AppRadii.rPill,
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Text(label,
-              style: Theme.of(context)
-                  .textTheme
-                  .labelMedium
-                  ?.copyWith(color: color)),
         ],
       ),
     );

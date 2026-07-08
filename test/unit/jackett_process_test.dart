@@ -27,4 +27,19 @@ void main() {
   test('baseUrl points at the localhost Torznab port', () {
     expect(JackettProcess.baseUrl, 'http://127.0.0.1:9117');
   });
+
+  group('isAlive', () {
+    JackettProcess make(http.Client c) =>
+        JackettProcess(c, ErrorLogService(), JackettResolver(c, ErrorLogService()));
+
+    test('true when the endpoint answers (any status)', () async {
+      expect(await make(okClient()).isAlive(), isTrue);
+    });
+
+    test('false when nothing is listening', () async {
+      expect(await make(noServer()).isAlive(), isFalse);
+    });
+  });
 }
+
+http.Client okClient() => MockClient((_) async => http.Response('', 200));

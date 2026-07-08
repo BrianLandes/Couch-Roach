@@ -14,10 +14,20 @@ class ShowMeta {
 
 /// A magnet/torrent reference handed off to the daemon.
 class TorrentHandle {
-  const TorrentHandle({required this.magnetOrUrl, this.displayName});
+  const TorrentHandle({
+    required this.magnetOrUrl,
+    this.displayName,
+    this.seasonPack = false,
+  });
 
   final String magnetOrUrl;
   final String? displayName;
+
+  /// True when this handle is a **whole-season pack** the resolver fell back to
+  /// (Tier 2): the daemon must extract the requested episode's file from it, and
+  /// the caller keys it per-season (not per-episode) so a second episode reuses
+  /// the same download instead of re-fetching (Tier 0).
+  final bool seasonPack;
 }
 
 /// Maps a request to a downloadable handle, or null if nothing legal is found.
@@ -37,9 +47,11 @@ String acquisitionDedupeKey({
   int? episode,
 }) {
   final base = 'cr-tmdb-${tmdbId ?? title}';
-  return (season != null && episode != null)
-      ? '$base-s${season}e$episode'
-      : base;
+  if (season != null && episode != null) return '$base-s${season}e$episode';
+  // A season-only key (episode omitted) tags a whole-season pack, so every
+  // episode played out of it reattaches to the same download (Tier 0 reuse).
+  if (season != null) return '$base-s$season';
+  return base;
 }
 
 /// The daemon tag applied to a torrent added with [dedupeKey]. Tags can't contain

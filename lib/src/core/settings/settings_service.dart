@@ -23,6 +23,7 @@ class SettingsService extends ChangeNotifier {
   static const _kCleanupEnabled = 'cleanupEnabled';
   static const _kCleanupGraceDays = 'cleanupGraceDays';
   static const _kPreferSurround = 'preferSurroundAudio';
+  static const _kExcludeSignLanguage = 'excludeSignLanguage';
 
   Future<void> load() async {
     final rows = await _db.select(_db.settings).get();
@@ -49,6 +50,11 @@ class SettingsService extends ChangeNotifier {
   /// Prefer the widest audio track (5.1/7.1) over a stereo downmix.
   bool get preferSurroundAudio => _boolOr(_kPreferSurround, true);
 
+  /// Skip sign-language (ASL/BSL) release variants and subtitles — a different
+  /// cut than the standard release. Applied to both download ranking and
+  /// subtitle picking.
+  bool get excludeSignLanguage => _boolOr(_kExcludeSignLanguage, true);
+
   // ── setters ─────────────────────────────────────────────────────────────────
 
   Future<void> setAutoDownloadSubtitles(bool v) => _setBool(_kAutoSubs, v);
@@ -56,6 +62,8 @@ class SettingsService extends ChangeNotifier {
   Future<void> setCleanupEnabled(bool v) => _setBool(_kCleanupEnabled, v);
   Future<void> setCleanupGraceDays(int v) => _setString(_kCleanupGraceDays, '$v');
   Future<void> setPreferSurroundAudio(bool v) => _setBool(_kPreferSurround, v);
+  Future<void> setExcludeSignLanguage(bool v) =>
+      _setBool(_kExcludeSignLanguage, v);
 
   // ── internals ───────────────────────────────────────────────────────────────
 

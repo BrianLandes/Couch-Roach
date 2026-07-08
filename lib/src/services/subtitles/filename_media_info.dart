@@ -37,6 +37,51 @@ class FilenameMediaInfo {
     caseSensitive: false,
   );
 
+  // `Show S01 …` / `Season 1` / `Series 1` — a whole-season pack marker, used
+  // when no single-episode marker is present.
+  static final _packSeason = RegExp(
+    r'\b(?:s|season|series) ?(\d{1,2})\b',
+    caseSensitive: false,
+  );
+  // Release variants shot in / titled for sign language — excluded by default
+  // (a different cut than the standard release; CLAUDE settings toggle).
+  static final _signLanguage = RegExp(
+    r'\b(asl|bsl|sign language)\b',
+    caseSensitive: false,
+  );
+
+  /// Normalized form for comparing show titles across sources (TMDB name vs a
+  /// release/torrent title): lowercased with every non-alphanumeric character
+  /// removed, so `House of the Dragon`, `House.of.the.Dragon` and
+  /// `house_of_the_dragon` all compare equal. Pure + tested.
+  static String normalizeTitle(String s) =>
+      s.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+
+  /// Whether [release] plausibly names the same show as [query] — the release's
+  /// normalized text contains the query's (a release carries extra year/quality
+  /// tokens the query doesn't). Empty query never matches. Pure + tested.
+  static bool titleMatches(String release, String query) {
+    final q = normalizeTitle(query);
+    return q.isNotEmpty && normalizeTitle(release).contains(q);
+  }
+
+  /// The season number of a **whole-season pack** named by [filename], or null
+  /// when it names a single episode (has an `SxxExx`/`NxM` marker) or carries no
+  /// season marker at all. Lets the resolver treat `Show.S01.1080p` as season 1's
+  /// pack while rejecting `Show.S01E03` here (that's a single episode). Pure +
+  /// tested.
+  static int? seasonPackNumber(String filename) {
+    final name = filename.replaceAll(RegExp(r'[._]+'), ' ');
+    if (_sxxExx.hasMatch(name) || _altSxE.hasMatch(name)) return null;
+    final m = _packSeason.firstMatch(name);
+    return m == null ? null : int.parse(m.group(1)!);
+  }
+
+  /// Whether [text] (a release/torrent/subtitle title) is a sign-language cut —
+  /// ASL/BSL or "sign language". Pure + tested.
+  static bool looksLikeSignLanguage(String text) =>
+      _signLanguage.hasMatch(text.replaceAll(RegExp(r'[._]+'), ' '));
+
   static FilenameMediaInfo parse(String filename) {
     final name = p
         .basenameWithoutExtension(filename)
