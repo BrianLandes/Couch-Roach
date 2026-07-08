@@ -37,6 +37,9 @@ dependencies:
   # OS-native folder picker (Windows/Linux/macOS) for adding library folders.
   file_selector: ^1.0.3
 
+  # XML parsing for the Jackett Torznab (RSS) resolver.
+  xml: ^6.5.0
+
   # HTTP for TMDB + OpenSubtitles (Dart-only, no extra process).
   http: ^1.2.1
 
