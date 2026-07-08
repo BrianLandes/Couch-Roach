@@ -43,6 +43,7 @@ class _FakeClient implements SubtitleClient {
     String? moviehash,
     String? query,
     int? tmdbId,
+    int? parentTmdbId,
     int? season,
     int? episode,
     String language = 'en',
@@ -51,6 +52,7 @@ class _FakeClient implements SubtitleClient {
       'moviehash': moviehash,
       'query': query,
       'tmdbId': tmdbId,
+      'parentTmdbId': parentTmdbId,
       'season': season,
       'episode': episode,
     });
@@ -176,10 +178,11 @@ void main() {
       expect(client.calls.single['moviehash'], 'deadbeefdeadbeef');
     });
 
-    test('falls back to tmdb_id + season/episode when hash is empty', () async {
+    test('an episode uses parent_tmdb_id + season/episode when hash is empty',
+        () async {
       final client = _FakeClient([
         const [], // hash miss
-        [_res('7', downloads: 20)], // fallback hit
+        [_res('7', downloads: 20)], // id-based hit
       ]);
       final searcher = SubtitleSearcher(_FakeHasher(), client, log, settings);
       final best = await searcher.findBest(
@@ -189,12 +192,52 @@ void main() {
         episode: 5,
       );
       expect(best!.id, '7');
-      expect(client.calls, hasLength(2));
-      final fallback = client.calls[1];
-      expect(fallback['moviehash'], isNull);
-      expect(fallback['tmdbId'], 1234);
-      expect(fallback['season'], 2);
-      expect(fallback['episode'], 5);
+      final idCall = client.calls[1];
+      expect(idCall['moviehash'], isNull);
+      // The show id must go in parent_tmdb_id (with season/episode) — NOT
+      // tmdb_id, which OpenSubtitles reads as the episode's own feature id.
+      expect(idCall['parentTmdbId'], 1234);
+      expect(idCall['tmdbId'], isNull);
+      expect(idCall['season'], 2);
+      expect(idCall['episode'], 5);
+      // Only one unique hit so far, so the query search also runs to widen.
+      expect(client.calls, hasLength(3));
+      expect(client.calls[2]['query'], 'Show');
+    });
+
+    test('a movie uses a plain tmdb_id (no parent, no season/episode)',
+        () async {
+      final client = _FakeClient([
+        const [], // hash miss
+        [_res('3', downloads: 40)], // id-based hit
+      ]);
+      final searcher = SubtitleSearcher(_FakeHasher(), client, log, settings);
+      final best = await searcher.findBest('/movies/Film.mkv', tmdbId: 555);
+      expect(best!.id, '3');
+      final idCall = client.calls[1];
+      expect(idCall['tmdbId'], 555);
+      expect(idCall['parentTmdbId'], isNull);
+      expect(idCall['season'], isNull);
+      expect(idCall['episode'], isNull);
+    });
+
+    test('id and query hits are merged and de-duplicated by file id', () async {
+      // Same file id (7) from the id search and the query widen collapses to one
+      // candidate; the distinct one (8) survives alongside it.
+      final client = _FakeClient([
+        const [], // hash miss
+        [_res('7', downloads: 20)], // id-based
+        [_res('7', downloads: 20), _res('8', downloads: 99)], // query widen
+      ]);
+      final searcher = SubtitleSearcher(_FakeHasher(), client, log, settings);
+      final best = await searcher.findBest(
+        '/tv/Show.S02E05.mkv',
+        tmdbId: 1234,
+        season: 2,
+        episode: 5,
+      );
+      // 8 is the most-downloaded of the two unique survivors.
+      expect(best!.id, '8');
     });
 
     test('parses filename for the query when there is no tmdb id', () async {

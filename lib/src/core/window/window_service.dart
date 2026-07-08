@@ -70,20 +70,27 @@ Future<void> _repairAfterFullscreenExit() async {
   await windowManager.focus();
 }
 
-/// Runs the close hook (daemon shutdown) then lets the window actually close.
-/// We set `preventClose` so the child process is killed before the app dies;
-/// after the hook we `destroy()` to complete the close.
+/// Runs the close hook (sidecar shutdown) then hard-exits the process. We set
+/// `preventClose` so the children are killed before the app dies, then call
+/// `exit(0)` instead of `windowManager.destroy()`.
+///
+/// Why `exit()` and not `destroy()`: on Linux `destroy()` tears down the Flutter
+/// view and its GL context (`FlutterEngineRemoveView`), and media_kit/libmpv's
+/// compositor cleanup then runs with no current GL context and aborts the whole
+/// process (epoxy "Couldn't find current GLX or EGL context"). We're quitting
+/// anyway and the sidecars are already stopped, so exiting the process directly
+/// lets the OS reclaim the window/GL/native state — no fragile teardown, no
+/// crash, and the sidecar children are guaranteed dead rather than orphaned.
 class _CouchRoachWindowListener extends WindowListener {
   @override
   void onWindowClose() async {
     final hook = _onCloseHook;
-    // Always complete the close, even if the shutdown hook throws — otherwise
-    // preventClose stays on and the window can't be closed.
+    // Always exit, even if the shutdown hook throws — otherwise preventClose
+    // stays on and the window can't be closed.
     try {
       if (hook != null) await hook();
     } finally {
-      await windowManager.setPreventClose(false);
-      await windowManager.destroy();
+      exit(0);
     }
   }
 }

@@ -93,6 +93,14 @@ class $LibraryItemsTable extends LibraryItems
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'CHECK ("has_embedded_en_sub" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _subtitleOffsetMsMeta =
+      const VerificationMeta('subtitleOffsetMs');
+  @override
+  late final GeneratedColumn<int> subtitleOffsetMs = GeneratedColumn<int>(
+      'subtitle_offset_ms', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
   static const VerificationMeta _managedMeta =
       const VerificationMeta('managed');
   @override
@@ -145,6 +153,7 @@ class $LibraryItemsTable extends LibraryItems
         videoCodec,
         audioCodec,
         hasEmbeddedEnSub,
+        subtitleOffsetMs,
         managed,
         keep,
         missing,
@@ -225,6 +234,12 @@ class $LibraryItemsTable extends LibraryItems
           hasEmbeddedEnSub.isAcceptableOrUnknown(
               data['has_embedded_en_sub']!, _hasEmbeddedEnSubMeta));
     }
+    if (data.containsKey('subtitle_offset_ms')) {
+      context.handle(
+          _subtitleOffsetMsMeta,
+          subtitleOffsetMs.isAcceptableOrUnknown(
+              data['subtitle_offset_ms']!, _subtitleOffsetMsMeta));
+    }
     if (data.containsKey('managed')) {
       context.handle(_managedMeta,
           managed.isAcceptableOrUnknown(data['managed']!, _managedMeta));
@@ -276,6 +291,8 @@ class $LibraryItemsTable extends LibraryItems
           .read(DriftSqlType.string, data['${effectivePrefix}audio_codec']),
       hasEmbeddedEnSub: attachedDatabase.typeMapping.read(
           DriftSqlType.bool, data['${effectivePrefix}has_embedded_en_sub'])!,
+      subtitleOffsetMs: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}subtitle_offset_ms'])!,
       managed: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}managed'])!,
       keep: attachedDatabase.typeMapping
@@ -313,6 +330,11 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
   final String? audioCodec;
   final bool hasEmbeddedEnSub;
 
+  /// User-set subtitle timing offset for this title, in milliseconds, applied
+  /// as mpv's `sub-delay` during playback (positive delays the subtitles).
+  /// Persisted per file so a re-watch keeps the correction; 0 means in sync.
+  final int subtitleOffsetMs;
+
   /// Provenance: true when the app acquired this file (torrent), false when it
   /// was already sitting in a library folder. Informational — cleanup eligibility
   /// is driven by library-folder membership + [keep], not this flag.
@@ -343,6 +365,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       this.videoCodec,
       this.audioCodec,
       required this.hasEmbeddedEnSub,
+      required this.subtitleOffsetMs,
       required this.managed,
       required this.keep,
       required this.missing,
@@ -379,6 +402,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       map['audio_codec'] = Variable<String>(audioCodec);
     }
     map['has_embedded_en_sub'] = Variable<bool>(hasEmbeddedEnSub);
+    map['subtitle_offset_ms'] = Variable<int>(subtitleOffsetMs);
     map['managed'] = Variable<bool>(managed);
     map['keep'] = Variable<bool>(keep);
     map['missing'] = Variable<bool>(missing);
@@ -415,6 +439,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           ? const Value.absent()
           : Value(audioCodec),
       hasEmbeddedEnSub: Value(hasEmbeddedEnSub),
+      subtitleOffsetMs: Value(subtitleOffsetMs),
       managed: Value(managed),
       keep: Value(keep),
       missing: Value(missing),
@@ -439,6 +464,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       videoCodec: serializer.fromJson<String?>(json['videoCodec']),
       audioCodec: serializer.fromJson<String?>(json['audioCodec']),
       hasEmbeddedEnSub: serializer.fromJson<bool>(json['hasEmbeddedEnSub']),
+      subtitleOffsetMs: serializer.fromJson<int>(json['subtitleOffsetMs']),
       managed: serializer.fromJson<bool>(json['managed']),
       keep: serializer.fromJson<bool>(json['keep']),
       missing: serializer.fromJson<bool>(json['missing']),
@@ -462,6 +488,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       'videoCodec': serializer.toJson<String?>(videoCodec),
       'audioCodec': serializer.toJson<String?>(audioCodec),
       'hasEmbeddedEnSub': serializer.toJson<bool>(hasEmbeddedEnSub),
+      'subtitleOffsetMs': serializer.toJson<int>(subtitleOffsetMs),
       'managed': serializer.toJson<bool>(managed),
       'keep': serializer.toJson<bool>(keep),
       'missing': serializer.toJson<bool>(missing),
@@ -483,6 +510,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           Value<String?> videoCodec = const Value.absent(),
           Value<String?> audioCodec = const Value.absent(),
           bool? hasEmbeddedEnSub,
+          int? subtitleOffsetMs,
           bool? managed,
           bool? keep,
           bool? missing,
@@ -502,6 +530,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
         videoCodec: videoCodec.present ? videoCodec.value : this.videoCodec,
         audioCodec: audioCodec.present ? audioCodec.value : this.audioCodec,
         hasEmbeddedEnSub: hasEmbeddedEnSub ?? this.hasEmbeddedEnSub,
+        subtitleOffsetMs: subtitleOffsetMs ?? this.subtitleOffsetMs,
         managed: managed ?? this.managed,
         keep: keep ?? this.keep,
         missing: missing ?? this.missing,
@@ -528,6 +557,9 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       hasEmbeddedEnSub: data.hasEmbeddedEnSub.present
           ? data.hasEmbeddedEnSub.value
           : this.hasEmbeddedEnSub,
+      subtitleOffsetMs: data.subtitleOffsetMs.present
+          ? data.subtitleOffsetMs.value
+          : this.subtitleOffsetMs,
       managed: data.managed.present ? data.managed.value : this.managed,
       keep: data.keep.present ? data.keep.value : this.keep,
       missing: data.missing.present ? data.missing.value : this.missing,
@@ -551,6 +583,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           ..write('videoCodec: $videoCodec, ')
           ..write('audioCodec: $audioCodec, ')
           ..write('hasEmbeddedEnSub: $hasEmbeddedEnSub, ')
+          ..write('subtitleOffsetMs: $subtitleOffsetMs, ')
           ..write('managed: $managed, ')
           ..write('keep: $keep, ')
           ..write('missing: $missing, ')
@@ -574,6 +607,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       videoCodec,
       audioCodec,
       hasEmbeddedEnSub,
+      subtitleOffsetMs,
       managed,
       keep,
       missing,
@@ -595,6 +629,7 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           other.videoCodec == this.videoCodec &&
           other.audioCodec == this.audioCodec &&
           other.hasEmbeddedEnSub == this.hasEmbeddedEnSub &&
+          other.subtitleOffsetMs == this.subtitleOffsetMs &&
           other.managed == this.managed &&
           other.keep == this.keep &&
           other.missing == this.missing &&
@@ -615,6 +650,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
   final Value<String?> videoCodec;
   final Value<String?> audioCodec;
   final Value<bool> hasEmbeddedEnSub;
+  final Value<int> subtitleOffsetMs;
   final Value<bool> managed;
   final Value<bool> keep;
   final Value<bool> missing;
@@ -633,6 +669,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.videoCodec = const Value.absent(),
     this.audioCodec = const Value.absent(),
     this.hasEmbeddedEnSub = const Value.absent(),
+    this.subtitleOffsetMs = const Value.absent(),
     this.managed = const Value.absent(),
     this.keep = const Value.absent(),
     this.missing = const Value.absent(),
@@ -652,6 +689,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.videoCodec = const Value.absent(),
     this.audioCodec = const Value.absent(),
     this.hasEmbeddedEnSub = const Value.absent(),
+    this.subtitleOffsetMs = const Value.absent(),
     this.managed = const Value.absent(),
     this.keep = const Value.absent(),
     this.missing = const Value.absent(),
@@ -673,6 +711,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     Expression<String>? videoCodec,
     Expression<String>? audioCodec,
     Expression<bool>? hasEmbeddedEnSub,
+    Expression<int>? subtitleOffsetMs,
     Expression<bool>? managed,
     Expression<bool>? keep,
     Expression<bool>? missing,
@@ -692,6 +731,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       if (videoCodec != null) 'video_codec': videoCodec,
       if (audioCodec != null) 'audio_codec': audioCodec,
       if (hasEmbeddedEnSub != null) 'has_embedded_en_sub': hasEmbeddedEnSub,
+      if (subtitleOffsetMs != null) 'subtitle_offset_ms': subtitleOffsetMs,
       if (managed != null) 'managed': managed,
       if (keep != null) 'keep': keep,
       if (missing != null) 'missing': missing,
@@ -713,6 +753,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       Value<String?>? videoCodec,
       Value<String?>? audioCodec,
       Value<bool>? hasEmbeddedEnSub,
+      Value<int>? subtitleOffsetMs,
       Value<bool>? managed,
       Value<bool>? keep,
       Value<bool>? missing,
@@ -731,6 +772,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       videoCodec: videoCodec ?? this.videoCodec,
       audioCodec: audioCodec ?? this.audioCodec,
       hasEmbeddedEnSub: hasEmbeddedEnSub ?? this.hasEmbeddedEnSub,
+      subtitleOffsetMs: subtitleOffsetMs ?? this.subtitleOffsetMs,
       managed: managed ?? this.managed,
       keep: keep ?? this.keep,
       missing: missing ?? this.missing,
@@ -780,6 +822,9 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     if (hasEmbeddedEnSub.present) {
       map['has_embedded_en_sub'] = Variable<bool>(hasEmbeddedEnSub.value);
     }
+    if (subtitleOffsetMs.present) {
+      map['subtitle_offset_ms'] = Variable<int>(subtitleOffsetMs.value);
+    }
     if (managed.present) {
       map['managed'] = Variable<bool>(managed.value);
     }
@@ -811,6 +856,7 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
           ..write('videoCodec: $videoCodec, ')
           ..write('audioCodec: $audioCodec, ')
           ..write('hasEmbeddedEnSub: $hasEmbeddedEnSub, ')
+          ..write('subtitleOffsetMs: $subtitleOffsetMs, ')
           ..write('managed: $managed, ')
           ..write('keep: $keep, ')
           ..write('missing: $missing, ')
@@ -1996,6 +2042,7 @@ typedef $$LibraryItemsTableCreateCompanionBuilder = LibraryItemsCompanion
   Value<String?> videoCodec,
   Value<String?> audioCodec,
   Value<bool> hasEmbeddedEnSub,
+  Value<int> subtitleOffsetMs,
   Value<bool> managed,
   Value<bool> keep,
   Value<bool> missing,
@@ -2016,6 +2063,7 @@ typedef $$LibraryItemsTableUpdateCompanionBuilder = LibraryItemsCompanion
   Value<String?> videoCodec,
   Value<String?> audioCodec,
   Value<bool> hasEmbeddedEnSub,
+  Value<int> subtitleOffsetMs,
   Value<bool> managed,
   Value<bool> keep,
   Value<bool> missing,
@@ -2107,6 +2155,10 @@ class $$LibraryItemsTableFilterComposer
 
   ColumnFilters<bool> get hasEmbeddedEnSub => $composableBuilder(
       column: $table.hasEmbeddedEnSub,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get subtitleOffsetMs => $composableBuilder(
+      column: $table.subtitleOffsetMs,
       builder: (column) => ColumnFilters(column));
 
   ColumnFilters<bool> get managed => $composableBuilder(
@@ -2214,6 +2266,10 @@ class $$LibraryItemsTableOrderingComposer
       column: $table.hasEmbeddedEnSub,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get subtitleOffsetMs => $composableBuilder(
+      column: $table.subtitleOffsetMs,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<bool> get managed => $composableBuilder(
       column: $table.managed, builder: (column) => ColumnOrderings(column));
 
@@ -2274,6 +2330,9 @@ class $$LibraryItemsTableAnnotationComposer
 
   GeneratedColumn<bool> get hasEmbeddedEnSub => $composableBuilder(
       column: $table.hasEmbeddedEnSub, builder: (column) => column);
+
+  GeneratedColumn<int> get subtitleOffsetMs => $composableBuilder(
+      column: $table.subtitleOffsetMs, builder: (column) => column);
 
   GeneratedColumn<bool> get managed =>
       $composableBuilder(column: $table.managed, builder: (column) => column);
@@ -2367,6 +2426,7 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             Value<String?> videoCodec = const Value.absent(),
             Value<String?> audioCodec = const Value.absent(),
             Value<bool> hasEmbeddedEnSub = const Value.absent(),
+            Value<int> subtitleOffsetMs = const Value.absent(),
             Value<bool> managed = const Value.absent(),
             Value<bool> keep = const Value.absent(),
             Value<bool> missing = const Value.absent(),
@@ -2386,6 +2446,7 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             videoCodec: videoCodec,
             audioCodec: audioCodec,
             hasEmbeddedEnSub: hasEmbeddedEnSub,
+            subtitleOffsetMs: subtitleOffsetMs,
             managed: managed,
             keep: keep,
             missing: missing,
@@ -2405,6 +2466,7 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             Value<String?> videoCodec = const Value.absent(),
             Value<String?> audioCodec = const Value.absent(),
             Value<bool> hasEmbeddedEnSub = const Value.absent(),
+            Value<int> subtitleOffsetMs = const Value.absent(),
             Value<bool> managed = const Value.absent(),
             Value<bool> keep = const Value.absent(),
             Value<bool> missing = const Value.absent(),
@@ -2424,6 +2486,7 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             videoCodec: videoCodec,
             audioCodec: audioCodec,
             hasEmbeddedEnSub: hasEmbeddedEnSub,
+            subtitleOffsetMs: subtitleOffsetMs,
             managed: managed,
             keep: keep,
             missing: missing,

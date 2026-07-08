@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -156,9 +157,54 @@ class OpenSubtitlesSubtitleService implements SubtitleService {
       return null;
     }
 
+    // An empty body is a dead subtitle — mpv would show a track that renders
+    // nothing. Don't save it (and don't count it as a successful download).
+    if (res.bodyBytes.isEmpty) {
+      _log.warn('subtitle download returned an empty body (0 bytes)',
+          source: 'SubtitleService.download');
+      return null;
+    }
+
+    // The download link occasionally hands back a gzipped file rather than raw
+    // srt; mpv can't parse that, so decompress before saving.
+    final data = _maybeGunzip(res.bodyBytes);
+    if (_looksLikeSubtitle(data)) {
+      _log.info('subtitle file is ${data.length} bytes (looks like SRT/VTT)',
+          source: 'SubtitleService.download');
+    } else {
+      // Save anyway so it can be inspected, but flag it — this is the likely
+      // culprit when a track loads but no text appears.
+      _log.warn(
+          'subtitle download is ${data.length} bytes but has no "-->" cue '
+          'markers — it may not render as subtitles',
+          source: 'SubtitleService.download');
+    }
+
     final target = _sidecarPath(videoPath);
-    await File(target).writeAsBytes(res.bodyBytes);
+    await File(target).writeAsBytes(data);
     return target;
+  }
+
+  /// Decompress a gzipped payload; pass non-gzip bytes through unchanged. Some
+  /// OpenSubtitles download links return a `.gz` even for an `.srt` file id.
+  List<int> _maybeGunzip(List<int> bytes) {
+    if (bytes.length >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b) {
+      try {
+        return gzip.decode(bytes);
+      } catch (e, st) {
+        _log.logError(e, stackTrace: st, source: 'SubtitleService.gunzip');
+      }
+    }
+    return bytes;
+  }
+
+  /// Cheap sniff for real subtitle content: SRT and WebVTT both use the `-->`
+  /// timestamp arrow on every cue, so a decoded prefix that lacks it is almost
+  /// certainly not a usable subtitle file.
+  bool _looksLikeSubtitle(List<int> bytes) {
+    final sample =
+        utf8.decode(bytes.take(4000).toList(), allowMalformed: true);
+    return sample.contains('-->');
   }
 
   Future<void> _record(LibraryItem? item, SubtitleAttemptStatus status) async {

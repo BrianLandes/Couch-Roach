@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -45,10 +46,31 @@ void main() {
       // Launch the TV window (windowed; F11 or the in-app button toggles
       // fullscreen). The close hook kills the sidecar children before the app
       // exits so nothing is orphaned.
-      await initFullscreenWindow(onClose: () async {
+      Future<void> shutdownSidecars() async {
         await daemon.stop();
         await jackett.stop();
-      });
+      }
+
+      await initFullscreenWindow(onClose: shutdownSidecars);
+
+      // Safety net for the paths that never fire the window-close hook: an IDE
+      // stop, `q` in `flutter run`, or a plain `kill` signals the process
+      // directly. Without this the sidecars orphan and libmpv's GL teardown can
+      // abort the process (the same crash the window-close exit(0) avoids). Catch
+      // the signals, stop the children, then hard-exit before that teardown runs.
+      // Linux only — Windows closes through the window hook, and watching these
+      // signals there is unreliable.
+      if (Platform.isLinux) {
+        for (final signal in [ProcessSignal.sigint, ProcessSignal.sigterm]) {
+          signal.watch().listen((_) async {
+            try {
+              await shutdownSidecars();
+            } finally {
+              exit(0);
+            }
+          });
+        }
+      }
 
       unawaited(daemon.start().catchError((Object e, StackTrace st) {
         getIt<ErrorLogService>()

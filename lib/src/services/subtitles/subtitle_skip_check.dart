@@ -93,8 +93,15 @@ class SubtitleSkipCheck {
     }
   }
 
-  /// Parses `ffprobe -show_streams -print_format json` output for an English
-  /// subtitle stream. Static + pure so it's unit-testable.
+  /// Parses `ffprobe -show_streams -print_format json` output for a *usable*
+  /// English subtitle stream. Static + pure so it's unit-testable.
+  ///
+  /// A **forced** English track is deliberately excluded: it only carries
+  /// foreign-dialogue / on-screen-text lines, so it renders almost nothing over
+  /// an English-language video. Treating it as "has English" would suppress
+  /// fetching a real transcript — the exact failure that leaves a video looking
+  /// subtitle-less. Forced is read from `disposition.forced` (the reliable
+  /// signal) with a title-based fallback for muxes that only flag it in text.
   static bool ffprobeJsonHasEnglish(String jsonStr) {
     try {
       final json = jsonDecode(jsonStr) as Map<String, dynamic>;
@@ -105,12 +112,29 @@ class SubtitleSkipCheck {
         final tags = (stream['tags'] as Map<String, dynamic>?) ?? const {};
         final lang = (tags['language'] ?? tags['LANGUAGE'])?.toString();
         final title = (tags['title'] ?? tags['TITLE'])?.toString();
-        if (isEnglish(lang, title)) return true;
+        if (!isEnglish(lang, title)) continue;
+        final disposition =
+            (stream['disposition'] as Map<String, dynamic>?) ?? const {};
+        if (disposition['forced'] == 1 || looksLikeForced(title)) continue;
+        return true;
       }
       return false;
     } catch (_) {
       return false;
     }
+  }
+
+  /// True when a track's title marks it as **forced** / signs-only — a track
+  /// that shows just foreign dialogue or on-screen text, not the full English
+  /// transcript. Used to skip such tracks when auto-selecting (both here from
+  /// ffprobe disposition, and in the player where the title is the only signal
+  /// libmpv exposes). "SDH" is *not* forced — it's a full transcript.
+  static bool looksLikeForced(String? title) {
+    final t = title?.toLowerCase();
+    if (t == null) return false;
+    return t.contains('forced') ||
+        t.contains('signs') ||
+        t.contains('foreign');
   }
 
   // ── 3. media_kit / libmpv fallback ─────────────────────────────────────────

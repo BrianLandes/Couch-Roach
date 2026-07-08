@@ -15,11 +15,17 @@ import '../../data/opensubtitles/subtitle_result.dart';
 /// empty/null.
 abstract class SubtitleClient {
   /// Search for subtitles. `moviehash` is preferred; `query` + season/episode
-  /// (or `tmdbId`) is the fallback. Returns [] on failure.
+  /// (or `tmdbId` / `parentTmdbId`) is the fallback. Returns [] on failure.
+  ///
+  /// For a **TV episode**, pass the show's TMDB id as [parentTmdbId] together
+  /// with [season]/[episode] — that's the id shape OpenSubtitles expects.
+  /// [tmdbId] is the id of the *feature itself* (a movie, or a specific
+  /// episode); don't combine a show id in [tmdbId] with season/episode.
   Future<List<SubtitleResult>> search({
     String? moviehash,
     String? query,
     int? tmdbId,
+    int? parentTmdbId,
     int? season,
     int? episode,
     String language = 'en',
@@ -50,6 +56,7 @@ class OpenSubtitlesClient implements SubtitleClient {
     String? moviehash,
     String? query,
     int? tmdbId,
+    int? parentTmdbId,
     int? season,
     int? episode,
     String language = 'en',
@@ -59,6 +66,7 @@ class OpenSubtitlesClient implements SubtitleClient {
       if (moviehash != null) 'moviehash': moviehash,
       if (query != null) 'query': query,
       if (tmdbId != null) 'tmdb_id': '$tmdbId',
+      if (parentTmdbId != null) 'parent_tmdb_id': '$parentTmdbId',
       if (season != null) 'season_number': '$season',
       if (episode != null) 'episode_number': '$episode',
     });

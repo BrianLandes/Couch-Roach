@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:media_kit/media_kit.dart';
@@ -9,6 +10,7 @@ import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
 import '../../core/media/ytdlp.dart';
 import '../../core/settings/settings_service.dart';
+import '../../data/repositories/library_repository.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
 import '../../services/subtitles/subtitle_service.dart';
@@ -87,6 +89,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   );
 
   WatchHistoryRepository get _history => getIt<WatchHistoryRepository>();
+  LibraryRepository get _library => getIt<LibraryRepository>();
 
   final List<StreamSubscription<dynamic>> _subs = [];
   int _lastSavedSec = 0;
@@ -99,6 +102,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration? _pendingSeek;
   String? _error;
 
+  // Subtitle tracks libmpv currently exposes (embedded streams + anything we've
+  // loaded) and the active one, mirrored from the player streams so the
+  // right-click "Subtitles" menu always lists the real, current options.
+  List<SubtitleTrack> _subtitleTracks = const [];
+  SubtitleTrack _selectedSubtitle = const SubtitleTrack('auto', null, null);
+  final MenuController _subtitleMenuController = MenuController();
+
+  // Per-title subtitle timing offset (ms), applied as mpv `sub-delay` and
+  // persisted on the library row so a re-watch stays corrected. Range is
+  // clamped to ±10s in the editor.
+  int _subtitleOffsetMs = 0;
+  static const _subtitleOffsetLimit = 10000;
+
   @override
   void initState() {
     super.initState();
@@ -109,14 +125,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     try {
       var start = widget.startAt;
       final id = widget.libraryItemId;
-      if (id != null && start == Duration.zero) {
-        final history = await _history.forItem(id);
-        if (history != null && history.resumePositionSec > 0) {
-          start = Duration(seconds: history.resumePositionSec);
-          getIt<ErrorLogService>().info(
-            'Resuming "${widget.title}" at ${start.inSeconds}s',
-            source: 'PlayerScreen',
-          );
+      if (id != null) {
+        final item = await _library.findById(id);
+        _subtitleOffsetMs = item?.subtitleOffsetMs ?? 0;
+        if (start == Duration.zero) {
+          final history = await _history.forItem(id);
+          if (history != null && history.resumePositionSec > 0) {
+            start = Duration(seconds: history.resumePositionSec);
+            getIt<ErrorLogService>().info(
+              'Resuming "${widget.title}" at ${start.inSeconds}s',
+              source: 'PlayerScreen',
+            );
+          }
         }
       }
       _lastSavedSec = start.inSeconds;
@@ -124,6 +144,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _subs.add(_player.stream.position.listen(_onPosition));
       _subs.add(_player.stream.tracks.listen(_onTracks));
+      _subs.add(_player.stream.track.listen((t) {
+        if (mounted) setState(() => _selectedSubtitle = t.subtitle);
+      }));
       _subs.add(_player.stream.completed.listen((done) {
         if (done) _markCompleted();
       }));
@@ -155,6 +178,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       // Seek is applied on the first ready position tick (see _onPosition).
       await _player.open(Media(widget.filePath));
+
+      // Re-apply the saved subtitle timing offset for this title (no-op at 0).
+      if (_subtitleOffsetMs != 0) unawaited(_applySubtitleDelay(_subtitleOffsetMs));
 
       // Playback has started — fetch English subtitles in the background and
       // load them into the running player if they arrive. Never blocks play.
@@ -234,11 +260,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // If libmpv already exposes an English track — an embedded stream, or a
       // sidecar it auto-loaded — select it if it isn't the active one. mpv
       // won't necessarily display it on its own, so we turn it on explicitly.
-      final existing = _player.state.tracks.subtitle
+      final english = _player.state.tracks.subtitle
           .where((s) => SubtitleSkipCheck.isEnglish(s.language, s.title))
           .toList();
-      if (existing.isNotEmpty) {
-        final track = existing.first;
+      if (english.isNotEmpty) {
+        // Prefer a full transcript over a forced/signs-only track (which shows
+        // almost nothing). Title is the only signal libmpv exposes here — the
+        // disposition.forced flag isn't in its track model — so a forced track
+        // with no telltale title can still slip through; the right-click menu
+        // is the manual override for that case.
+        final track = english.firstWhere(
+          (s) => !SubtitleSkipCheck.looksLikeForced(s.title),
+          orElse: () => english.first,
+        );
         if (_player.state.track.subtitle.id != track.id) {
           await _player.setSubtitleTrack(track);
           log.info('Enabled existing English subtitle track ${track.id}',
@@ -293,6 +327,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // a surround mix (5.1/7.1) wins over a stereo downmix. Runs once per open;
   // afterwards the user's manual track choice is respected.
   void _onTracks(Tracks tracks) {
+    // Keep the right-click subtitle menu in sync with what libmpv exposes
+    // (embedded tracks appear once the container is probed; a loaded sidecar
+    // appears after sub-add).
+    if (mounted && !listEquals(_subtitleTracks, tracks.subtitle)) {
+      setState(() => _subtitleTracks = tracks.subtitle);
+    }
+
     if (_audioAutoSelected) return;
     // Respect the user's preference — leave mpv's default audio track as-is.
     if (!getIt<SettingsService>().preferSurroundAudio) return;
@@ -379,6 +420,187 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (context.canPop()) context.pop();
   }
 
+  /// Human-readable label for a subtitle track in the picker. Embedded tracks
+  /// often carry a title (e.g. "English SDH", "Forced") and/or a language code;
+  /// surface whatever's there so the user can tell a full track from a
+  /// forced/signs-only one.
+  String _subtitleLabel(SubtitleTrack t) {
+    if (t.id == 'no') return 'Off';
+    if (t.id == 'auto') return 'Auto';
+    final title = t.title?.trim();
+    final lang = t.language?.trim();
+    if (title != null && title.isNotEmpty) {
+      return (lang != null && lang.isNotEmpty) ? '$title ($lang)' : title;
+    }
+    if (lang != null && lang.isNotEmpty) return lang;
+    return 'Track ${t.id}';
+  }
+
+  /// Switch to [track] and log the choice. Optimistically updates the checkmark;
+  /// the `stream.track` listener confirms it.
+  Future<void> _selectSubtitle(SubtitleTrack track) async {
+    try {
+      await _player.setSubtitleTrack(track);
+      if (mounted) setState(() => _selectedSubtitle = track);
+      getIt<ErrorLogService>().info(
+        'User selected subtitle: ${_subtitleLabel(track)} (id=${track.id})',
+        source: 'PlayerScreen',
+      );
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.selectSubtitle');
+    }
+  }
+
+  /// The entries for the "Subtitles" submenu: every track libmpv reports (the
+  /// synthetic "Off" included, "Auto" dropped as redundant for a manual
+  /// chooser), the active one check-marked, plus the timing-offset control.
+  List<Widget> _subtitleMenuItems() {
+    final tracks =
+        _subtitleTracks.where((t) => t.id != 'auto').toList(growable: false);
+    final sign = _subtitleOffsetMs > 0 ? '+' : '';
+    return [
+      if (tracks.isEmpty)
+        const MenuItemButton(child: Text('No subtitle tracks'))
+      else
+        for (final t in tracks)
+          MenuItemButton(
+            leadingIcon: Icon(
+              t.id == _selectedSubtitle.id ? Icons.check_rounded : null,
+              size: 18,
+            ),
+            onPressed: () => _selectSubtitle(t),
+            child: Text(_subtitleLabel(t)),
+          ),
+      const Divider(height: 1),
+      MenuItemButton(
+        leadingIcon: const Icon(Icons.av_timer_rounded, size: 18),
+        onPressed: _openSubtitleOffsetDialog,
+        child: Text('Timing offset…  ($sign$_subtitleOffsetMs ms)'),
+      ),
+    ];
+  }
+
+  /// Push the timing offset to libmpv as `sub-delay` (seconds; positive delays
+  /// the subtitles). Best-effort — a failure is logged, never fatal.
+  Future<void> _applySubtitleDelay(int ms) async {
+    final platform = _player.platform;
+    if (platform is! NativePlayer) return;
+    try {
+      await platform.setProperty('sub-delay', '${ms / 1000}');
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.subDelay');
+    }
+  }
+
+  /// Set the offset live (state + mpv) without persisting — used while the user
+  /// is dragging the value in the dialog so they see the effect immediately.
+  void _setSubtitleOffsetLive(int ms) {
+    final clamped = ms.clamp(-_subtitleOffsetLimit, _subtitleOffsetLimit);
+    if (mounted) setState(() => _subtitleOffsetMs = clamped);
+    unawaited(_applySubtitleDelay(clamped));
+  }
+
+  /// Persist the current offset on the library row (per title). No-op for
+  /// ad-hoc streams that have no library item.
+  Future<void> _persistSubtitleOffset() async {
+    final id = widget.libraryItemId;
+    if (id == null) return;
+    try {
+      await _library.setSubtitleOffset(id, _subtitleOffsetMs);
+      getIt<ErrorLogService>().info(
+          'Saved subtitle timing offset ${_subtitleOffsetMs}ms',
+          source: 'PlayerScreen');
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.persistOffset');
+    }
+  }
+
+  /// Dialog to nudge the subtitle timing offset (±10s, in ms). Applies live as
+  /// the value changes; persists once when dismissed.
+  Future<void> _openSubtitleOffsetDialog() async {
+    _subtitleMenuController.close();
+    final controller = TextEditingController(text: '$_subtitleOffsetMs');
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            void apply(int v) {
+              _setSubtitleOffsetLive(v);
+              controller.text = '$_subtitleOffsetMs';
+              controller.selection =
+                  TextSelection.collapsed(offset: controller.text.length);
+              setLocal(() {});
+            }
+
+            Widget step(int delta) => OutlinedButton(
+                  onPressed: () => apply(_subtitleOffsetMs + delta),
+                  child: Text('${delta > 0 ? '+' : ''}$delta'),
+                );
+
+            return AlertDialog(
+              title: const Text('Subtitle timing offset'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Milliseconds to delay (+) or advance (−) the subtitles '
+                    'for this title.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [step(-1000), step(-100), step(-10)],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SizedBox(
+                    width: 150,
+                    child: TextField(
+                      controller: controller,
+                      textAlign: TextAlign.center,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(signed: true),
+                      onChanged: (s) {
+                        final v = int.tryParse(s);
+                        if (v != null) _setSubtitleOffsetLive(v);
+                      },
+                      onSubmitted: (s) => apply(int.tryParse(s) ?? _subtitleOffsetMs),
+                      decoration: const InputDecoration(
+                        suffixText: 'ms',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [step(10), step(100), step(1000)],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => apply(0),
+                  child: const Text('Reset'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Done'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    controller.dispose();
+    await _persistSubtitleOffset();
+  }
+
   /// Controls theme: back button in the top bar (fades with the UI), and a
   /// fullscreen button that drives the OS window fullscreen (window_manager) so
   /// it's in sync with how the app launches. media_kit's own fullscreen
@@ -423,13 +645,48 @@ class _PlayerScreenState extends State<PlayerScreen> {
           Positioned.fill(
             child: _error != null
                 ? _PlaybackError(title: widget.title, message: _error!)
-                : MaterialDesktopVideoControlsTheme(
-                    normal: _controlsTheme(),
-                    fullscreen: _controlsTheme(),
-                    child: Video(
-                      controller: _controller,
-                      controls: MaterialDesktopVideoControls,
-                    ),
+                : Stack(
+                    children: [
+                      // Right-click anywhere on the video opens the context menu
+                      // at the pointer. Secondary tap isn't used by the media_kit
+                      // controls (which own primary tap / hover), so they coexist.
+                      Positioned.fill(
+                        child: GestureDetector(
+                          onSecondaryTapDown: (d) => _subtitleMenuController
+                              .open(position: d.localPosition),
+                          child: MaterialDesktopVideoControlsTheme(
+                            normal: _controlsTheme(),
+                            fullscreen: _controlsTheme(),
+                            child: Video(
+                              controller: _controller,
+                              controls: MaterialDesktopVideoControls,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // A zero-size anchor pinned top-left; the menu opens at the
+                      // pointer offset (measured from here). Keeping the video
+                      // OUT of the anchor's child is what makes a click anywhere
+                      // on the video count as "outside" and dismiss the menu —
+                      // consumeOutsideTap also swallows that click so it doesn't
+                      // toggle play/pause.
+                      Align(
+                        alignment: Alignment.topLeft,
+                        child: MenuAnchor(
+                          controller: _subtitleMenuController,
+                          consumeOutsideTap: true,
+                          menuChildren: [
+                            SubmenuButton(
+                              leadingIcon: const Icon(Icons.subtitles_outlined,
+                                  size: 18),
+                              menuChildren: _subtitleMenuItems(),
+                              child: const Text('Subtitles'),
+                            ),
+                          ],
+                          child: const SizedBox.shrink(),
+                        ),
+                      ),
+                    ],
                   ),
           ),
           // On the error screen there are no fading controls, so keep a back

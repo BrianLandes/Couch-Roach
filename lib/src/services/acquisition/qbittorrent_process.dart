@@ -184,6 +184,10 @@ class QbittorrentProcess {
           'General\\StartMinimized': 'true',
           'General\\MinimizeToTray': 'true',
           'General\\CloseToTray': 'true',
+          // Suppress the Windows GUI exe's "a new version is available" prompt on
+          // launch — the app pins + manages the bundled binary, so it must never
+          // self-update out from under us (mirrors Jackett's --NoUpdates).
+          'General\\CheckForUpdates': 'false',
         },
       };
 

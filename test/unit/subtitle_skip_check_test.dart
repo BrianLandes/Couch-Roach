@@ -128,5 +128,52 @@ void main() {
     test('false (not a throw) for malformed json', () {
       expect(SubtitleSkipCheck.ffprobeJsonHasEnglish('not json'), isFalse);
     });
+
+    test('false when the only English track is flagged forced', () {
+      const json = '''
+      {"streams":[
+        {"codec_type":"subtitle","tags":{"language":"eng"},
+         "disposition":{"forced":1}}
+      ]}''';
+      expect(SubtitleSkipCheck.ffprobeJsonHasEnglish(json), isFalse);
+    });
+
+    test('false when the only English track is titled Forced', () {
+      const json =
+          '{"streams":[{"codec_type":"subtitle","tags":{"language":"eng","title":"English (Forced)"}}]}';
+      expect(SubtitleSkipCheck.ffprobeJsonHasEnglish(json), isFalse);
+    });
+
+    test('true when a full English track sits alongside a forced one', () {
+      const json = '''
+      {"streams":[
+        {"codec_type":"subtitle","tags":{"language":"eng","title":"Forced"},
+         "disposition":{"forced":1}},
+        {"codec_type":"subtitle","tags":{"language":"eng","title":"English"},
+         "disposition":{"forced":0}}
+      ]}''';
+      expect(SubtitleSkipCheck.ffprobeJsonHasEnglish(json), isTrue);
+    });
+
+    test('SDH is treated as a full track, not forced', () {
+      const json =
+          '{"streams":[{"codec_type":"subtitle","tags":{"language":"eng","title":"English SDH"}}]}';
+      expect(SubtitleSkipCheck.ffprobeJsonHasEnglish(json), isTrue);
+    });
+  });
+
+  group('looksLikeForced', () {
+    test('true for forced / signs / foreign titles', () {
+      expect(SubtitleSkipCheck.looksLikeForced('Forced'), isTrue);
+      expect(SubtitleSkipCheck.looksLikeForced('English (Forced)'), isTrue);
+      expect(SubtitleSkipCheck.looksLikeForced('Signs & Songs'), isTrue);
+      expect(SubtitleSkipCheck.looksLikeForced('Foreign Parts Only'), isTrue);
+    });
+
+    test('false for a full transcript title, SDH, or null', () {
+      expect(SubtitleSkipCheck.looksLikeForced('English'), isFalse);
+      expect(SubtitleSkipCheck.looksLikeForced('English SDH'), isFalse);
+      expect(SubtitleSkipCheck.looksLikeForced(null), isFalse);
+    });
   });
 }

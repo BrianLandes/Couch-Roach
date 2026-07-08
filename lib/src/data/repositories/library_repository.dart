@@ -49,6 +49,11 @@ abstract class LibraryRepository {
 
   Future<List<LibraryItem>> getAll();
   Future<LibraryItem?> findByPath(String path);
+  Future<LibraryItem?> findById(int id);
+
+  /// Persist the user's subtitle timing offset (ms) for a title, applied as
+  /// mpv's `sub-delay` on playback. Kept per file so a re-watch stays corrected.
+  Future<void> setSubtitleOffset(int id, int offsetMs);
 
   /// Present items not yet matched to a TMDB id (for back-fill).
   Future<List<LibraryItem>> unmatched();
@@ -168,6 +173,18 @@ class DriftLibraryRepository implements LibraryRepository {
   Future<LibraryItem?> findByPath(String path) {
     return (_db.select(_db.libraryItems)..where((t) => t.filePath.equals(path)))
         .getSingleOrNull();
+  }
+
+  @override
+  Future<LibraryItem?> findById(int id) {
+    return (_db.select(_db.libraryItems)..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
+  }
+
+  @override
+  Future<void> setSubtitleOffset(int id, int offsetMs) async {
+    await (_db.update(_db.libraryItems)..where((t) => t.id.equals(id)))
+        .write(LibraryItemsCompanion(subtitleOffsetMs: Value(offsetMs)));
   }
 
   @override

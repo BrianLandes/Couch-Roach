@@ -41,6 +41,7 @@ class _FakeClient implements SubtitleClient {
     String? moviehash,
     String? query,
     int? tmdbId,
+    int? parentTmdbId,
     int? season,
     int? episode,
     String language = 'en',

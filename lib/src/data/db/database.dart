@@ -34,6 +34,12 @@ class LibraryItems extends Table {
   BoolColumn get hasEmbeddedEnSub =>
       boolean().withDefault(const Constant(false))();
 
+  /// User-set subtitle timing offset for this title, in milliseconds, applied
+  /// as mpv's `sub-delay` during playback (positive delays the subtitles).
+  /// Persisted per file so a re-watch keeps the correction; 0 means in sync.
+  IntColumn get subtitleOffsetMs =>
+      integer().withDefault(const Constant(0))();
+
   /// Provenance: true when the app acquired this file (torrent), false when it
   /// was already sitting in a library folder. Informational — cleanup eligibility
   /// is driven by library-folder membership + [keep], not this flag.
@@ -112,7 +118,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -126,6 +132,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 4) {
             await m.createTable(settings);
+          }
+          if (from < 5) {
+            await m.addColumn(libraryItems, libraryItems.subtitleOffsetMs);
           }
         },
         beforeOpen: (details) async {

@@ -25,6 +25,10 @@ void main() {
       expect(conf, contains('General\\MinimizeToTray=true'));
     });
 
+    test('disables the update check so the GUI exe never prompts on launch', () {
+      expect(conf, contains('General\\CheckForUpdates=false'));
+    });
+
     test('seeds WebUI credentials so qBittorrent 5.x will start the Web API', () {
       // Without a password set, qBittorrent 5.x logs "Credentials are not set"
       // and never binds the Web API.
