@@ -25,6 +25,13 @@ void main() {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
 
+      // Always render the focus highlight. Focus IS the selection in this
+      // pointer + D-pad 10-foot UI (FocusableCard), so the ring must show
+      // whenever a card is focused — including when the mouse just moved focus
+      // onto a card — rather than being suppressed in Flutter's "touch" mode.
+      FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.alwaysTraditional;
+
       // Bound the decoded-image (poster/still) cache. The TV box is low on RAM,
       // and the landing page shows many rows of artwork at once — without a cap
       // the live-bitmap cache grows until the app GC-stutters or is OOM-killed.
