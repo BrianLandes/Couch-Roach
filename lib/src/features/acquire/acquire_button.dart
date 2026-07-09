@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../router/app_router.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../../theme/theme.dart';
+import '../downloads/download_format.dart';
 import '../downloads/downloads_providers.dart';
 import '../player/player_screen.dart';
 import 'acquire_play.dart';
@@ -64,6 +65,9 @@ class AcquireButton extends ConsumerWidget {
           dedupeKey,
           _Preparing(
             progress: state.progress,
+            // Live ETA off the torrent status the auto-adopt listener already
+            // tracks; null (unknown / not yet estimating) simply hides it.
+            etaSeconds: ref.watch(downloadForTagProvider(tag))?.etaSeconds,
             onPlayWhenReady: () => playWhenReady(
               context,
               title: title,
@@ -155,16 +159,30 @@ class AcquireButton extends ConsumerWidget {
 /// resolving / fetching metadata) plus a **Play when Ready** action that opens
 /// the blocking dialog and drops into the player the moment it's streamable.
 class _Preparing extends StatelessWidget {
-  const _Preparing({required this.progress, required this.onPlayWhenReady});
+  const _Preparing({
+    required this.progress,
+    required this.onPlayWhenReady,
+    this.etaSeconds,
+  });
   final double? progress;
+
+  /// Estimated seconds left; null (unknown) omits the ETA from the label.
+  final int? etaSeconds;
   final VoidCallback onPlayWhenReady;
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final label = progress == null
-        ? 'Starting…'
-        : 'Downloading ${(progress! * 100).round()}%';
+    final String label;
+    if (progress == null) {
+      label = 'Starting…';
+    } else {
+      final pct = 'Downloading ${(progress! * 100).round()}%';
+      // Append the ETA next to the percentage once the daemon has one.
+      label = (etaSeconds != null && etaSeconds! > 0)
+          ? '$pct · ${formatEta(etaSeconds)} left'
+          : pct;
+    }
     return SizedBox(
       width: 176,
       child: Column(
