@@ -320,6 +320,8 @@ class _EpisodeRow extends StatelessWidget {
                     : CachedNetworkImage(
                         imageUrl: still,
                         fit: BoxFit.cover,
+                        // Thumbnail-sized decode — the row is ~128px wide.
+                        memCacheWidth: 320,
                         placeholder: (_, __) =>
                             const ColoredBox(color: AppColors.glassFill),
                         errorWidget: (_, __, ___) =>

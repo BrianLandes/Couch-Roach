@@ -50,6 +50,10 @@ class PosterArt extends StatelessWidget {
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
+      // Decode at roughly poster-tile size (~150 logical px at 2x DPR) instead
+      // of holding a full-resolution bitmap per tile — the dominant RAM cost on
+      // the landing/library grids. Height follows from the 2:3 aspect.
+      memCacheWidth: 320,
       placeholder: (_, __) => fallback,
       errorWidget: (_, __, ___) => fallback,
     );
