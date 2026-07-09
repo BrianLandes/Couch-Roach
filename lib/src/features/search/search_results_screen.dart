@@ -92,23 +92,28 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
 
     return CustomScrollView(
       slivers: [
-        // TMDB matches (TV + movies) as a horizontal rail up top.
+        // TMDB matches (TV + movies) as a grid that wraps to fill the width,
+        // rather than a horizontal rail that runs off the side of the screen.
         if (tmdbTiles.isNotEmpty) ...[
           const _SliverSectionLabel('From TMDB'),
-          SliverToBoxAdapter(
-            child: SizedBox(
-              height: 240,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.screenPadding),
-                itemCount: tmdbTiles.length,
-                separatorBuilder: (_, __) =>
-                    const SizedBox(width: AppSpacing.lg),
-                itemBuilder: (context, i) => DiscoverPosterCard(
-                  tile: tmdbTiles[i],
-                  onPressed: () => openDiscoverTile(context, tmdbTiles[i]),
-                ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.screenPadding,
+              AppSpacing.sm,
+              AppSpacing.screenPadding,
+              AppSpacing.sm,
+            ),
+            sliver: SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 160,
+                childAspectRatio: 2 / 3,
+                crossAxisSpacing: AppSpacing.lg,
+                mainAxisSpacing: AppSpacing.lg,
+              ),
+              itemCount: tmdbTiles.length,
+              itemBuilder: (context, i) => DiscoverPosterCard(
+                tile: tmdbTiles[i],
+                onPressed: () => openDiscoverTile(context, tmdbTiles[i]),
               ),
             ),
           ),

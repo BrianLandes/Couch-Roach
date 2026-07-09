@@ -1,5 +1,7 @@
 import 'package:couch_roach/src/features/archive/archive_detail_screen.dart';
 import 'package:couch_roach/src/features/archive/archive_providers.dart';
+import 'package:couch_roach/src/features/discover/discover_providers.dart';
+import 'package:couch_roach/src/features/discover/discover_tile.dart';
 import 'package:couch_roach/src/features/search/search_providers.dart';
 import 'package:couch_roach/src/features/search/search_results_screen.dart';
 import 'package:couch_roach/src/router/app_router.dart';
@@ -11,6 +13,38 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 void main() {
+  testWidgets('TMDB matches fill a wrapping grid, not a horizontal rail',
+      (tester) async {
+    const tiles = [
+      DiscoverTile(tmdbId: 1, title: 'Alpha Show', mediaType: 'tv'),
+      DiscoverTile(tmdbId: 2, title: 'Beta Movie', mediaType: 'movie'),
+      DiscoverTile(tmdbId: 3, title: 'Gamma Show', mediaType: 'tv'),
+    ];
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        searchResultsProvider('dune')
+            .overrideWith((ref) => Future.value(const <ArchiveItem>[])),
+        tmdbSearchProvider('dune')
+            .overrideWith((ref) => Future.value(tiles)),
+      ],
+      child: const MaterialApp(home: SearchResultsScreen(query: 'dune')),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('FROM TMDB'), findsOneWidget); // section label is uppercased
+    expect(find.text('Alpha Show'), findsOneWidget);
+    expect(find.text('Gamma Show'), findsOneWidget);
+
+    // The TMDB rail is gone — there is no horizontally-scrolling list on the
+    // page; the matches wrap into a vertical grid instead.
+    expect(
+      find.byWidgetPredicate(
+          (w) => w is ListView && w.scrollDirection == Axis.horizontal),
+      findsNothing,
+    );
+  });
+
   testWidgets('search result opens the profile page; back keeps the results',
       (tester) async {
     const item = ArchiveItem(identifier: 'batman43', title: 'Batman 1943');
