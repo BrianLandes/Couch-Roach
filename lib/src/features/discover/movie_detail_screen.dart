@@ -34,10 +34,14 @@ class MovieDetailScreen extends ConsumerWidget {
       children: [
         _Hero(tile: tile),
         const SizedBox(height: AppSpacing.lg),
-        Wrap(
-          spacing: AppSpacing.md,
-          runSpacing: AppSpacing.md,
-          children: [
+        // Play/Acquire + Trailers + Favorite + Want-to-watch share one wrapping
+        // row (the save toggles live in SaveTitleButtons).
+        SaveTitleButtons(
+          tmdbId: tile.tmdbId,
+          mediaType: 'movie',
+          name: tile.title,
+          posterPath: tile.posterPath,
+          leading: [
             if (local != null)
               FilledButton.icon(
                 autofocus: true,
@@ -74,13 +78,6 @@ class MovieDetailScreen extends ConsumerWidget {
                 label: const Text('Trailers'),
               ),
           ],
-        ),
-        const SizedBox(height: AppSpacing.md),
-        SaveTitleButtons(
-          tmdbId: tile.tmdbId,
-          mediaType: 'movie',
-          name: tile.title,
-          posterPath: tile.posterPath,
         ),
         if (tile.overview.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.xl),

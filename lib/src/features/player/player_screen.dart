@@ -362,24 +362,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return resolved.url;
   }
 
-  /// Apply the HTTP headers yt-dlp says a resolved stream needs: the User-Agent
-  /// via mpv's `user-agent`, the rest via `http-header-fields`. Best-effort — a
-  /// failure is logged, never fatal.
+  /// Match yt-dlp's User-Agent for a resolved stream, via mpv's `user-agent`.
+  /// A googlevideo URL is signed and self-contained (it fetches without any
+  /// special header), but some clients' URLs are UA-sensitive, so setting the
+  /// exact UA yt-dlp used is a cheap safeguard. We deliberately skip the other
+  /// reported headers: mpv's `http-header-fields` is a comma-separated list and
+  /// values like `Accept` contain commas, which would corrupt the list.
+  /// Best-effort — a failure is logged, never fatal.
   Future<void> _applyStreamHeaders(Map<String, String> headers) async {
     final platform = _player.platform;
-    if (platform is! NativePlayer || headers.isEmpty) return;
+    if (platform is! NativePlayer) return;
+    final ua = headers['User-Agent'] ?? headers['user-agent'];
+    if (ua == null || ua.isEmpty) return;
     try {
-      final ua = headers['User-Agent'] ?? headers['user-agent'];
-      if (ua != null && ua.isNotEmpty) {
-        await platform.setProperty('user-agent', ua);
-      }
-      final fields = headers.entries
-          .where((e) => e.key.toLowerCase() != 'user-agent')
-          .map((e) => '${e.key}: ${e.value}')
-          .toList();
-      if (fields.isNotEmpty) {
-        await platform.setProperty('http-header-fields', fields.join(','));
-      }
+      await platform.setProperty('user-agent', ua);
     } catch (e, st) {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'PlayerScreen.streamHeaders');

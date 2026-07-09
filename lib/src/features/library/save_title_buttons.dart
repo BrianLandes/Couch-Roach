@@ -17,12 +17,18 @@ class SaveTitleButtons extends ConsumerWidget {
     required this.mediaType,
     required this.name,
     this.posterPath,
+    this.leading = const [],
   });
 
   final int tmdbId;
   final String mediaType;
   final String name;
   final String? posterPath;
+
+  /// Extra action buttons (e.g. Play / Acquire, Trailers) laid out on the same
+  /// wrapping row *before* the Favorite and Want-to-watch toggles, so a detail
+  /// page's actions share one row instead of stacking and eating vertical space.
+  final List<Widget> leading;
 
   Future<void> _toggleFavorite(BuildContext context, bool value) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -74,7 +80,9 @@ class SaveTitleButtons extends ConsumerWidget {
     return Wrap(
       spacing: AppSpacing.md,
       runSpacing: AppSpacing.md,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        ...leading,
         OutlinedButton.icon(
           onPressed: () => _toggleFavorite(context, !isFavorite),
           icon: Icon(isFavorite

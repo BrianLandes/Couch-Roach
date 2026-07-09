@@ -77,28 +77,26 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
     return [
       _Hero(details: details),
       const SizedBox(height: AppSpacing.md),
+      // Trailers + Favorite + Want-to-watch share one wrapping row.
       SaveTitleButtons(
         tmdbId: details.tmdbId,
         mediaType: 'tv',
         name: details.name,
         posterPath: details.posterPath,
-      ),
-      if (trailerUrl != null) ...[
-        const SizedBox(height: AppSpacing.lg),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            onPressed: () => showTrailerPicker(
-              context,
-              tmdbId: details.tmdbId,
-              isTv: true,
-              title: details.name,
+        leading: [
+          if (trailerUrl != null)
+            OutlinedButton.icon(
+              onPressed: () => showTrailerPicker(
+                context,
+                tmdbId: details.tmdbId,
+                isTv: true,
+                title: details.name,
+              ),
+              icon: const Icon(Icons.movie_outlined),
+              label: const Text('Trailers'),
             ),
-            icon: const Icon(Icons.movie_outlined),
-            label: const Text('Trailers'),
-          ),
-        ),
-      ],
+        ],
+      ),
       const SizedBox(height: AppSpacing.xl),
       if (seasons.isNotEmpty && selected != null) ...[
         _SeasonChips(
