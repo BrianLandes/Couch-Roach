@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:couch_roach/src/app.dart';
 import 'package:couch_roach/src/core/logging/error_log_service.dart';
+import 'package:couch_roach/src/core/settings/settings_service.dart';
 import 'package:couch_roach/src/core/storage/storage_manager.dart';
 import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/data/repositories/library_repository.dart';
@@ -35,6 +36,8 @@ void main() {
       ..registerLazySingleton<MediaScanner>(
           () => MediaScanner(getIt<StorageManager>()))
       ..registerLazySingleton<ErrorLogService>(ErrorLogService.new)
+      ..registerLazySingleton<SettingsService>(
+          () => SettingsService(getIt<AppDatabase>()))
       ..registerLazySingleton<http.Client>(
           () => MockClient((_) async => http.Response('{}', 200)))
       ..registerLazySingleton<DiscoveryClient>(

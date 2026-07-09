@@ -22,6 +22,17 @@ void main() {
     expect(settings.cleanupGracePeriod, const Duration(days: 7));
     expect(settings.preferSurroundAudio, isTrue);
     expect(settings.excludeSignLanguage, isTrue);
+    expect(settings.internetArchiveEnabled, isFalse); // deprecated → off
+  });
+
+  test('Internet Archive toggle flips and persists', () async {
+    expect(settings.internetArchiveEnabled, isFalse);
+    await settings.setInternetArchiveEnabled(true);
+    expect(settings.internetArchiveEnabled, isTrue);
+
+    final reloaded = SettingsService(db);
+    await reloaded.load();
+    expect(reloaded.internetArchiveEnabled, isTrue);
   });
 
   test('setters update the live cache', () async {

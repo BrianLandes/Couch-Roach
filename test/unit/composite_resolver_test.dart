@@ -43,9 +43,33 @@ void main() {
 
   http.Client dead() => MockClient((_) async => http.Response('', 500));
 
+  // Internet Archive is opt-in (default off). Enable it before each test so the
+  // ordering/short-circuit cases below exercise the IA path; the disabled case
+  // turns it back off explicitly.
+  setUp(() async => settings.setInternetArchiveEnabled(true));
+
+  test('skips Internet Archive entirely when it is disabled', () async {
+    await settings.setInternetArchiveEnabled(false);
+    // If IA were consulted this MockClient would throw; a Jackett hit proves the
+    // chain went straight to Jackett.
+    final iaClient =
+        MockClient((_) async => throw StateError('IA should not be called'));
+    final jClient = MockClient((_) async => http.Response(_feed, 200));
+    final composite = CompositeAcquisitionResolver(
+      ia(iaClient),
+      jackett(jClient, config: _config),
+      settings,
+      log,
+    );
+    final hit = await composite.resolve(meta, null, null);
+    expect(hit, isNotNull);
+    expect(hit!.magnetOrUrl, startsWith('magnet:'));
+  });
+
   test('returns null when no sub-resolver finds anything', () async {
     // IA errors; Jackett is unconfigured (returns null immediately).
-    final composite = CompositeAcquisitionResolver(ia(dead()), jackett(dead()), log);
+    final composite =
+        CompositeAcquisitionResolver(ia(dead()), jackett(dead()), settings, log);
     expect(await composite.resolve(meta, null, null), isNull);
   });
 
@@ -54,6 +78,7 @@ void main() {
     final composite = CompositeAcquisitionResolver(
       ia(dead()),
       jackett(jClient, config: _config),
+      settings,
       log,
     );
     final hit = await composite.resolve(meta, null, null);
@@ -92,6 +117,7 @@ void main() {
     final composite = CompositeAcquisitionResolver(
       ia(iaClient),
       jackett(jClient, config: _config),
+      settings,
       log,
     );
     final hit = await composite.resolve(meta, null, null);
@@ -124,6 +150,7 @@ void main() {
     final composite = CompositeAcquisitionResolver(
       ia(iaClient),
       jackett(dead()), // unconfigured → null, so nothing else resolves
+      settings,
       log,
     );
     // The only IA hit resolves to this torrent URL; excluding it yields nothing.

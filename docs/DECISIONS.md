@@ -130,6 +130,14 @@ scope** for **personal, single-machine, legal / public-domain use**.
   (seeders/quality/size); whether the resolver coexists with or precedes the
   Internet-Archive/Academic legal resolvers in the play flow.
 - Full research + packaging notes: **`docs/research/torrent-indexers.md`**.
+- **Internet Archive deprecated to opt-in (2026-07-09).** The play flow originally put
+  **Internet Archive first, then Jackett** in `CompositeAcquisitionResolver`. IA is now
+  **off by default** behind a Settings toggle (`SettingsService.internetArchiveEnabled`,
+  read reactively via `internetArchiveEnabledProvider`): by default acquisition is
+  **Jackett-only**, the "Free to Watch" landing rail is hidden, and search is TMDB-only.
+  All IA code (resolver, browse service, archive screens/route) is **kept** — flipping the
+  toggle back on restores IA as the first resolver and its search grid + rail. The seam
+  itself is unchanged; this only changes what's wired into it by default.
 
 ### E. Daemon binary sourcing / bundling (per platform)
 The daemon binary is **vendored on demand**, not committed — `third_party/qbittorrent/`

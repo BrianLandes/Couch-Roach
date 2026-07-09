@@ -163,6 +163,13 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i657.ErrorLogService>(),
           gh<_i486.SettingsService>(),
         ));
+    gh.lazySingleton<_i156.AcquisitionResolver>(
+        () => _i669.CompositeAcquisitionResolver(
+              gh<_i98.InternetArchiveResolver>(),
+              gh<_i616.JackettResolver>(),
+              gh<_i486.SettingsService>(),
+              gh<_i657.ErrorLogService>(),
+            ));
     gh.lazySingleton<_i883.StorageManager>(() => registerModule.storageManager(
           gh<_i366.StorageRepository>(),
           gh<_i657.ErrorLogService>(),
@@ -179,12 +186,6 @@ extension GetItInjectableX on _i174.GetIt {
         ));
     gh.lazySingleton<_i842.MediaScanner>(
         () => _i842.MediaScanner(gh<_i883.StorageManager>()));
-    gh.lazySingleton<_i156.AcquisitionResolver>(
-        () => _i669.CompositeAcquisitionResolver(
-              gh<_i98.InternetArchiveResolver>(),
-              gh<_i616.JackettResolver>(),
-              gh<_i657.ErrorLogService>(),
-            ));
     gh.lazySingleton<_i38.LibraryService>(() => _i38.LibraryService(
           gh<_i842.MediaScanner>(),
           gh<_i877.LibraryRepository>(),

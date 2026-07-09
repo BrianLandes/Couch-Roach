@@ -148,6 +148,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onChanged: (v) => _set(_settings.setRequireVpn(v)),
               ),
 
+              // ── Sources ───────────────────────────────────────────────────
+              const SizedBox(height: AppSpacing.xl),
+              _SectionLabel('Sources', text: text),
+              _ToggleRow(
+                title: 'Internet Archive',
+                subtitle:
+                    'Include public-domain results from archive.org in search, '
+                    'the "Free to Watch" row, and as a download source. Off by '
+                    'default — your Jackett indexers are the main source.',
+                value: _settings.internetArchiveEnabled,
+                onChanged: (v) => _set(_settings.setInternetArchiveEnabled(v)),
+              ),
+
               // ── Indexers ──────────────────────────────────────────────────
               const SizedBox(height: AppSpacing.xl),
               _SectionLabel('Indexers', text: text),

@@ -1,30 +1,34 @@
 import 'package:injectable/injectable.dart';
 
 import '../../core/logging/error_log_service.dart';
+import '../../core/settings/settings_service.dart';
 import 'acquisition.dart';
 import 'internet_archive_resolver.dart';
 import 'jackett_resolver.dart';
 
 /// The [AcquisitionResolver] the play flow uses — it fans a request across the
-/// available sub-resolvers and returns the **first hit** (DECISIONS §D resolved
-/// the open "coexist/precede" question this way).
+/// available sub-resolvers and returns the **first hit**.
 ///
-/// Order: **Internet Archive first** (a clean, zero-config public-domain source),
-/// then **Jackett** (the user's own configured indexers). IA returns null for
-/// almost every mainstream title, so in practice Jackett handles the common case
-/// and IA only wins for the rare public-domain title present in both. Jackett
-/// also returns null until its sidecar is up + configured, so this degrades to
-/// IA-only automatically. A throwing sub-resolver is logged and skipped, never
-/// failing the whole resolve.
+/// Order when enabled: **Internet Archive first** (a zero-config public-domain
+/// source), then **Jackett** (the user's own configured indexers). IA is now
+/// **opt-in and off by default** (deprecated in favour of Jackett; see
+/// `SettingsService.internetArchiveEnabled` and DECISIONS §D) — so by default
+/// this is Jackett-only, and IA only rejoins the chain when the user turns it
+/// back on. Jackett also returns null until its sidecar is up + configured. A
+/// throwing sub-resolver is logged and skipped, never failing the whole resolve.
 @LazySingleton(as: AcquisitionResolver)
 class CompositeAcquisitionResolver implements AcquisitionResolver {
-  CompositeAcquisitionResolver(this._ia, this._jackett, this._log);
+  CompositeAcquisitionResolver(this._ia, this._jackett, this._settings, this._log);
 
   final InternetArchiveResolver _ia;
   final JackettResolver _jackett;
+  final SettingsService _settings;
   final ErrorLogService _log;
 
-  List<AcquisitionResolver> get _ordered => [_ia, _jackett];
+  List<AcquisitionResolver> get _ordered => [
+        if (_settings.internetArchiveEnabled) _ia,
+        _jackett,
+      ];
 
   @override
   Future<TorrentHandle?> resolve(

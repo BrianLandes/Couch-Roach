@@ -11,7 +11,7 @@ class SearchField extends StatefulWidget {
     required this.onSubmitted,
     this.initialText = '',
     this.autofocus = false,
-    this.hintText = 'Search the Internet Archive…',
+    this.hintText = 'Search for a movie or show…',
   });
 
   final ValueChanged<String> onSubmitted;

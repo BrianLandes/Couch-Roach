@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
+import '../../core/settings/settings_providers.dart';
 import '../../core/settings/settings_service.dart';
 import '../../core/window/window_service.dart';
 import '../../data/db/database.dart';
@@ -48,8 +49,12 @@ class LibraryScreen extends ConsumerWidget {
         ref.watch(trendingMoviesProvider).asData?.value ?? const [];
     final documentaries =
         ref.watch(documentaryMoviesProvider).asData?.value ?? const [];
-    final archivePicks =
-        ref.watch(archivePicksProvider).asData?.value ?? const [];
+    // Internet Archive is opt-in (default off); only fetch/show its rail when on.
+    final iaEnabled = ref.watch(internetArchiveEnabledProvider);
+    final archivePicks = iaEnabled
+        ? (ref.watch(archivePicksProvider).asData?.value ??
+            const <ArchiveItem>[])
+        : const <ArchiveItem>[];
     final newEpisodes =
         ref.watch(newEpisodesProvider).asData?.value ?? const [];
     final favorites =

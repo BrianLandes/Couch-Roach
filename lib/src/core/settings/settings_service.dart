@@ -26,6 +26,7 @@ class SettingsService extends ChangeNotifier {
   static const _kExcludeSignLanguage = 'excludeSignLanguage';
   static const _kHardwareVideo = 'hardwareVideoAcceleration';
   static const _kLowPowerVideo = 'lowPowerVideo';
+  static const _kInternetArchive = 'internetArchiveEnabled';
 
   Future<void> load() async {
     final rows = await _db.select(_db.settings).get();
@@ -66,6 +67,12 @@ class SettingsService extends ChangeNotifier {
   /// loop filter, cheap scaling). For underpowered boxes that stutter.
   bool get lowPowerVideo => _boolOr(_kLowPowerVideo, false);
 
+  /// Include the Internet Archive as a source: its public-domain results in
+  /// search, the "Free to Watch" landing rail, and as a resolver in the
+  /// acquisition chain. Off by default — deprecated in favour of the user's own
+  /// Jackett indexers; kept as an opt-in for public-domain browsing.
+  bool get internetArchiveEnabled => _boolOr(_kInternetArchive, false);
+
   // ── setters ─────────────────────────────────────────────────────────────────
 
   Future<void> setAutoDownloadSubtitles(bool v) => _setBool(_kAutoSubs, v);
@@ -78,6 +85,8 @@ class SettingsService extends ChangeNotifier {
   Future<void> setHardwareVideoAcceleration(bool v) =>
       _setBool(_kHardwareVideo, v);
   Future<void> setLowPowerVideo(bool v) => _setBool(_kLowPowerVideo, v);
+  Future<void> setInternetArchiveEnabled(bool v) =>
+      _setBool(_kInternetArchive, v);
 
   // ── internals ───────────────────────────────────────────────────────────────
 

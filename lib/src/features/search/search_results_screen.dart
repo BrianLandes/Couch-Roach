@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/settings/settings_providers.dart';
 import '../../router/app_router.dart';
 import '../../services/acquisition/archive_browse_service.dart';
 import '../../theme/theme.dart';
@@ -14,9 +15,10 @@ import '../discover/discover_providers.dart';
 import '../discover/discover_tile.dart';
 import 'search_providers.dart';
 
-/// Internet Archive search results, shown as poster tiles like the landing page.
-/// The search field stays at the top so the query can be refined; selecting a
-/// result runs the IA download-and-watch flow.
+/// Search results as poster tiles. TMDB matches (shows/movies) fill a grid; when
+/// the opt-in Internet Archive source is enabled, its public-domain results show
+/// below as their own grid. The search field stays pinned so the query can be
+/// refined.
 class SearchResultsScreen extends ConsumerStatefulWidget {
   const SearchResultsScreen({super.key, required this.query});
   final String query;
@@ -31,11 +33,12 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final resultsAsync = ref.watch(searchResultsProvider(_query));
-    // TMDB matches are supplementary — they surface above the IA grid as they
-    // arrive, without gating the (IA-driven) loading state below.
-    final tmdbTiles =
-        ref.watch(tmdbSearchProvider(_query)).asData?.value ?? const [];
+    // Internet Archive is opt-in (default off). When on, IA is the primary grid
+    // and TMDB matches surface above it as they arrive; when off, the page is
+    // TMDB-only and its loading state drives the spinner.
+    final iaEnabled = ref.watch(internetArchiveEnabledProvider);
+    final tmdbAsync = ref.watch(tmdbSearchProvider(_query));
+    final tmdbTiles = tmdbAsync.asData?.value ?? const <DiscoverTile>[];
 
     return Scaffold(
       body: AmbientBackground(
@@ -65,15 +68,27 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                 ),
               ),
               Expanded(
-                child: resultsAsync.when(
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (_, __) => const _Centered(
-                    'Search error — see the error log.',
-                    color: AppColors.danger,
-                  ),
-                  data: (results) => _body(tmdbTiles, results),
-                ),
+                child: iaEnabled
+                    ? ref.watch(searchResultsProvider(_query)).when(
+                          loading: () =>
+                              const Center(child: CircularProgressIndicator()),
+                          error: (_, __) => const _Centered(
+                            'Search error — see the error log.',
+                            color: AppColors.danger,
+                          ),
+                          data: (results) =>
+                              _body(tmdbTiles, results, iaEnabled: true),
+                        )
+                    : tmdbAsync.when(
+                        loading: () =>
+                            const Center(child: CircularProgressIndicator()),
+                        error: (_, __) => const _Centered(
+                          'Search error — see the error log.',
+                          color: AppColors.danger,
+                        ),
+                        data: (tiles) =>
+                            _body(tiles, const [], iaEnabled: false),
+                      ),
               ),
             ],
           ),
@@ -82,10 +97,22 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     );
   }
 
-  Widget _body(List<DiscoverTile> tmdbTiles, List<ArchiveItem> ia) {
+  Widget _body(
+    List<DiscoverTile> tmdbTiles,
+    List<ArchiveItem> ia, {
+    required bool iaEnabled,
+  }) {
     if (_query.trim().isEmpty) {
       return const _Centered(
         'Type a movie or show title to search.',
+        color: AppColors.textSecondary,
+      );
+    }
+
+    // TMDB-only (Internet Archive off) with no matches → a plain empty state.
+    if (!iaEnabled && tmdbTiles.isEmpty) {
+      return _Centered(
+        'No results for “$_query”.',
         color: AppColors.textSecondary,
       );
     }
@@ -119,43 +146,46 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
           ),
         ],
 
-        // Internet Archive results as the main grid.
-        const _SliverSectionLabel('On the Internet Archive'),
-        if (ia.isEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.screenPadding),
-              child: Text(
-                'No public-domain results on the Internet Archive for “$_query”.',
-                style: const TextStyle(color: AppColors.textSecondary),
+        // Internet Archive results as the main grid — only when IA is enabled.
+        if (iaEnabled) ...[
+          const _SliverSectionLabel('On the Internet Archive'),
+          if (ia.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.screenPadding),
+                child: Text(
+                  'No public-domain results on the Internet Archive for “$_query”.',
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.screenPadding,
+                AppSpacing.sm,
+                AppSpacing.screenPadding,
+                AppSpacing.screenPadding,
+              ),
+              sliver: SliverGrid.builder(
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 160,
+                  childAspectRatio: 2 / 3,
+                  crossAxisSpacing: AppSpacing.lg,
+                  mainAxisSpacing: AppSpacing.lg,
+                ),
+                itemCount: ia.length,
+                itemBuilder: (context, i) => ArchivePosterCard(
+                  item: ia[i],
+                  // Open the profile page first; pushing keeps this search
+                  // screen (cached results + scroll) mounted underneath for the
+                  // back trip.
+                  onPressed: () =>
+                      context.push(Routes.archiveDetail, extra: ia[i]),
+                ),
               ),
             ),
-          )
-        else
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.screenPadding,
-              AppSpacing.sm,
-              AppSpacing.screenPadding,
-              AppSpacing.screenPadding,
-            ),
-            sliver: SliverGrid.builder(
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 160,
-                childAspectRatio: 2 / 3,
-                crossAxisSpacing: AppSpacing.lg,
-                mainAxisSpacing: AppSpacing.lg,
-              ),
-              itemCount: ia.length,
-              itemBuilder: (context, i) => ArchivePosterCard(
-                item: ia[i],
-                // Open the profile page first; pushing keeps this search screen
-                // (cached results + scroll) mounted underneath for the back trip.
-                onPressed: () =>
-                    context.push(Routes.archiveDetail, extra: ia[i]),
-              ),
-            ),
-          ),
+        ],
       ],
     );
   }
@@ -169,12 +199,14 @@ class _SliverSectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-            AppSpacing.screenPadding, AppSpacing.md, AppSpacing.screenPadding, 0),
+        padding: const EdgeInsets.fromLTRB(AppSpacing.screenPadding,
+            AppSpacing.md, AppSpacing.screenPadding, 0),
         child: Text(
           label.toUpperCase(),
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: AppColors.textTertiary, letterSpacing: 1.5),
+          style: Theme.of(context)
+              .textTheme
+              .labelMedium
+              ?.copyWith(color: AppColors.textTertiary, letterSpacing: 1.5),
         ),
       ),
     );

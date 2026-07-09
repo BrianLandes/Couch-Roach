@@ -1,3 +1,4 @@
+import 'package:couch_roach/src/core/settings/settings_providers.dart';
 import 'package:couch_roach/src/features/archive/archive_detail_screen.dart';
 import 'package:couch_roach/src/features/archive/archive_providers.dart';
 import 'package:couch_roach/src/features/discover/discover_providers.dart';
@@ -23,8 +24,7 @@ void main() {
 
     await tester.pumpWidget(ProviderScope(
       overrides: [
-        searchResultsProvider('dune')
-            .overrideWith((ref) => Future.value(const <ArchiveItem>[])),
+        internetArchiveEnabledProvider.overrideWithValue(false),
         tmdbSearchProvider('dune')
             .overrideWith((ref) => Future.value(tiles)),
       ],
@@ -63,6 +63,7 @@ void main() {
 
     await tester.pumpWidget(ProviderScope(
       overrides: [
+        internetArchiveEnabledProvider.overrideWithValue(true),
         searchResultsProvider('batman')
             .overrideWith((ref) => Future.value(const [item])),
         archiveDetailProvider('batman43')
