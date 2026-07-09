@@ -52,6 +52,13 @@ Future<ResolvedStream?> resolveNetworkStream(String url) async {
       '-f', 'best',
       '--no-playlist',
       '--no-warnings',
+      // Force IPv4. YouTube binds the returned stream URL to the IP yt-dlp
+      // extracted it from (the `ip=` query param). On a dual-stack box yt-dlp
+      // may resolve over IPv6 while mpv/ffmpeg then fetches over IPv4, so the
+      // source IP no longer matches the signed URL → HTTP 400. Pinning yt-dlp to
+      // IPv4 keeps it aligned with mpv's fetch (observed: Windows failed on an
+      // IPv6-bound URL where Linux, IPv4 end-to-end, worked).
+      '--force-ipv4',
       '-j',
       url,
     ]);
