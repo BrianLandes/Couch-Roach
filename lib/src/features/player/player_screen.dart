@@ -31,6 +31,7 @@ import '../discover/new_episodes.dart' show isAired;
 import 'credits.dart';
 import 'next_episode.dart';
 import 'next_episode_button.dart';
+import 'player_title.dart';
 import 'subtitle_label.dart';
 
 /// Everything the player needs to open a title. Passed via go_router `extra`
@@ -122,6 +123,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // The library row for the playing file (show/season/episode) — drives
   // prefetching and auto-playing the next episode. Loaded in _open().
   LibraryItem? _currentItem;
+  // The title shown in the player's top bar. Composed from _currentItem once it
+  // loads (clean show name + SxxExx, then + the episode name when TMDB answers;
+  // a movie is just its clean name) so it's consistent regardless of what the
+  // call site passed. Falls back to widget.title until then.
+  String? _displayTitle;
+  String? _episodeName;
   // Prefetch of the next episode fires once, partway through.
   bool _prefetchedNext = false;
   // End-of-episode auto-advance: a countdown that, on expiry, runs the pending
@@ -201,6 +208,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final item = await _library.findById(id);
         _currentItem = item;
         _subtitleOffsetMs = item?.subtitleOffsetMs ?? 0;
+        // Compose the fullest title from the row now (show + SxxExx, or a clean
+        // movie name); the episode name is added later by _loadCreditsMeta.
+        _refreshDisplayTitle();
         if (start == Duration.zero) {
           final history = await _history.forItem(id);
           if (history != null && history.resumePositionSec > 0) {
@@ -577,20 +587,73 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
     _chapters = await readVideoChapters(widget.filePath);
-    _contentRuntime =
-        await _episodeRuntime(item!.tmdbId!, item.season!, item.episode!);
+    // One season fetch gives both the episode runtime (credits heuristic) and
+    // its name (to enrich the playback title).
+    final details =
+        await getIt<DiscoveryClient>().seasonDetails(item!.tmdbId!, item.season!);
+    for (final e in details?.episodes ?? const []) {
+      if (e.episodeNumber == item.episode) {
+        if (e.runtime != null && e.runtime! > 0) {
+          _contentRuntime = Duration(minutes: e.runtime!);
+        }
+        if (e.name.trim().isNotEmpty) {
+          _episodeName = e.name.trim();
+          _refreshDisplayTitle();
+        }
+        break;
+      }
+    }
     _creditsMetaReady = true;
   }
 
-  /// The episode's aired runtime from TMDB, or null if unknown.
-  Future<Duration?> _episodeRuntime(int tmdbId, int season, int episode) async {
-    final details = await getIt<DiscoveryClient>().seasonDetails(tmdbId, season);
-    for (final e in details?.episodes ?? const []) {
-      if (e.episodeNumber == episode && e.runtime != null && e.runtime! > 0) {
-        return Duration(minutes: e.runtime!);
+  /// The title shown in the top bar: [_displayTitle] once composed from the
+  /// loaded library row, else whatever the caller passed.
+  String? get _effectiveTitle => _displayTitle ?? widget.title;
+
+  /// Recompose the playback title from the loaded [_currentItem] so it's the
+  /// fullest, most consistent form regardless of what the call site passed:
+  ///  • a TV episode → "Show — S01E03 · Episode Name" (the episode name filled in
+  ///    once [_loadCreditsMeta] fetches it; "Show — S01E03" until then, or when
+  ///    the row isn't matched to TMDB). The show name is the clean TMDB name when
+  ///    matched, else the scanner's clean title.
+  ///  • a movie → its clean name.
+  ///  • a trailer / ad-hoc stream (no row) → the caller's title.
+  void _refreshDisplayTitle() {
+    final item = _currentItem;
+    if (item == null) return;
+    final season = item.season;
+    final episode = item.episode;
+    final String? title;
+
+    if (item.mediaType == 'tv' && season != null && episode != null) {
+      final passed = widget.title;
+      final passedHasCode =
+          passed != null && RegExp(r'[Ss]\d{1,2}[Ee]\d{1,2}').hasMatch(passed);
+      if (item.tmdbName == null && passedHasCode) {
+        // Not matched yet, but the caller (the acquire flow) already baked the
+        // code + episode name into the title — that's the fullest we have.
+        title = passed;
+      } else {
+        // The clean show name: the TMDB name when matched, else the scanner's
+        // title (already just the show name; strip any "— S01E01 …" the acquire
+        // flow may have added so we don't double the code).
+        final show = item.tmdbName ?? item.title.split(' — ').first.trim();
+        title = composePlayerTitle(
+          name: show,
+          season: season,
+          episode: episode,
+          episodeName: _episodeName,
+        );
       }
+    } else if (item.tmdbName != null) {
+      title = item.tmdbName; // matched movie → clean title
+    } else {
+      title = widget.title ?? item.title;
     }
-    return null;
+
+    if (mounted && title != _displayTitle) {
+      setState(() => _displayTitle = title);
+    }
   }
 
   /// Whether the next episode has actually aired — so it's real, fetchable
@@ -885,7 +948,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!mounted) return;
     await playWhenReady(
       context,
-      title: widget.title ?? item.tmdbName ?? item.title,
+      title: _effectiveTitle ?? item.tmdbName ?? item.title,
       meta: meta,
       season: item.season,
       episode: item.episode,
@@ -1195,7 +1258,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// toggle instead (see the outer GestureDetector in [build]) — so there's no
   /// competing fullscreen system.
   MaterialDesktopVideoControlsThemeData _controlsTheme() {
-    return MaterialDesktopVideoControlsThemeData(
+    return const MaterialDesktopVideoControlsThemeData(
       // Single click on the video toggles play/pause (media_kit guards the
       // bottom seek-bar region so clicking the scrubber doesn't pause).
       playAndPauseOnTap: true,
@@ -1203,22 +1266,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // Hide the mouse pointer together with the controls when they fade out, so
       // a fullscreen TV appliance shows nothing over the video while playing.
       hideMouseOnControlsRemoval: true,
-      topButtonBar: [
-        IconButton(
-          onPressed: _back,
-          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-          tooltip: 'Back',
-        ),
-        if (widget.title != null)
-          Padding(
-            padding: const EdgeInsets.only(left: AppSpacing.sm),
-            child: Text(
-              widget.title!,
-              style: const TextStyle(color: Colors.white, fontSize: 18),
-            ),
-          ),
-      ],
-      bottomButtonBar: const [
+      // The back button + title are rendered by us as a top-bar overlay (see
+      // build) rather than here: media_kit's controls theme has an inverted
+      // `updateShouldNotify` (it notifies only when the theme is *identical*), so
+      // a title set after the first frame — once the library row and episode name
+      // load — would never repaint through its topButtonBar.
+      topButtonBar: [],
+      bottomButtonBar: [
         MaterialDesktopPlayOrPauseButton(),
         MaterialDesktopVolumeButton(),
         MaterialDesktopPositionIndicator(),
@@ -1237,7 +1291,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           Positioned.fill(
             child: _error != null
                 ? _PlaybackError(
-                    title: widget.title,
+                    title: _effectiveTitle,
                     message: _error!,
                     onRetry: _currentItem != null ? _tryAnotherSource : null,
                   )
@@ -1332,6 +1386,61 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 onPointerHover: (_) => _revealControls(),
                 onPointerMove: (_) => _revealControls(),
                 child: const SizedBox.expand(),
+              ),
+            ),
+          // Our own top bar (back + title), fading with the controls. Rendered
+          // here — not via media_kit's topButtonBar — so a title composed after
+          // the first frame actually repaints (see _controlsTheme).
+          if (_error == null)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                ignoring: !_controlsVisible,
+                child: AnimatedOpacity(
+                  opacity: _controlsVisible ? 1.0 : 0.0,
+                  duration: _controlsFade,
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0xB3000000), Color(0x00000000)],
+                      ),
+                    ),
+                    child: SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.sm),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              onPressed: _back,
+                              icon: const Icon(Icons.arrow_back_rounded,
+                                  color: Colors.white),
+                              tooltip: 'Back',
+                            ),
+                            if (_effectiveTitle != null)
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                      left: AppSpacing.sm),
+                                  child: Text(
+                                    _effectiveTitle!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        color: Colors.white, fontSize: 18),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           // On the error screen there are no fading controls, so keep a back
