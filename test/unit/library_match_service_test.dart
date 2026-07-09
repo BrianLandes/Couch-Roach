@@ -84,4 +84,18 @@ void main() {
     await service.matchUnmatched();
     expect((await library.getAll()).single.tmdbId, isNull);
   });
+
+  test('matchItem no-ops without a TMDB key (and tolerates a missing id)',
+      () async {
+    final service = serviceFor(MockClient((_) async => http.Response('{}', 404)));
+    await library.upsert(const ScannedFile(
+        filePath: '/m/a.mkv', title: 'A', mediaType: 'movie'));
+    final id = (await library.findByPath('/m/a.mkv'))!.id;
+
+    // Real id and a never-registered id both return cleanly, leaving the row
+    // untouched (the happy path needs a TMDB key, verified on-device).
+    await service.matchItem(id);
+    await service.matchItem(999999);
+    expect((await library.getAll()).single.tmdbId, isNull);
+  });
 }

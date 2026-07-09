@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,6 +12,7 @@ import '../../router/app_router.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../../services/acquisition/acquisition_session.dart';
 import '../../services/vpn/vpn_service.dart';
+import '../library/library_match_service.dart';
 import '../player/player_screen.dart';
 import 'preparing_dialog.dart';
 
@@ -71,8 +74,7 @@ Future<Prepared> prepareForPlayback({
   final file = await task.prepareFile(season: season, episode: episode);
 
   // Register as a library item (upsert dedupes on the file path) so the player
-  // records watch history / resume and it surfaces in Continue Watching. The
-  // TMDB link (tmdbId) is filled in later by the library matcher.
+  // records watch history / resume and it surfaces in Continue Watching.
   final library = getIt<LibraryRepository>();
   await library.upsert(ScannedFile(
     filePath: file,
@@ -82,6 +84,14 @@ Future<Prepared> prepareForPlayback({
     episode: episode,
   ));
   final libraryItemId = (await library.findByPath(file))?.id;
+
+  // Resolve its TMDB poster + canonical name now rather than waiting for the
+  // next startup match pass — otherwise its Continue Watching tile shows
+  // placeholder art until the app is relaunched. Fire-and-forget; the tile
+  // updates live off the drift stream once TMDB answers.
+  if (libraryItemId != null) {
+    unawaited(getIt<LibraryMatchService>().matchItem(libraryItemId));
+  }
   return (filePath: file, libraryItemId: libraryItemId);
 }
 

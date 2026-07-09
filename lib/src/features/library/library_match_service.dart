@@ -2,6 +2,7 @@ import 'package:injectable/injectable.dart';
 
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
+import '../../data/db/database.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../services/discovery/tmdb_client.dart';
 
@@ -19,37 +20,54 @@ class LibraryMatchService {
 
   Future<void> matchUnmatched() async {
     if (!const AppConfig().hasTmdbKey) return;
-
     for (final item in await _library.unmatched()) {
-      try {
-        final (title, year) = _splitYear(item.title);
-        if (item.mediaType == 'tv') {
-          final results = await _tmdb.searchTv(title, year: year);
-          if (results.isNotEmpty) {
-            final best = results.first;
-            await _library.setTmdbMatch(
-              id: item.id,
-              tmdbId: best.tmdbId,
-              name: best.name,
-              posterPath: best.posterPath,
-            );
-          }
-        } else {
-          final results = await _tmdb.searchMovies(title, year: year);
-          if (results.isNotEmpty) {
-            final best = results.first;
-            await _library.setTmdbMatch(
-              id: item.id,
-              tmdbId: best.tmdbId,
-              name: best.title,
-              posterPath: best.posterPath,
-            );
-          }
+      await _matchRow(item);
+    }
+  }
+
+  /// Match a single row **now** — used right after a title is registered
+  /// mid-session (e.g. an acquired episode) so its poster + canonical name
+  /// resolve without waiting for the next startup pass, and its Continue
+  /// Watching / library tile updates live off the drift stream. No-op when TMDB
+  /// isn't configured, the row is gone, or it's already matched.
+  Future<void> matchItem(int id) async {
+    if (!const AppConfig().hasTmdbKey) return;
+    final item = await _library.findById(id);
+    if (item == null || item.tmdbId != null) return;
+    await _matchRow(item);
+  }
+
+  /// Resolve one unmatched row against TMDB and cache the id/name/poster. Best
+  /// effort — a miss stays null (retried on the next pass); a throw is logged.
+  Future<void> _matchRow(LibraryItem item) async {
+    try {
+      final (title, year) = _splitYear(item.title);
+      if (item.mediaType == 'tv') {
+        final results = await _tmdb.searchTv(title, year: year);
+        if (results.isNotEmpty) {
+          final best = results.first;
+          await _library.setTmdbMatch(
+            id: item.id,
+            tmdbId: best.tmdbId,
+            name: best.name,
+            posterPath: best.posterPath,
+          );
         }
-      } catch (e, st) {
-        _log.logError(e,
-            stackTrace: st, source: 'LibraryMatchService.match(${item.title})');
+      } else {
+        final results = await _tmdb.searchMovies(title, year: year);
+        if (results.isNotEmpty) {
+          final best = results.first;
+          await _library.setTmdbMatch(
+            id: item.id,
+            tmdbId: best.tmdbId,
+            name: best.title,
+            posterPath: best.posterPath,
+          );
+        }
       }
+    } catch (e, st) {
+      _log.logError(e,
+          stackTrace: st, source: 'LibraryMatchService.match(${item.title})');
     }
   }
 
