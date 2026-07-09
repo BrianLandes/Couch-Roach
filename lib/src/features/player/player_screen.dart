@@ -12,6 +12,7 @@ import 'package:media_kit_video/media_kit_video.dart' hide toggleFullscreen;
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
 import '../../core/media/ytdlp.dart';
+import '../../core/media/ytdlp_resolver.dart';
 import '../../core/settings/settings_service.dart';
 import '../../core/window/window_service.dart';
 import '../../data/db/database.dart';
@@ -252,15 +253,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }));
       }
 
-      // For a network URL (a YouTube trailer), point libmpv's ytdl_hook at the
-      // bundled yt-dlp so it can resolve the stream — it only searches PATH, not
-      // the app directory. No-op for local files and when yt-dlp isn't bundled
-      // (libmpv then falls back to a PATH lookup / its graceful error state).
+      // Configure the fallback ytdl_hook path (see _configureYtdlp) in case
+      // self-resolution below fails but a Lua-enabled libmpv is present.
       await _configureYtdlp();
       await _configureLowPower();
 
+      // For a network URL (a YouTube trailer), resolve the direct stream URL
+      // ourselves with the bundled yt-dlp — media_kit's Windows libmpv has no
+      // ytdl_hook (built without Lua), so the raw watch URL never gets rewritten
+      // and mpv fails to demux it. Falls back to the raw URL when resolution
+      // isn't possible (relying on ytdl_hook where it does exist, e.g. Linux).
+      final mediaUrl = await _resolveMediaUrl(widget.filePath);
+
       // Seek is applied on the first ready position tick (see _onPosition).
-      await _player.open(Media(widget.filePath));
+      await _player.open(Media(mediaUrl));
 
       // Re-apply the saved subtitle timing offset for this title (no-op at 0).
       if (_subtitleOffsetMs != 0) unawaited(_applySubtitleDelay(_subtitleOffsetMs));
@@ -305,18 +311,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  /// Prepare libmpv to resolve a network URL (a trailer) through yt-dlp. Only
-  /// runs for network sources; any failure is logged and swallowed so it never
-  /// blocks playback (a missing/failed resolve surfaces as the player's own
-  /// error state). No-op for local files.
+  /// Configure libmpv's builtin `ytdl_hook` as the **fallback** resolver for a
+  /// network URL — used only when our own yt-dlp resolution ([_resolveMediaUrl])
+  /// fails but a Lua-enabled libmpv is present (e.g. a system libmpv on Linux).
+  /// Only runs for network sources; failures are logged and swallowed. No-op for
+  /// local files.
   Future<void> _configureYtdlp() async {
     if (!_isNetworkSource) return;
     final platform = _player.platform;
     if (platform is! NativePlayer) return;
     try {
-      // Point mpv's builtin ytdl_hook at the bundled yt-dlp (it only searches
-      // PATH, not the app dir). Null when yt-dlp isn't bundled — leave mpv's
-      // default PATH lookup in place for dev machines that have it installed.
+      // libmpv defaults `ytdl` to *no* (only the mpv CLI defaults it to yes), so
+      // the hook never runs unless we ask for it.
+      await platform.setProperty('ytdl', 'yes');
+      // Point the hook at the bundled yt-dlp (it only searches PATH, not the app
+      // dir). Null when yt-dlp isn't bundled — leave mpv's default PATH lookup in
+      // place for dev machines that have it installed.
       final scriptOpt = ytdlHookScriptOpt();
       if (scriptOpt != null) {
         await platform.setProperty('script-opts', scriptOpt);
@@ -330,6 +340,49 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } catch (e, st) {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'PlayerScreen.configureYtdlp');
+    }
+  }
+
+  /// The URL to actually hand mpv. Local files pass through untouched. For a
+  /// network URL (a trailer), resolve the direct stream with the bundled yt-dlp
+  /// and apply the headers it reports — because media_kit's Windows libmpv can't
+  /// resolve it itself. On any resolution failure, fall back to the raw URL
+  /// (which plays where `ytdl_hook` exists; else surfaces mpv's own error state).
+  Future<String> _resolveMediaUrl(String path) async {
+    if (!_isNetworkSource) return path;
+    final log = getIt<ErrorLogService>();
+    final resolved = await resolveNetworkStream(path);
+    if (resolved == null) {
+      log.info('yt-dlp could not resolve "$path" — opening it raw (needs a '
+          'ytdl_hook-capable libmpv)', source: 'PlayerScreen.resolveMedia');
+      return path;
+    }
+    await _applyStreamHeaders(resolved.headers);
+    log.info('resolved trailer stream via yt-dlp', source: 'PlayerScreen.resolveMedia');
+    return resolved.url;
+  }
+
+  /// Apply the HTTP headers yt-dlp says a resolved stream needs: the User-Agent
+  /// via mpv's `user-agent`, the rest via `http-header-fields`. Best-effort — a
+  /// failure is logged, never fatal.
+  Future<void> _applyStreamHeaders(Map<String, String> headers) async {
+    final platform = _player.platform;
+    if (platform is! NativePlayer || headers.isEmpty) return;
+    try {
+      final ua = headers['User-Agent'] ?? headers['user-agent'];
+      if (ua != null && ua.isNotEmpty) {
+        await platform.setProperty('user-agent', ua);
+      }
+      final fields = headers.entries
+          .where((e) => e.key.toLowerCase() != 'user-agent')
+          .map((e) => '${e.key}: ${e.value}')
+          .toList();
+      if (fields.isNotEmpty) {
+        await platform.setProperty('http-header-fields', fields.join(','));
+      }
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.streamHeaders');
     }
   }
 
