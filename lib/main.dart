@@ -16,6 +16,7 @@ import 'src/features/library/library_service.dart';
 import 'src/injection.dart';
 import 'src/services/acquisition/jackett_process.dart';
 import 'src/services/acquisition/qbittorrent_process.dart';
+import 'src/services/cleanup/completed_torrent_reaper.dart';
 import 'src/services/cleanup/watched_reaper.dart';
 
 void main() {
@@ -111,6 +112,15 @@ void main() {
       Timer.periodic(
         const Duration(hours: 6),
         (_) => getIt<WatchedReaper>().sweep(),
+      );
+
+      // Clear finished torrents from the client (keeping their files) so it
+      // doesn't accumulate completed torrents seeding forever. isAlive() guards
+      // the startup run before the daemon has finished coming up.
+      unawaited(getIt<CompletedTorrentReaper>().sweep());
+      Timer.periodic(
+        const Duration(minutes: 15),
+        (_) => getIt<CompletedTorrentReaper>().sweep(),
       );
     },
     (error, stack) {

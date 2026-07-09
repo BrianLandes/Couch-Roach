@@ -45,6 +45,8 @@ import 'package:couch_roach/src/services/acquisition/qbittorrent_daemon.dart'
     as _i791;
 import 'package:couch_roach/src/services/acquisition/qbittorrent_process.dart'
     as _i312;
+import 'package:couch_roach/src/services/cleanup/completed_torrent_reaper.dart'
+    as _i717;
 import 'package:couch_roach/src/services/cleanup/watched_reaper.dart' as _i380;
 import 'package:couch_roach/src/services/discovery/tmdb_client.dart' as _i819;
 import 'package:couch_roach/src/services/subtitles/movie_hasher.dart' as _i403;
@@ -184,6 +186,11 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i819.DiscoveryClient>(),
           gh<_i657.ErrorLogService>(),
         ));
+    gh.lazySingleton<_i717.CompletedTorrentReaper>(
+        () => _i717.QbittorrentCompletedTorrentReaper(
+              gh<_i156.TorrentDaemon>(),
+              gh<_i657.ErrorLogService>(),
+            ));
     gh.lazySingleton<_i842.MediaScanner>(
         () => _i842.MediaScanner(gh<_i883.StorageManager>()));
     gh.lazySingleton<_i38.LibraryService>(() => _i38.LibraryService(
