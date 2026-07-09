@@ -5,6 +5,25 @@ void main() {
   final now = DateTime(2026, 7, 8);
   DateTime d(String s) => DateTime.parse(s);
 
+  group('isAired', () {
+    test('true for a past air date', () {
+      expect(isAired(d('2026-07-07'), now), isTrue);
+    });
+
+    test('false for a future air date', () {
+      expect(isAired(d('2026-07-09'), now), isFalse);
+    });
+
+    test('true for an air date equal to now (out as of today)', () {
+      // now is 2026-07-08 00:00; an air date of the 8th is not *after* now.
+      expect(isAired(d('2026-07-08'), now), isTrue);
+    });
+
+    test('false when there is no air date', () {
+      expect(isAired(null, now), isFalse);
+    });
+  });
+
   group('hasNewerAiredSeason', () {
     test('true when a later season has already aired', () {
       expect(

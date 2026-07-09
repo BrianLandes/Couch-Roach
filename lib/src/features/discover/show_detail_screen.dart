@@ -15,6 +15,7 @@ import '../../services/acquisition/acquisition.dart';
 import '../acquire/acquire_button.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
+import 'new_episodes.dart';
 import 'trailer_picker.dart';
 
 /// Arguments for the show detail screen (passed via go_router `extra`).
@@ -392,7 +393,15 @@ class _Availability extends StatelessWidget {
       );
     }
 
-    // Not local → inline Download → progress → Play.
+    // Not local and not yet aired → there's nothing to acquire; show when it's
+    // due instead of a dead Download button.
+    final airDate =
+        episode.airDate == null ? null : DateTime.tryParse(episode.airDate!);
+    if (!isAired(airDate, DateTime.now())) {
+      return _UnreleasedBadge(airDate: airDate);
+    }
+
+    // Aired but not local → inline Download → progress → Play.
     final s = seasonNumber.toString().padLeft(2, '0');
     final e = episode.episodeNumber.toString().padLeft(2, '0');
     return AcquireButton(
@@ -401,6 +410,37 @@ class _Availability extends StatelessWidget {
       meta: ShowMeta(title: showName, tmdbId: tmdbId, mediaType: 'tv'),
       season: seasonNumber,
       episode: episode.episodeNumber,
+    );
+  }
+}
+
+/// Shown in place of the Download button for an episode that hasn't aired yet:
+/// its air date when TMDB has one, otherwise a plain "not yet released".
+class _UnreleasedBadge extends StatelessWidget {
+  const _UnreleasedBadge({this.airDate});
+  final DateTime? airDate;
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final date = airDate;
+    final label = date == null
+        ? 'Not yet released'
+        : 'Airs ${_months[date.month - 1]} ${date.day}, ${date.year}';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.schedule_rounded,
+            size: 16, color: AppColors.textTertiary),
+        const SizedBox(width: AppSpacing.xs),
+        Text(label,
+            style: text.labelMedium?.copyWith(color: AppColors.textTertiary)),
+      ],
     );
   }
 }
