@@ -4,12 +4,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
+// Hide media_kit's own `toggleFullscreen` — we drive fullscreen through
+// window_manager (window_service.toggleFullscreen), the app's single source of
+// truth, to avoid two competing fullscreen systems.
+import 'package:media_kit_video/media_kit_video.dart' hide toggleFullscreen;
 
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
 import '../../core/media/ytdlp.dart';
 import '../../core/settings/settings_service.dart';
+import '../../core/window/window_service.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../data/repositories/watch_history_repository.dart';
@@ -22,6 +26,7 @@ import '../../services/subtitles/subtitle_skip_check.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
 import '../acquire/acquire_play.dart';
+import 'credits.dart';
 import 'next_episode.dart';
 
 /// Everything the player needs to open a title. Passed via go_router `extra`
@@ -117,6 +122,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
   LibraryItem? _upNext;
   Timer? _upNextTimer;
   int _upNextSeconds = 0;
+  // Credits detection: chapters read via ffprobe, and the position at which to
+  // roll "Up Next" (a credits chapter, else a runtime-tail heuristic). Computed
+  // once the duration is known. `_creditsChecked` fires the roll at most once
+  // from the position ticks; `_advanced` guards against doing it twice (credits
+  // trigger vs the natural end).
+  List<VideoChapter> _chapters = const [];
+  Duration? _contentRuntime; // the episode's TMDB runtime, if known
+  bool _creditsMetaReady = false;
+  int? _creditsTriggerSec;
+  bool _creditsChecked = false;
+  bool _advanced = false;
+
+  bool get _isTvEpisode =>
+      _currentItem?.mediaType == 'tv' &&
+      _currentItem?.tmdbId != null &&
+      _currentItem?.season != null &&
+      _currentItem?.episode != null;
 
   // Subtitle tracks libmpv currently exposes (embedded streams + anything we've
   // loaded) and the active one, mirrored from the player streams so the
@@ -167,9 +189,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _subs.add(_player.stream.completed.listen((done) {
         if (done) {
           _markCompleted();
-          _onEpisodeEnd();
+          unawaited(_onCreditsOrEnd(atEnd: true));
         }
       }));
+
+      // Credits-detection metadata for a local TV episode: chapters (ffprobe) +
+      // the episode's TMDB runtime (content length). Used by _onPosition to roll
+      // "Up Next" when the credits start rather than at the very end. Best-effort.
+      if (_isTvEpisode && !_isNetworkSource) {
+        unawaited(_loadCreditsMeta());
+      }
       _subs.add(_player.stream.error.listen((message) {
         getIt<ErrorLogService>().logError(
           message,
@@ -335,6 +364,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // in the background so it's ready by the time this one ends.
     _maybePrefetchNext(pos);
 
+    // Roll "Up Next" when the credits start (a credits chapter, else a
+    // runtime-tail heuristic) rather than waiting for the very end.
+    _maybeRollCredits(pos);
+
     // Throttle saves to roughly every 5s of progress so we don't hammer the DB.
     final id = widget.libraryItemId;
     if (id == null || _pendingSeek != null) return;
@@ -356,6 +389,51 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (pos.inSeconds < dur.inSeconds * 0.5) return;
     _prefetchedNext = true;
     unawaited(_prefetchNext(item));
+  }
+
+  /// When playback reaches the detected credits point, roll "Up Next" once (the
+  /// natural end also triggers it, guarded so it only happens once).
+  void _maybeRollCredits(Duration pos) {
+    if (_creditsChecked || !_isTvEpisode) return;
+    final dur = _player.state.duration;
+    if (dur <= Duration.zero || !_creditsMetaReady) return;
+
+    _creditsTriggerSec ??= creditsStart(
+          duration: dur,
+          chapters: _chapters,
+          contentRuntime: _contentRuntime,
+        )?.inSeconds ??
+        -1;
+    final trigger = _creditsTriggerSec!;
+    if (trigger >= 0 && pos.inSeconds >= trigger) {
+      _creditsChecked = true;
+      unawaited(_onCreditsOrEnd(atEnd: false));
+    }
+  }
+
+  /// Load credits-detection metadata for the current episode: chapters (via the
+  /// bundled ffprobe) and the episode's TMDB runtime (content length). Both are
+  /// best-effort; missing data just falls back to the runtime heuristic.
+  Future<void> _loadCreditsMeta() async {
+    final item = _currentItem;
+    if (item?.tmdbId == null || item?.season == null || item?.episode == null) {
+      return;
+    }
+    _chapters = await readVideoChapters(widget.filePath);
+    _contentRuntime =
+        await _episodeRuntime(item!.tmdbId!, item.season!, item.episode!);
+    _creditsMetaReady = true;
+  }
+
+  /// The episode's aired runtime from TMDB, or null if unknown.
+  Future<Duration?> _episodeRuntime(int tmdbId, int season, int episode) async {
+    final details = await getIt<DiscoveryClient>().seasonDetails(tmdbId, season);
+    for (final e in details?.episodes ?? const []) {
+      if (e.episodeNumber == episode && e.runtime != null && e.runtime! > 0) {
+        return Duration(minutes: e.runtime!);
+      }
+    }
+    return null;
   }
 
   /// Download the episode after [item] (S{n}E{e+1}) if it isn't already in the
@@ -404,13 +482,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return nextEpisodeNumber(season, episode, episodeCounts: counts);
   }
 
-  /// On finishing a TV episode, advance to the next one — including rolling from
-  /// the last episode of a season into the first of the next. If it's already
-  /// downloaded → an "Up Next" countdown auto-plays it. If it's still downloading
-  /// (e.g. the prefetch hasn't finished) → open the "Preparing to play" dialog,
-  /// which reattaches to that download, shows its progress, and plays the moment
-  /// it's buffered. No-op for movies/trailers or when there's no next.
-  Future<void> _onEpisodeEnd() async {
+  /// Advance to the next episode — including rolling from the last episode of a
+  /// season into the first of the next. Called both when the credits start
+  /// ([atEnd] false) and at the natural end ([atEnd] true), but acts at most once
+  /// (guarded by [_advanced]).
+  ///
+  /// If the next episode is already downloaded → an "Up Next" countdown auto-plays
+  /// it (so it rolls as the credits play). If it's only downloading, we don't
+  /// interrupt the credits with a blocking dialog — that waits for the natural
+  /// end, then opens the "Preparing to play" dialog, which reattaches to the
+  /// download, shows progress, and plays when buffered. No-op for movies/trailers
+  /// or when there's no next.
+  Future<void> _onCreditsOrEnd({required bool atEnd}) async {
+    if (_advanced) return;
     final item = _currentItem;
     final tmdbId = item?.tmdbId;
     final season = item?.season;
@@ -424,7 +508,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     final next = await _nextEpisodeNumber(tmdbId, season, episode);
-    if (next == null || !mounted) return;
+    if (next == null || !mounted || _advanced) return;
     final (nextSeason, nextEp) = next;
     final showName = item.tmdbName ?? item.title;
 
@@ -437,7 +521,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
     if (localNext != null) {
-      if (!mounted) return;
+      if (!mounted || _advanced) return;
+      _advanced = true;
       setState(() {
         _upNext = localNext;
         _upNextSeconds = 10;
@@ -457,8 +542,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    // 2) Not local — but if it's downloading (the prefetch started it), open the
-    // preparing dialog so it plays when ready.
+    // 2) Not local — if it's downloading (the prefetch started it), open the
+    // preparing dialog. Don't do this mid-credits, only at the natural end, so a
+    // blocking dialog never covers the credits.
+    if (!atEnd) return;
     final daemon = getIt<TorrentDaemon>();
     final downloading = await daemon.taskForDedupeKey(acquisitionDedupeKey(
                 tmdbId: tmdbId,
@@ -469,7 +556,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         await daemon.taskForDedupeKey(acquisitionDedupeKey(
                 tmdbId: tmdbId, title: showName, season: nextSeason)) !=
             null;
-    if (!downloading || !mounted) return;
+    if (!downloading || !mounted || _advanced) return;
+    _advanced = true;
 
     final s = nextSeason.toString().padLeft(2, '0');
     final e = nextEp.toString().padLeft(2, '0');
@@ -627,6 +715,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _back() {
     if (context.canPop()) context.pop();
+  }
+
+  /// Toggle OS-window fullscreen via window_manager — the same path as the F11
+  /// key and the in-controls fullscreen button, so double-click, key, and button
+  /// all drive one fullscreen state. Best-effort; a failure is logged, not fatal.
+  void _toggleFullscreen() {
+    unawaited(toggleFullscreen().catchError((Object e, StackTrace st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.toggleFullscreen');
+    }));
   }
 
   /// Human-readable label for a subtitle track in the picker. Embedded tracks
@@ -812,10 +910,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   /// Controls theme: back button in the top bar (fades with the UI), and a
   /// fullscreen button that drives the OS window fullscreen (window_manager) so
-  /// it's in sync with how the app launches. media_kit's own fullscreen
-  /// (double-press + its button) is disabled to avoid a competing system.
+  /// it's in sync with how the app launches. media_kit's own double-press
+  /// fullscreen is disabled — double-click is routed to our window_manager
+  /// toggle instead (see the outer GestureDetector in [build]) — so there's no
+  /// competing fullscreen system.
   MaterialDesktopVideoControlsThemeData _controlsTheme() {
     return MaterialDesktopVideoControlsThemeData(
+      // Single click on the video toggles play/pause (media_kit guards the
+      // bottom seek-bar region so clicking the scrubber doesn't pause).
+      playAndPauseOnTap: true,
       toggleFullscreenOnDoublePress: false,
       // Hide the mouse pointer together with the controls when they fade out, so
       // a fullscreen TV appliance shows nothing over the video while playing.
@@ -863,10 +966,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       // Right-click anywhere on the video opens the context menu
                       // at the pointer. Secondary tap isn't used by the media_kit
                       // controls (which own primary tap / hover), so they coexist.
+                      // Double-click toggles OS-window fullscreen (window_manager,
+                      // the app's single source of truth). On a genuine double
+                      // tap the DoubleTapGestureRecognizer wins the arena, so the
+                      // inner play/pause tap is rejected and doesn't flicker; a
+                      // single tap times out and falls through to media_kit's
+                      // playAndPauseOnTap handler.
                       Positioned.fill(
                         child: GestureDetector(
                           onSecondaryTapDown: (d) => _subtitleMenuController
                               .open(position: d.localPosition),
+                          onDoubleTap: _toggleFullscreen,
                           child: MaterialDesktopVideoControlsTheme(
                             normal: _controlsTheme(),
                             fullscreen: _controlsTheme(),
