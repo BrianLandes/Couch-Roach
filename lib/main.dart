@@ -24,6 +24,13 @@ void main() {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
 
+      // Bound the decoded-image (poster/still) cache. The TV box is low on RAM,
+      // and the landing page shows many rows of artwork at once — without a cap
+      // the live-bitmap cache grows until the app GC-stutters or is OOM-killed.
+      PaintingBinding.instance.imageCache
+        ..maximumSize = 150
+        ..maximumSizeBytes = 48 << 20; // ~48 MB of decoded bitmaps
+
       // Initialize libmpv (media_kit) before any player is created.
       MediaKit.ensureInitialized();
 

@@ -89,14 +89,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     ),
   );
 
-  // Hardware acceleration is disabled: with GPU rendering, some Windows setups
-  // decode fine but render a solid-color (e.g. blue) frame. CPU rendering is the
-  // reliable path. TODO(perf): expose as a setting and re-try HW accel for
-  // high-res content once we can detect the failure.
+  // Hardware video decoding (libmpv `hwdec`) is user-controlled: it offloads a
+  // weak CPU when the box has a working iGPU, but on some setups it decodes fine
+  // yet renders a solid-color (e.g. blue) frame — so it defaults OFF and is a
+  // Settings toggle the user can flip on to try it on their hardware.
   late final VideoController _controller = VideoController(
     _player,
-    configuration:
-        const VideoControllerConfiguration(enableHardwareAcceleration: false),
+    configuration: VideoControllerConfiguration(
+      enableHardwareAcceleration:
+          getIt<SettingsService>().hardwareVideoAcceleration,
+    ),
   );
 
   WatchHistoryRepository get _history => getIt<WatchHistoryRepository>();
@@ -224,6 +226,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // the app directory. No-op for local files and when yt-dlp isn't bundled
       // (libmpv then falls back to a PATH lookup / its graceful error state).
       await _configureYtdlp();
+      await _configureLowPower();
 
       // Seek is applied on the first ready position tick (see _onPosition).
       await _player.open(Media(widget.filePath));
@@ -244,6 +247,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
   static bool _isNetworkUrl(String path) {
     final uri = Uri.tryParse(path);
     return uri != null && (uri.isScheme('http') || uri.isScheme('https'));
+  }
+
+  /// Low-power decode tuning for underpowered boxes (Settings → Playback):
+  /// skip the deblocking loop filter on non-keyframes and use cheap bilinear
+  /// scaling. Cuts CPU noticeably for a small quality hit; best-effort and never
+  /// blocks playback. No-op when the setting is off.
+  Future<void> _configureLowPower() async {
+    if (!getIt<SettingsService>().lowPowerVideo) return;
+    final platform = _player.platform;
+    if (platform is! NativePlayer) return;
+    try {
+      await platform.setProperty('vd-lavc-fast', 'yes');
+      await platform.setProperty('vd-lavc-skiploopfilter', 'nonkey');
+      await platform.setProperty('scale', 'bilinear');
+      await platform.setProperty('dscale', 'bilinear');
+      await platform.setProperty('cscale', 'bilinear');
+      await platform.setProperty('dither', 'no');
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.lowPower');
+    }
   }
 
   /// Prepare libmpv to resolve a network URL (a trailer) through yt-dlp. Only

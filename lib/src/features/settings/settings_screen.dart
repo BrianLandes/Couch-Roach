@@ -116,6 +116,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onChanged: (v) => _set(_settings.setExcludeSignLanguage(v)),
               ),
 
+              // ── Performance ───────────────────────────────────────────────
+              const SizedBox(height: AppSpacing.xl),
+              _SectionLabel('Video performance', text: text),
+              _ToggleRow(
+                title: 'Hardware video acceleration',
+                subtitle:
+                    'Use the GPU to decode — try turning this on to reduce '
+                    'stutter. If video shows blank or a solid color, turn it off.',
+                value: _settings.hardwareVideoAcceleration,
+                onChanged: (v) =>
+                    _set(_settings.setHardwareVideoAcceleration(v)),
+              ),
+              _ToggleRow(
+                title: 'Low-power mode',
+                subtitle:
+                    'Trade a little sharpness for much lower CPU use — helps on '
+                    'a weak box that stutters. (Applies on the next video.)',
+                value: _settings.lowPowerVideo,
+                onChanged: (v) => _set(_settings.setLowPowerVideo(v)),
+              ),
+
               // ── Streaming / VPN ───────────────────────────────────────────
               const SizedBox(height: AppSpacing.xl),
               _SectionLabel('Streaming', text: text),

@@ -24,6 +24,8 @@ class SettingsService extends ChangeNotifier {
   static const _kCleanupGraceDays = 'cleanupGraceDays';
   static const _kPreferSurround = 'preferSurroundAudio';
   static const _kExcludeSignLanguage = 'excludeSignLanguage';
+  static const _kHardwareVideo = 'hardwareVideoAcceleration';
+  static const _kLowPowerVideo = 'lowPowerVideo';
 
   Future<void> load() async {
     final rows = await _db.select(_db.settings).get();
@@ -55,6 +57,15 @@ class SettingsService extends ChangeNotifier {
   /// subtitle picking.
   bool get excludeSignLanguage => _boolOr(_kExcludeSignLanguage, true);
 
+  /// Use GPU hardware video decoding (libmpv `hwdec`). Off by default: some
+  /// setups decode fine but render a solid-color frame. A box with a working
+  /// iGPU should turn this ON — it offloads decoding from a weak CPU.
+  bool get hardwareVideoAcceleration => _boolOr(_kHardwareVideo, false);
+
+  /// Trade a little video quality for much lower CPU use (skip the deblocking
+  /// loop filter, cheap scaling). For underpowered boxes that stutter.
+  bool get lowPowerVideo => _boolOr(_kLowPowerVideo, false);
+
   // ── setters ─────────────────────────────────────────────────────────────────
 
   Future<void> setAutoDownloadSubtitles(bool v) => _setBool(_kAutoSubs, v);
@@ -64,6 +75,9 @@ class SettingsService extends ChangeNotifier {
   Future<void> setPreferSurroundAudio(bool v) => _setBool(_kPreferSurround, v);
   Future<void> setExcludeSignLanguage(bool v) =>
       _setBool(_kExcludeSignLanguage, v);
+  Future<void> setHardwareVideoAcceleration(bool v) =>
+      _setBool(_kHardwareVideo, v);
+  Future<void> setLowPowerVideo(bool v) => _setBool(_kLowPowerVideo, v);
 
   // ── internals ───────────────────────────────────────────────────────────────
 
