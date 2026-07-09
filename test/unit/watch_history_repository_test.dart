@@ -107,6 +107,47 @@ void main() {
     expect(await history.forItem(id), isNull);
   });
 
+  test('watchReapCandidates lists completed, present, unpinned items only',
+      () async {
+    final done = await seedItem('/m/done.mkv');
+    final inProgress = await seedItem('/m/wip.mkv');
+    await history.record(
+        libraryItemId: done,
+        position: const Duration(seconds: 900),
+        completed: true);
+    await history.record(
+        libraryItemId: inProgress, position: const Duration(seconds: 300));
+
+    final queue = await history.watchReapCandidates().first;
+    expect(queue.map((c) => c.item.id), [done]);
+    // The candidate carries when it was last watched (drives the "deletes in N
+    // days" countdown in Settings).
+    expect(queue.single.lastWatchedAt, isNotNull);
+  });
+
+  test('watchReapCandidates excludes pinned (keep) and missing items',
+      () async {
+    final kept = await seedItem('/m/kept.mkv');
+    final gone = await seedItem('/m/gone.mkv');
+    final reapable = await seedItem('/m/reap.mkv');
+    for (final id in [kept, gone, reapable]) {
+      await history.record(
+          libraryItemId: id,
+          position: const Duration(seconds: 900),
+          completed: true);
+    }
+    // Pin one and flag another missing — both drop out of the queue.
+    await library.setKeep(kept, true);
+    await library.markMissing(gone);
+
+    final queue = await history.watchReapCandidates().first;
+    expect(queue.map((c) => c.item.id), [reapable]);
+
+    // Pinning a queued item live-removes it from the stream.
+    await library.setKeep(reapable, true);
+    expect(await history.watchReapCandidates().first, isEmpty);
+  });
+
   test('watch history survives the file disappearing (flag, not delete)', () async {
     final id = await seedItem('/disk1/a.mkv');
     await history.record(

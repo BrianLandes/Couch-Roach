@@ -33,6 +33,17 @@ class ContinueWatchingEntry {
   }
 }
 
+/// A watched, still-present file the cleanup reaper will delete: the library row
+/// plus when it was last watched, so the UI can show how long until (or that)
+/// it's past the grace period. The reaper deletes it once `lastWatchedAt` is
+/// older than the configured grace period, unless the user pins it `keep`.
+class ReapCandidate {
+  const ReapCandidate({required this.item, required this.lastWatchedAt});
+
+  final LibraryItem item;
+  final DateTime lastWatchedAt;
+}
+
 /// The furthest-watched episode of a matched TV show — the seed for the "New
 /// Episodes For You" rail (compare against what's since aired on TMDB).
 class WatchedShow {
@@ -90,6 +101,13 @@ abstract class WatchHistoryRepository {
   /// Present, non-kept library items whose watch is `completed` and whose last
   /// watch was before [before] — the auto-cleanup reaper's delete candidates.
   Future<List<LibraryItem>> reapable(DateTime before);
+
+  /// Every present, non-kept, `completed` item the reaper is tracking — the full
+  /// pending-cleanup queue regardless of grace period — soonest-reaped first.
+  /// Live, so pinning "keep" (or watching more) updates the Settings list. The
+  /// UI compares each `lastWatchedAt` against the grace period to show when it
+  /// will be (or already is) deleted.
+  Stream<List<ReapCandidate>> watchReapCandidates();
 }
 
 @LazySingleton(as: WatchHistoryRepository)
@@ -264,6 +282,35 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
           _db.libraryItems.missing.equals(false));
     final rows = await query.get();
     return rows.map((r) => r.readTable(_db.libraryItems)).toList();
+  }
+
+  @override
+  Stream<List<ReapCandidate>> watchReapCandidates() {
+    final query = _db.select(_db.watchHistory).join([
+      innerJoin(
+        _db.libraryItems,
+        _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
+      ),
+    ])
+      ..where(_db.watchHistory.completed.equals(true) &
+          _db.libraryItems.keep.equals(false) &
+          _db.libraryItems.missing.equals(false))
+      // Oldest watch first: the one nearest (or furthest past) the grace cutoff.
+      ..orderBy([
+        OrderingTerm(
+          expression: _db.watchHistory.lastWatchedAt,
+          mode: OrderingMode.asc,
+        ),
+      ]);
+
+    return query.watch().map((rows) {
+      return rows.map((row) {
+        return ReapCandidate(
+          item: row.readTable(_db.libraryItems),
+          lastWatchedAt: row.readTable(_db.watchHistory).lastWatchedAt,
+        );
+      }).toList();
+    });
   }
 
   @override

@@ -8,6 +8,8 @@ import '../../core/logging/error_log_service.dart';
 import '../../core/platform/open_url.dart';
 import '../../core/settings/settings_service.dart';
 import '../../core/storage/storage_manager.dart';
+import '../../data/repositories/library_repository.dart';
+import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
 import '../../services/acquisition/jackett_process.dart';
 import '../../theme/theme.dart';
@@ -183,7 +185,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 value: _settings.cleanupEnabled,
                 onChanged: (v) => _set(_settings.setCleanupEnabled(v)),
               ),
-              if (_settings.cleanupEnabled)
+              if (_settings.cleanupEnabled) ...[
                 _StepperRow(
                   title: 'Grace period',
                   valueLabel: '${_settings.cleanupGraceDays} '
@@ -197,6 +199,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           .setCleanupGraceDays(_settings.cleanupGraceDays + 1))
                       : null,
                 ),
+                _ReapQueue(gracePeriod: _settings.cleanupGracePeriod),
+              ],
 
               // ── Library folders ───────────────────────────────────────────
               const SizedBox(height: AppSpacing.xl),
@@ -451,6 +455,144 @@ class _StepperRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The pending auto-cleanup queue: watched, unpinned files still on disk, with
+/// how long until (or that) each is past the grace period, and a **Keep** action
+/// that pins a title so it's never auto-deleted. Live — pinning drops the row.
+class _ReapQueue extends ConsumerWidget {
+  const _ReapQueue({required this.gracePeriod});
+
+  final Duration gracePeriod;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    final candidates = ref.watch(reapCandidatesProvider);
+
+    return candidates.when(
+      loading: () => const SizedBox.shrink(),
+      error: (e, _) => Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.md),
+        child: Text('Could not load the cleanup queue: $e',
+            style: text.bodySmall?.copyWith(color: AppColors.danger)),
+      ),
+      data: (items) {
+        if (items.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+            child: Text(
+              'Nothing is queued for cleanup — watched titles show up here '
+              'before they’re deleted.',
+              style:
+                  text.bodySmall?.copyWith(color: AppColors.textSecondary),
+            ),
+          );
+        }
+        return GlassSurface(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final c in items)
+                _ReapRow(
+                  candidate: c,
+                  gracePeriod: gracePeriod,
+                  onKeep: () =>
+                      getIt<LibraryRepository>().setKeep(c.item.id, true),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ReapRow extends StatelessWidget {
+  const _ReapRow({
+    required this.candidate,
+    required this.gracePeriod,
+    required this.onKeep,
+  });
+
+  final ReapCandidate candidate;
+  final Duration gracePeriod;
+  final VoidCallback onKeep;
+
+  /// "Show — S01E03" for a matched episode, otherwise the plain title.
+  String get _label {
+    final item = candidate.item;
+    final name = item.tmdbName ?? item.title;
+    final s = item.season, e = item.episode;
+    if (s != null && e != null) {
+      final code = 'S${s.toString().padLeft(2, '0')}'
+          'E${e.toString().padLeft(2, '0')}';
+      return '$name · $code';
+    }
+    return name;
+  }
+
+  /// "Deletes in 3 days" / "Deletes today" / "Ready to delete now".
+  String get _timing {
+    final left = candidate.lastWatchedAt.add(gracePeriod).difference(
+          DateTime.now(),
+        );
+    if (left.inSeconds <= 0) return 'Ready to delete now';
+    final days = left.inDays;
+    if (days >= 1) return 'Deletes in $days day${days == 1 ? '' : 's'}';
+    if (left.inHours >= 1) {
+      return 'Deletes in ${left.inHours} hour${left.inHours == 1 ? '' : 's'}';
+    }
+    return 'Deletes today';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final ready = candidate.lastWatchedAt.add(gracePeriod).isBefore(
+          DateTime.now(),
+        );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Row(
+        children: [
+          Icon(
+            ready
+                ? Icons.auto_delete_rounded
+                : Icons.schedule_rounded,
+            size: 20,
+            color: ready ? AppColors.danger : AppColors.textTertiary,
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_label,
+                    style: text.titleSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: AppSpacing.xs),
+                Text(_timing,
+                    style: text.bodySmall?.copyWith(
+                      color:
+                          ready ? AppColors.danger : AppColors.textSecondary,
+                    )),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          OutlinedButton.icon(
+            onPressed: onKeep,
+            icon: const Icon(Icons.push_pin_outlined, size: 18),
+            label: const Text('Keep'),
+          ),
+        ],
       ),
     );
   }
