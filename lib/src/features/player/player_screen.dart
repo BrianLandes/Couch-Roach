@@ -30,6 +30,7 @@ import '../discover/new_episodes.dart' show isAired;
 import 'credits.dart';
 import 'next_episode.dart';
 import 'next_episode_button.dart';
+import 'subtitle_label.dart';
 
 /// Everything the player needs to open a title. Passed via go_router `extra`
 /// (file paths don't belong in a URL).
@@ -968,18 +969,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// Human-readable label for a subtitle track in the picker. Embedded tracks
   /// often carry a title (e.g. "English SDH", "Forced") and/or a language code;
   /// surface whatever's there so the user can tell a full track from a
-  /// forced/signs-only one.
-  String _subtitleLabel(SubtitleTrack t) {
-    if (t.id == 'no') return 'Off';
-    if (t.id == 'auto') return 'Auto';
-    final title = t.title?.trim();
-    final lang = t.language?.trim();
-    if (title != null && title.isNotEmpty) {
-      return (lang != null && lang.isNotEmpty) ? '$title ($lang)' : title;
-    }
-    if (lang != null && lang.isNotEmpty) return lang;
-    return 'Track ${t.id}';
-  }
+  /// forced/signs-only one — with a verbose title truncated so it doesn't blow
+  /// out the menu (see [subtitleTrackLabel]).
+  String _subtitleLabel(SubtitleTrack t) =>
+      subtitleTrackLabel(id: t.id, title: t.title, language: t.language);
 
   /// Switch to [track] and log the choice. Optimistically updates the checkmark;
   /// the `stream.track` listener confirms it.
