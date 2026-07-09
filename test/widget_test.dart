@@ -147,7 +147,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Game of Thrones'), findsOneWidget);
+    // The show name renders in two places now: the hero card and the pinned
+    // header (faded out until you scroll, but present in the tree).
+    expect(find.text('Game of Thrones'), findsNWidgets(2));
     expect(find.textContaining('Winter Is Coming'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());

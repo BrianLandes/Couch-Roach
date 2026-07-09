@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../router/app_router.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../../theme/theme.dart';
-import '../../widgets/app_back_button.dart';
+import '../../widgets/detail_scaffold.dart';
 import '../../widgets/poster_art.dart';
 import '../acquire/acquire_button.dart';
 import '../player/player_screen.dart';
@@ -28,77 +28,58 @@ class MovieDetailScreen extends ConsumerWidget {
     final trailerUrl =
         ref.watch(trailerUrlProvider((tile.tmdbId, false))).asData?.value;
 
-    return Scaffold(
-      body: AmbientBackground(
-        child: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.screenPadding,
-              AppSpacing.md,
-              AppSpacing.screenPadding,
-              AppSpacing.screenPadding,
-            ),
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const AppBackButton(),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(child: _Hero(tile: tile)),
-                ],
+    return DetailScaffold(
+      title: tile.title,
+      children: [
+        _Hero(tile: tile),
+        const SizedBox(height: AppSpacing.lg),
+        Wrap(
+          spacing: AppSpacing.md,
+          runSpacing: AppSpacing.md,
+          children: [
+            if (local != null)
+              FilledButton.icon(
+                autofocus: true,
+                onPressed: () => context.push(
+                  Routes.player,
+                  extra: PlayerArgs(
+                    filePath: local.filePath,
+                    title: local.tmdbName ?? local.title,
+                    libraryItemId: local.id,
+                  ),
+                ),
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Play'),
+              )
+            else
+              AcquireButton(
+                autofocus: true,
+                title: tile.title,
+                meta: ShowMeta(
+                  title: tile.title,
+                  tmdbId: tile.tmdbId,
+                  mediaType: 'movie',
+                ),
               ),
-              const SizedBox(height: AppSpacing.lg),
-              Wrap(
-                spacing: AppSpacing.md,
-                runSpacing: AppSpacing.md,
-                children: [
-                  if (local != null)
-                    FilledButton.icon(
-                      autofocus: true,
-                      onPressed: () => context.push(
-                        Routes.player,
-                        extra: PlayerArgs(
-                          filePath: local.filePath,
-                          title: local.tmdbName ?? local.title,
-                          libraryItemId: local.id,
-                        ),
-                      ),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('Play'),
-                    )
-                  else
-                    AcquireButton(
-                      autofocus: true,
-                      title: tile.title,
-                      meta: ShowMeta(
-                        title: tile.title,
-                        tmdbId: tile.tmdbId,
-                        mediaType: 'movie',
-                      ),
-                    ),
-                  if (trailerUrl != null)
-                    OutlinedButton.icon(
-                      onPressed: () => showTrailerPicker(
-                        context,
-                        tmdbId: tile.tmdbId,
-                        isTv: false,
-                        title: tile.title,
-                      ),
-                      icon: const Icon(Icons.movie_outlined),
-                      label: const Text('Trailers'),
-                    ),
-                ],
+            if (trailerUrl != null)
+              OutlinedButton.icon(
+                onPressed: () => showTrailerPicker(
+                  context,
+                  tmdbId: tile.tmdbId,
+                  isTv: false,
+                  title: tile.title,
+                ),
+                icon: const Icon(Icons.movie_outlined),
+                label: const Text('Trailers'),
               ),
-              if (tile.overview.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.xl),
-                Text(tile.overview,
-                    style: text.bodyMedium
-                        ?.copyWith(color: AppColors.textSecondary)),
-              ],
-            ],
-          ),
+          ],
         ),
-      ),
+        if (tile.overview.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.xl),
+          Text(tile.overview,
+              style: text.bodyMedium?.copyWith(color: AppColors.textSecondary)),
+        ],
+      ],
     );
   }
 }

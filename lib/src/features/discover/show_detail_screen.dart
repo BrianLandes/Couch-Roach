@@ -9,7 +9,7 @@ import '../../data/tmdb/tmdb_images.dart';
 import '../../data/tmdb/tv_show_details.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
-import '../../widgets/app_back_button.dart';
+import '../../widgets/detail_scaffold.dart';
 import '../../widgets/poster_art.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../acquire/acquire_button.dart';
@@ -41,98 +41,84 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final detailAsync = ref.watch(tvDetailsProvider(widget.args.tmdbId));
-    return Scaffold(
-      body: AmbientBackground(
-        child: SafeArea(
-          child: detailAsync.when(
-            loading: () => _framed(
-              const Center(child: CircularProgressIndicator()),
+    // The show name is known from the route args even before TMDB loads, so the
+    // pinned header (and back button) are stable across all three states.
+    return DetailScaffold(
+      title: widget.args.name,
+      children: detailAsync.when(
+        loading: () =>
+            const [_CenteredNotice(child: CircularProgressIndicator())],
+        error: (e, _) => const [
+          _CenteredNotice(
+            child: Text(
+              'Could not load details — see the error log.',
+              style: TextStyle(color: AppColors.danger),
             ),
-            error: (e, _) => _framed(
-              const Center(
-                child: Text(
-                  'Could not load details — see the error log.',
-                  style: TextStyle(color: AppColors.danger),
-                ),
-              ),
-            ),
-            data: (details) => details == null
-                ? _framed(const Center(child: Text('Not found on TMDB')))
-                : _content(details),
           ),
-        ),
+        ],
+        data: (details) => details == null
+            ? const [_CenteredNotice(child: Text('Not found on TMDB'))]
+            : _contentChildren(details),
       ),
     );
   }
 
-  // A back button over arbitrary body content (loading / error states).
-  Widget _framed(Widget body) {
-    return Stack(
-      children: [
-        Positioned.fill(child: body),
-        const Padding(
-          padding: EdgeInsets.all(AppSpacing.sm),
-          child: Align(alignment: Alignment.topLeft, child: AppBackButton()),
-        ),
-      ],
-    );
-  }
-
-  Widget _content(TvShowDetails details) {
-    final seasons =
-        details.seasons.where((s) => s.seasonNumber >= 1).toList(growable: false);
-    final selected = _season ??
-        (seasons.isNotEmpty ? seasons.first.seasonNumber : null);
+  List<Widget> _contentChildren(TvShowDetails details) {
+    final seasons = details.seasons
+        .where((s) => s.seasonNumber >= 1)
+        .toList(growable: false);
+    final selected =
+        _season ?? (seasons.isNotEmpty ? seasons.first.seasonNumber : null);
     final trailerUrl =
         ref.watch(trailerUrlProvider((details.tmdbId, true))).asData?.value;
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.screenPadding,
-        AppSpacing.md,
-        AppSpacing.screenPadding,
-        AppSpacing.screenPadding,
-      ),
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const AppBackButton(),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(child: _Hero(details: details)),
-          ],
-        ),
-        if (trailerUrl != null) ...[
-          const SizedBox(height: AppSpacing.lg),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: OutlinedButton.icon(
-              onPressed: () => showTrailerPicker(
-                context,
-                tmdbId: details.tmdbId,
-                isTv: true,
-                title: details.name,
-              ),
-              icon: const Icon(Icons.movie_outlined),
-              label: const Text('Trailers'),
+    return [
+      _Hero(details: details),
+      if (trailerUrl != null) ...[
+        const SizedBox(height: AppSpacing.lg),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: () => showTrailerPicker(
+              context,
+              tmdbId: details.tmdbId,
+              isTv: true,
+              title: details.name,
             ),
+            icon: const Icon(Icons.movie_outlined),
+            label: const Text('Trailers'),
           ),
-        ],
-        const SizedBox(height: AppSpacing.xl),
-        if (seasons.isNotEmpty && selected != null) ...[
-          _SeasonChips(
-            seasons: seasons,
-            selected: selected,
-            onSelect: (n) => setState(() => _season = n),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          _EpisodeList(
-            tmdbId: details.tmdbId,
-            seasonNumber: selected,
-            showName: details.name,
-          ),
-        ],
+        ),
       ],
+      const SizedBox(height: AppSpacing.xl),
+      if (seasons.isNotEmpty && selected != null) ...[
+        _SeasonChips(
+          seasons: seasons,
+          selected: selected,
+          onSelect: (n) => setState(() => _season = n),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _EpisodeList(
+          tmdbId: details.tmdbId,
+          seasonNumber: selected,
+          showName: details.name,
+        ),
+      ],
+    ];
+  }
+}
+
+/// A loading/error/empty notice, dropped a little below the pinned header so it
+/// isn't tucked under it in the detail scaffold's scroll body.
+class _CenteredNotice extends StatelessWidget {
+  const _CenteredNotice({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.xxl * 2),
+      child: Center(child: child),
     );
   }
 }
@@ -144,9 +130,10 @@ class _Hero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final year = details.firstAirDate != null && details.firstAirDate!.length >= 4
-        ? details.firstAirDate!.substring(0, 4)
-        : null;
+    final year =
+        details.firstAirDate != null && details.firstAirDate!.length >= 4
+            ? details.firstAirDate!.substring(0, 4)
+            : null;
     final meta = [
       if (year != null) year,
       if (details.numberOfSeasons != null)
@@ -166,7 +153,8 @@ class _Hero extends StatelessWidget {
               borderRadius: AppRadii.rMd,
               child: AspectRatio(
                 aspectRatio: 2 / 3,
-                child: PosterArt(posterPath: details.posterPath, seed: details.name),
+                child: PosterArt(
+                    posterPath: details.posterPath, seed: details.name),
               ),
             ),
           ),
@@ -188,8 +176,7 @@ class _Hero extends StatelessWidget {
                     spacing: AppSpacing.sm,
                     runSpacing: AppSpacing.sm,
                     children: [
-                      for (final g in details.genres)
-                        Chip(label: Text(g.name)),
+                      for (final g in details.genres) Chip(label: Text(g.name)),
                     ],
                   ),
                 ],

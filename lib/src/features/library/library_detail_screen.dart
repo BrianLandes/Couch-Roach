@@ -6,7 +6,7 @@ import '../../data/repositories/library_repository.dart';
 import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
-import '../../widgets/app_back_button.dart';
+import '../../widgets/detail_scaffold.dart';
 import '../../widgets/poster_art.dart';
 import '../discover/show_detail_screen.dart';
 import '../player/player_screen.dart';
@@ -49,78 +49,59 @@ class _LibraryDetailScreenState extends State<LibraryDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    return Scaffold(
-      body: AmbientBackground(
-        child: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.screenPadding,
-              AppSpacing.md,
-              AppSpacing.screenPadding,
-              AppSpacing.screenPadding,
-            ),
+    return DetailScaffold(
+      title: item.tmdbName ?? item.title,
+      children: [
+        _Hero(item: item),
+        const SizedBox(height: AppSpacing.lg),
+        if (item.missing)
+          Text(
+            "This file isn't on disk right now — its drive may be "
+            'disconnected, or it was cleaned up after watching.',
+            style: text.bodyMedium?.copyWith(color: AppColors.warning),
+          )
+        else
+          Wrap(
+            spacing: AppSpacing.md,
+            runSpacing: AppSpacing.md,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const AppBackButton(),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(child: _Hero(item: item)),
-                ],
+              FilledButton.icon(
+                autofocus: true,
+                onPressed: _play,
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Play'),
               ),
-              const SizedBox(height: AppSpacing.lg),
-              if (item.missing)
-                Text(
-                  "This file isn't on disk right now — its drive may be "
-                  'disconnected, or it was cleaned up after watching.',
-                  style: text.bodyMedium?.copyWith(color: AppColors.warning),
-                )
-              else
-                Wrap(
-                  spacing: AppSpacing.md,
-                  runSpacing: AppSpacing.md,
-                  children: [
-                    FilledButton.icon(
-                      autofocus: true,
-                      onPressed: _play,
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('Play'),
+              // Pin as "keep" so auto-cleanup never deletes it after a
+              // watch — for the couple of rewatch titles.
+              OutlinedButton.icon(
+                onPressed: _toggleKeep,
+                icon: Icon(_keep
+                    ? Icons.bookmark_rounded
+                    : Icons.bookmark_border_rounded),
+                label: Text(_keep ? 'Kept' : 'Keep'),
+              ),
+              if (_isMatchedTv)
+                OutlinedButton.icon(
+                  onPressed: () => context.push(
+                    Routes.showDetail,
+                    extra: ShowDetailArgs(
+                      tmdbId: item.tmdbId!,
+                      name: item.tmdbName ?? item.title,
                     ),
-                    // Pin as "keep" so auto-cleanup never deletes it after a
-                    // watch — for the couple of rewatch titles.
-                    OutlinedButton.icon(
-                      onPressed: _toggleKeep,
-                      icon: Icon(_keep
-                          ? Icons.bookmark_rounded
-                          : Icons.bookmark_border_rounded),
-                      label: Text(_keep ? 'Kept' : 'Keep'),
-                    ),
-                    if (_isMatchedTv)
-                      OutlinedButton.icon(
-                        onPressed: () => context.push(
-                          Routes.showDetail,
-                          extra: ShowDetailArgs(
-                            tmdbId: item.tmdbId!,
-                            name: item.tmdbName ?? item.title,
-                          ),
-                        ),
-                        icon: const Icon(Icons.grid_view_rounded),
-                        label: const Text('View full show'),
-                      ),
-                  ],
+                  ),
+                  icon: const Icon(Icons.grid_view_rounded),
+                  label: const Text('View full show'),
                 ),
-              if (_keep && !item.missing) ...[
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  'Kept — exempt from auto-cleanup after watching.',
-                  style: text.labelMedium
-                      ?.copyWith(color: AppColors.textTertiary),
-                ),
-              ],
             ],
           ),
-        ),
-      ),
+        if (_keep && !item.missing) ...[
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Kept — exempt from auto-cleanup after watching.',
+            style: text.labelMedium?.copyWith(color: AppColors.textTertiary),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -153,8 +134,7 @@ class _Hero extends StatelessWidget {
               borderRadius: AppRadii.rMd,
               child: AspectRatio(
                 aspectRatio: 2 / 3,
-                child: PosterArt(
-                    posterPath: item.tmdbPosterPath, seed: title),
+                child: PosterArt(posterPath: item.tmdbPosterPath, seed: title),
               ),
             ),
           ),
