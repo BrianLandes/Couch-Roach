@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -188,6 +189,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // against double-runs and drives the menu item's "Downloading…" label.
   bool _subtitlesDownloading = false;
 
+  // Temp dir holding a trailer's downloaded caption sidecar (YouTube captions,
+  // fetched via yt-dlp since the resolved direct stream carries none). Cleaned
+  // up on dispose.
+  Directory? _trailerSubDir;
+
   // Per-title subtitle timing offset (ms), applied as mpv `sub-delay` and
   // persisted on the library row so a re-watch stays corrected. Range is
   // clamped to ±10s in the editor.
@@ -283,7 +289,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       // Playback has started — fetch English subtitles in the background and
       // load them into the running player if they arrive. Never blocks play.
-      unawaited(_ensureSubtitles());
+      // Library titles pull from OpenSubtitles; a trailer pulls YouTube captions
+      // via yt-dlp (the resolved direct stream has none of its own).
+      unawaited(_isNetworkSource ? _ensureTrailerSubtitles() : _ensureSubtitles());
 
       // Resolve the following episode (and whether it's already local) so the
       // bottom-right "Next Episode" button can appear. Best-effort, off the UI.
@@ -418,6 +426,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
     log.info('ensuring English subtitles for ${widget.filePath}',
         source: 'PlayerScreen.ensureSubtitles');
     await _downloadAndSelectEnglish();
+  }
+
+  /// Fetch a trailer's English captions from YouTube (via the bundled yt-dlp)
+  /// and load them into the player. The resolved direct stream carries no
+  /// captions of its own, so this is the only way a trailer gets subtitles.
+  /// Honors the same auto-download setting as library titles; best-effort and
+  /// off the play path. The sidecar lands in a temp dir cleaned up on dispose.
+  Future<void> _ensureTrailerSubtitles() async {
+    if (!_isNetworkSource) return;
+    if (!getIt<SettingsService>().autoDownloadSubtitles) return;
+    final log = getIt<ErrorLogService>();
+    try {
+      final dir = await Directory.systemTemp.createTemp('cr_trailer_sub');
+      _trailerSubDir = dir;
+      final sub = await fetchNetworkSubtitle(widget.filePath, destDir: dir.path);
+      if (sub == null) {
+        log.info('no captions available for trailer ${widget.filePath}',
+            source: 'PlayerScreen.trailerSubs');
+        return;
+      }
+      if (!mounted) return;
+      await _player.setSubtitleTrack(
+        SubtitleTrack.uri(sub, title: 'English', language: 'en'),
+      );
+      log.info('loaded trailer captions: $sub',
+          source: 'PlayerScreen.trailerSubs');
+    } catch (e, st) {
+      log.logError(e, stackTrace: st, source: 'PlayerScreen.trailerSubs');
+    }
   }
 
   /// Manual trigger from the right-click menu — the escape hatch when
@@ -1045,6 +1082,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _persistFinal();
     _autoAdvanceTimer?.cancel();
     _controlsHideTimer?.cancel();
+    // Best-effort: remove the trailer's downloaded caption sidecar.
+    _trailerSubDir?.delete(recursive: true).ignore();
     for (final s in _subs) {
       s.cancel();
     }

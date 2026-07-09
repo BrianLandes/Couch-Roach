@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'ytdlp.dart';
 
 /// A directly-playable stream resolved from a page URL (a YouTube trailer): the
@@ -64,6 +66,58 @@ Future<ResolvedStream?> resolveNetworkStream(String url) async {
     ]);
     if (res.exitCode != 0) return null;
     return parseYtDlpJson(res.stdout as String);
+  } on ProcessException {
+    return null; // yt-dlp not bundled and not on PATH
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Pick the best subtitle sidecar from [paths] (what yt-dlp wrote): a `.vtt`
+/// (mpv reads WebVTT natively) or `.srt`, preferring the shortest filename so a
+/// plain `…​.en.vtt` wins over a regional `…​.en-US.vtt`. Null when none match.
+/// Pure + tested.
+String? pickSubtitleFile(Iterable<String> paths) {
+  final subs = paths.where((path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.vtt') || lower.endsWith('.srt');
+  }).toList()
+    ..sort((a, b) => a.length.compareTo(b.length));
+  return subs.isEmpty ? null : subs.first;
+}
+
+/// Download a page URL's English caption track with the bundled yt-dlp and
+/// return the sidecar path, or null when there are no captions (or yt-dlp is
+/// unavailable). Used to give trailers subtitles — mpv plays the direct stream
+/// we resolved, which carries none. Written as `.vtt` (no ffmpeg needed to
+/// convert, and mpv reads WebVTT); manual captions are preferred over
+/// auto-generated. Files land in [destDir] (a caller-owned temp dir it cleans
+/// up). Best-effort: never throws.
+Future<String?> fetchNetworkSubtitle(
+  String url, {
+  required String destDir,
+  String lang = 'en',
+}) async {
+  final ytDlp =
+      bundledYtDlpPath() ?? (Platform.isWindows ? 'yt-dlp.exe' : 'yt-dlp');
+  try {
+    final res = await Process.run(ytDlp, [
+      '--skip-download',
+      '--write-subs',
+      '--write-auto-subs',
+      '--sub-langs', '$lang.*,$lang',
+      '--sub-format', 'vtt',
+      '--no-playlist',
+      '--no-warnings',
+      // Same IPv4 pin as the stream resolve — keep the caption fetch aligned.
+      '--force-ipv4',
+      '-o', p.join(destDir, 'trailer'),
+      url,
+    ]);
+    if (res.exitCode != 0) return null;
+    final dir = Directory(destDir);
+    if (!dir.existsSync()) return null;
+    return pickSubtitleFile(dir.listSync().whereType<File>().map((f) => f.path));
   } on ProcessException {
     return null; // yt-dlp not bundled and not on PATH
   } catch (_) {

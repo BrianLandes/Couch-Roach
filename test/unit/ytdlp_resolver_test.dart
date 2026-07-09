@@ -56,4 +56,38 @@ void main() {
       expect(stream!.headers['X-Retry'], '3');
     });
   });
+
+  group('pickSubtitleFile', () {
+    test('returns null when nothing looks like a subtitle', () {
+      expect(pickSubtitleFile(const []), isNull);
+      expect(
+        pickSubtitleFile(const ['/t/trailer.mp4', '/t/trailer.info.json']),
+        isNull,
+      );
+    });
+
+    test('picks a .vtt (and .srt) sidecar', () {
+      expect(pickSubtitleFile(const ['/t/trailer.en.vtt']), '/t/trailer.en.vtt');
+      expect(pickSubtitleFile(const ['/t/trailer.en.srt']), '/t/trailer.en.srt');
+    });
+
+    test('prefers the plain language over a regional variant (shortest name)',
+        () {
+      final pick = pickSubtitleFile(const [
+        '/t/trailer.en-US.vtt',
+        '/t/trailer.en.vtt',
+        '/t/trailer.en-GB.vtt',
+      ]);
+      expect(pick, '/t/trailer.en.vtt');
+    });
+
+    test('ignores non-subtitle files mixed in', () {
+      final pick = pickSubtitleFile(const [
+        '/t/trailer.mp4',
+        '/t/trailer.en.vtt',
+        '/t/trailer.jpg',
+      ]);
+      expect(pick, '/t/trailer.en.vtt');
+    });
+  });
 }
