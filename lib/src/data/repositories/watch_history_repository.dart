@@ -63,6 +63,14 @@ abstract class WatchHistoryRepository {
   /// and files flagged missing.
   Stream<List<ContinueWatchingEntry>> watchContinueWatching({int limit = 20});
 
+  /// Remove a title from the Continue Watching rail without deleting its history
+  /// or marking it watched: clears the resume position so it drops out of the
+  /// rail (the feed filters on `resumePositionSec > 0`) and simply restarts from
+  /// the beginning next time. Left `completed = false`, so it neither triggers
+  /// the cleanup reaper nor stops seeding the recommendation rails. No-op when
+  /// there's no history row for [libraryItemId].
+  Future<void> dismissFromContinueWatching(int libraryItemId);
+
   /// Insert or update the row for [libraryItemId]. When [completed] is true the
   /// resume position is cleared so the title restarts next time.
   Future<void> record({
@@ -163,6 +171,13 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         );
       }).toList();
     });
+  }
+
+  @override
+  Future<void> dismissFromContinueWatching(int libraryItemId) {
+    return (_db.update(_db.watchHistory)
+          ..where((t) => t.libraryItemId.equals(libraryItemId)))
+        .write(const WatchHistoryCompanion(resumePositionSec: Value(0)));
   }
 
   @override

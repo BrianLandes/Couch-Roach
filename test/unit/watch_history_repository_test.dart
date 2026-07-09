@@ -76,6 +76,37 @@ void main() {
     expect(ids.length, 2);
   });
 
+  test('dismissFromContinueWatching drops the item from the rail but keeps '
+      'the row and does not mark it completed', () async {
+    final id = await seedItem('/m/a.mkv');
+    await history.record(
+        libraryItemId: id,
+        position: const Duration(seconds: 300),
+        duration: const Duration(minutes: 90));
+
+    // In the rail to start with.
+    expect((await history.watchContinueWatching().first).length, 1);
+
+    await history.dismissFromContinueWatching(id);
+
+    // Gone from the rail (resume cleared)...
+    expect(await history.watchContinueWatching().first, isEmpty);
+    // ...but the row survives, resume is 0, and it's NOT completed (so the
+    // reaper won't touch it and recommendation rails still see the history).
+    final row = await history.forItem(id);
+    expect(row, isNotNull);
+    expect(row!.resumePositionSec, 0);
+    expect(row.completed, isFalse);
+  });
+
+  test('dismissFromContinueWatching is a no-op when there is no history row',
+      () async {
+    final id = await seedItem('/m/a.mkv');
+    // No record() call — nothing to dismiss.
+    await history.dismissFromContinueWatching(id);
+    expect(await history.forItem(id), isNull);
+  });
+
   test('watch history survives the file disappearing (flag, not delete)', () async {
     final id = await seedItem('/disk1/a.mkv');
     await history.record(

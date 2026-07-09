@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/logging/error_log_service.dart';
 import '../../core/settings/settings_service.dart';
 import '../../core/window/window_service.dart';
 import '../../data/db/database.dart';
@@ -131,6 +132,35 @@ void _openPlayer(BuildContext context, LibraryItem item) {
       title: item.title,
       libraryItemId: item.id,
     ),
+  );
+}
+
+/// Opens the detail page for a Continue Watching [item]: a matched TV episode
+/// goes to its show detail (seasons/episodes), everything else to the single
+/// library-title detail — mirroring the library grid's navigation.
+void _openDetail(BuildContext context, LibraryItem item) {
+  if (item.mediaType == 'tv' && item.tmdbId != null) {
+    openShowDetail(
+      context,
+      tmdbId: item.tmdbId!,
+      name: item.tmdbName ?? item.title,
+    );
+  } else {
+    context.push(Routes.libraryDetail, extra: item);
+  }
+}
+
+/// Drops [item] from the Continue Watching rail (the drift watch query updates
+/// the rail on its own). Best-effort; a failure is logged, never surfaced as a
+/// blocking error for a dismiss gesture.
+void _dismissContinueWatching(LibraryItem item) {
+  unawaited(
+    getIt<WatchHistoryRepository>()
+        .dismissFromContinueWatching(item.id)
+        .catchError((Object e, StackTrace st) {
+      getIt<ErrorLogService>().logError(e,
+          stackTrace: st, source: 'LibraryScreen.dismissContinueWatching');
+    }),
   );
 }
 
@@ -314,6 +344,8 @@ class _ContinueWatchingRail extends StatelessWidget {
                 entry: entry,
                 autofocus: i == 0,
                 onPressed: () => _openPlayer(context, entry.item),
+                onOpenDetails: () => _openDetail(context, entry.item),
+                onRemove: () => _dismissContinueWatching(entry.item),
               );
             },
           ),
