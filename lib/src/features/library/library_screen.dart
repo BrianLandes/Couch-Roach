@@ -108,6 +108,10 @@ class LibraryScreen extends ConsumerWidget {
                         tiles: recommended.map(DiscoverTile.fromTv).toList(),
                       ),
                     ),
+                  // The user's own library sits above the generic discovery
+                  // rails (TV Shows / Movies / Documentaries).
+                  ..._librarySlivers(context, itemsAsync,
+                      autofocusFirst: resumable.isEmpty),
                   if (trending.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _DiscoverRail(
@@ -133,8 +137,6 @@ class LibraryScreen extends ConsumerWidget {
                     SliverToBoxAdapter(
                       child: _ArchiveRail(items: archivePicks),
                     ),
-                  ..._librarySlivers(context, itemsAsync,
-                      autofocusFirst: resumable.isEmpty),
                 ],
               ),
               const Positioned(
@@ -206,24 +208,36 @@ List<Widget> _librarySlivers(
   AsyncValue<List<LibraryItem>> itemsAsync, {
   required bool autofocusFirst,
 }) {
+  // The library now sits above the discovery rails, so its non-data states use
+  // compact adapters (not SliverFillRemaining, which would shove those rails off
+  // the screen).
   return itemsAsync.when(
     loading: () => const [
-      SliverFillRemaining(
-        hasScrollBody: false,
-        child: Center(child: CircularProgressIndicator()),
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.all(AppSpacing.xxl),
+          child: Center(child: CircularProgressIndicator()),
+        ),
       ),
     ],
     error: (e, _) => const [
-      SliverFillRemaining(
-        hasScrollBody: false,
-        child: _Message('Library error — see the error log.',
-            color: AppColors.danger),
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.all(AppSpacing.xl),
+          child: _Message('Library error — see the error log.',
+              color: AppColors.danger),
+        ),
       ),
     ],
     data: (items) {
       if (items.isEmpty) {
         return const [
-          SliverFillRemaining(hasScrollBody: false, child: _EmptyState()),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+              child: _EmptyState(),
+            ),
+          ),
         ];
       }
       return [
