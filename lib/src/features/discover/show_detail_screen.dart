@@ -12,6 +12,7 @@ import '../../theme/theme.dart';
 import '../../widgets/detail_scaffold.dart';
 import '../../widgets/poster_art.dart';
 import '../../services/acquisition/acquisition.dart';
+import '../library/save_title_buttons.dart';
 import '../acquire/acquire_button.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
@@ -75,6 +76,13 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
 
     return [
       _Hero(details: details),
+      const SizedBox(height: AppSpacing.md),
+      SaveTitleButtons(
+        tmdbId: details.tmdbId,
+        mediaType: 'tv',
+        name: details.name,
+        posterPath: details.posterPath,
+      ),
       if (trailerUrl != null) ...[
         const SizedBox(height: AppSpacing.lg),
         Align(

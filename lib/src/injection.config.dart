@@ -15,6 +15,8 @@ import 'package:couch_roach/src/core/storage/storage_manager.dart' as _i883;
 import 'package:couch_roach/src/data/db/database.dart' as _i865;
 import 'package:couch_roach/src/data/repositories/library_repository.dart'
     as _i877;
+import 'package:couch_roach/src/data/repositories/saved_titles_repository.dart'
+    as _i574;
 import 'package:couch_roach/src/data/repositories/storage_repository.dart'
     as _i366;
 import 'package:couch_roach/src/data/repositories/subtitle_attempts_repository.dart'
@@ -128,6 +130,8 @@ extension GetItInjectableX on _i174.GetIt {
         ));
     gh.lazySingleton<_i382.WatchHistoryRepository>(
         () => _i382.DriftWatchHistoryRepository(gh<_i865.AppDatabase>()));
+    gh.lazySingleton<_i574.SavedTitlesRepository>(
+        () => _i574.DriftSavedTitlesRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i819.DiscoveryClient>(() => _i819.TmdbClient(
           gh<_i519.Client>(),
           gh<_i657.ErrorLogService>(),

@@ -1687,6 +1687,372 @@ class SettingsCompanion extends UpdateCompanion<Setting> {
   }
 }
 
+class $SavedTitlesTable extends SavedTitles
+    with TableInfo<$SavedTitlesTable, SavedTitle> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SavedTitlesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _tmdbIdMeta = const VerificationMeta('tmdbId');
+  @override
+  late final GeneratedColumn<int> tmdbId = GeneratedColumn<int>(
+      'tmdb_id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _mediaTypeMeta =
+      const VerificationMeta('mediaType');
+  @override
+  late final GeneratedColumn<String> mediaType = GeneratedColumn<String>(
+      'media_type', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _posterPathMeta =
+      const VerificationMeta('posterPath');
+  @override
+  late final GeneratedColumn<String> posterPath = GeneratedColumn<String>(
+      'poster_path', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _favoritedAtMeta =
+      const VerificationMeta('favoritedAt');
+  @override
+  late final GeneratedColumn<DateTime> favoritedAt = GeneratedColumn<DateTime>(
+      'favorited_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _wantToWatchAtMeta =
+      const VerificationMeta('wantToWatchAt');
+  @override
+  late final GeneratedColumn<DateTime> wantToWatchAt =
+      GeneratedColumn<DateTime>('want_to_watch_at', aliasedName, true,
+          type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [tmdbId, mediaType, name, posterPath, favoritedAt, wantToWatchAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'saved_titles';
+  @override
+  VerificationContext validateIntegrity(Insertable<SavedTitle> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('tmdb_id')) {
+      context.handle(_tmdbIdMeta,
+          tmdbId.isAcceptableOrUnknown(data['tmdb_id']!, _tmdbIdMeta));
+    } else if (isInserting) {
+      context.missing(_tmdbIdMeta);
+    }
+    if (data.containsKey('media_type')) {
+      context.handle(_mediaTypeMeta,
+          mediaType.isAcceptableOrUnknown(data['media_type']!, _mediaTypeMeta));
+    } else if (isInserting) {
+      context.missing(_mediaTypeMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('poster_path')) {
+      context.handle(
+          _posterPathMeta,
+          posterPath.isAcceptableOrUnknown(
+              data['poster_path']!, _posterPathMeta));
+    }
+    if (data.containsKey('favorited_at')) {
+      context.handle(
+          _favoritedAtMeta,
+          favoritedAt.isAcceptableOrUnknown(
+              data['favorited_at']!, _favoritedAtMeta));
+    }
+    if (data.containsKey('want_to_watch_at')) {
+      context.handle(
+          _wantToWatchAtMeta,
+          wantToWatchAt.isAcceptableOrUnknown(
+              data['want_to_watch_at']!, _wantToWatchAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {tmdbId, mediaType};
+  @override
+  SavedTitle map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SavedTitle(
+      tmdbId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}tmdb_id'])!,
+      mediaType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}media_type'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      posterPath: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}poster_path']),
+      favoritedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}favorited_at']),
+      wantToWatchAt: attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime, data['${effectivePrefix}want_to_watch_at']),
+    );
+  }
+
+  @override
+  $SavedTitlesTable createAlias(String alias) {
+    return $SavedTitlesTable(attachedDatabase, alias);
+  }
+}
+
+class SavedTitle extends DataClass implements Insertable<SavedTitle> {
+  final int tmdbId;
+
+  /// 'tv' or 'movie'.
+  final String mediaType;
+
+  /// TMDB display name + poster path, cached so list tiles render without a
+  /// network round-trip.
+  final String name;
+  final String? posterPath;
+  final DateTime? favoritedAt;
+  final DateTime? wantToWatchAt;
+  const SavedTitle(
+      {required this.tmdbId,
+      required this.mediaType,
+      required this.name,
+      this.posterPath,
+      this.favoritedAt,
+      this.wantToWatchAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['tmdb_id'] = Variable<int>(tmdbId);
+    map['media_type'] = Variable<String>(mediaType);
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || posterPath != null) {
+      map['poster_path'] = Variable<String>(posterPath);
+    }
+    if (!nullToAbsent || favoritedAt != null) {
+      map['favorited_at'] = Variable<DateTime>(favoritedAt);
+    }
+    if (!nullToAbsent || wantToWatchAt != null) {
+      map['want_to_watch_at'] = Variable<DateTime>(wantToWatchAt);
+    }
+    return map;
+  }
+
+  SavedTitlesCompanion toCompanion(bool nullToAbsent) {
+    return SavedTitlesCompanion(
+      tmdbId: Value(tmdbId),
+      mediaType: Value(mediaType),
+      name: Value(name),
+      posterPath: posterPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(posterPath),
+      favoritedAt: favoritedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(favoritedAt),
+      wantToWatchAt: wantToWatchAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(wantToWatchAt),
+    );
+  }
+
+  factory SavedTitle.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SavedTitle(
+      tmdbId: serializer.fromJson<int>(json['tmdbId']),
+      mediaType: serializer.fromJson<String>(json['mediaType']),
+      name: serializer.fromJson<String>(json['name']),
+      posterPath: serializer.fromJson<String?>(json['posterPath']),
+      favoritedAt: serializer.fromJson<DateTime?>(json['favoritedAt']),
+      wantToWatchAt: serializer.fromJson<DateTime?>(json['wantToWatchAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'tmdbId': serializer.toJson<int>(tmdbId),
+      'mediaType': serializer.toJson<String>(mediaType),
+      'name': serializer.toJson<String>(name),
+      'posterPath': serializer.toJson<String?>(posterPath),
+      'favoritedAt': serializer.toJson<DateTime?>(favoritedAt),
+      'wantToWatchAt': serializer.toJson<DateTime?>(wantToWatchAt),
+    };
+  }
+
+  SavedTitle copyWith(
+          {int? tmdbId,
+          String? mediaType,
+          String? name,
+          Value<String?> posterPath = const Value.absent(),
+          Value<DateTime?> favoritedAt = const Value.absent(),
+          Value<DateTime?> wantToWatchAt = const Value.absent()}) =>
+      SavedTitle(
+        tmdbId: tmdbId ?? this.tmdbId,
+        mediaType: mediaType ?? this.mediaType,
+        name: name ?? this.name,
+        posterPath: posterPath.present ? posterPath.value : this.posterPath,
+        favoritedAt: favoritedAt.present ? favoritedAt.value : this.favoritedAt,
+        wantToWatchAt:
+            wantToWatchAt.present ? wantToWatchAt.value : this.wantToWatchAt,
+      );
+  SavedTitle copyWithCompanion(SavedTitlesCompanion data) {
+    return SavedTitle(
+      tmdbId: data.tmdbId.present ? data.tmdbId.value : this.tmdbId,
+      mediaType: data.mediaType.present ? data.mediaType.value : this.mediaType,
+      name: data.name.present ? data.name.value : this.name,
+      posterPath:
+          data.posterPath.present ? data.posterPath.value : this.posterPath,
+      favoritedAt:
+          data.favoritedAt.present ? data.favoritedAt.value : this.favoritedAt,
+      wantToWatchAt: data.wantToWatchAt.present
+          ? data.wantToWatchAt.value
+          : this.wantToWatchAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SavedTitle(')
+          ..write('tmdbId: $tmdbId, ')
+          ..write('mediaType: $mediaType, ')
+          ..write('name: $name, ')
+          ..write('posterPath: $posterPath, ')
+          ..write('favoritedAt: $favoritedAt, ')
+          ..write('wantToWatchAt: $wantToWatchAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      tmdbId, mediaType, name, posterPath, favoritedAt, wantToWatchAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SavedTitle &&
+          other.tmdbId == this.tmdbId &&
+          other.mediaType == this.mediaType &&
+          other.name == this.name &&
+          other.posterPath == this.posterPath &&
+          other.favoritedAt == this.favoritedAt &&
+          other.wantToWatchAt == this.wantToWatchAt);
+}
+
+class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
+  final Value<int> tmdbId;
+  final Value<String> mediaType;
+  final Value<String> name;
+  final Value<String?> posterPath;
+  final Value<DateTime?> favoritedAt;
+  final Value<DateTime?> wantToWatchAt;
+  final Value<int> rowid;
+  const SavedTitlesCompanion({
+    this.tmdbId = const Value.absent(),
+    this.mediaType = const Value.absent(),
+    this.name = const Value.absent(),
+    this.posterPath = const Value.absent(),
+    this.favoritedAt = const Value.absent(),
+    this.wantToWatchAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SavedTitlesCompanion.insert({
+    required int tmdbId,
+    required String mediaType,
+    required String name,
+    this.posterPath = const Value.absent(),
+    this.favoritedAt = const Value.absent(),
+    this.wantToWatchAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : tmdbId = Value(tmdbId),
+        mediaType = Value(mediaType),
+        name = Value(name);
+  static Insertable<SavedTitle> custom({
+    Expression<int>? tmdbId,
+    Expression<String>? mediaType,
+    Expression<String>? name,
+    Expression<String>? posterPath,
+    Expression<DateTime>? favoritedAt,
+    Expression<DateTime>? wantToWatchAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (tmdbId != null) 'tmdb_id': tmdbId,
+      if (mediaType != null) 'media_type': mediaType,
+      if (name != null) 'name': name,
+      if (posterPath != null) 'poster_path': posterPath,
+      if (favoritedAt != null) 'favorited_at': favoritedAt,
+      if (wantToWatchAt != null) 'want_to_watch_at': wantToWatchAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SavedTitlesCompanion copyWith(
+      {Value<int>? tmdbId,
+      Value<String>? mediaType,
+      Value<String>? name,
+      Value<String?>? posterPath,
+      Value<DateTime?>? favoritedAt,
+      Value<DateTime?>? wantToWatchAt,
+      Value<int>? rowid}) {
+    return SavedTitlesCompanion(
+      tmdbId: tmdbId ?? this.tmdbId,
+      mediaType: mediaType ?? this.mediaType,
+      name: name ?? this.name,
+      posterPath: posterPath ?? this.posterPath,
+      favoritedAt: favoritedAt ?? this.favoritedAt,
+      wantToWatchAt: wantToWatchAt ?? this.wantToWatchAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (tmdbId.present) {
+      map['tmdb_id'] = Variable<int>(tmdbId.value);
+    }
+    if (mediaType.present) {
+      map['media_type'] = Variable<String>(mediaType.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (posterPath.present) {
+      map['poster_path'] = Variable<String>(posterPath.value);
+    }
+    if (favoritedAt.present) {
+      map['favorited_at'] = Variable<DateTime>(favoritedAt.value);
+    }
+    if (wantToWatchAt.present) {
+      map['want_to_watch_at'] = Variable<DateTime>(wantToWatchAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SavedTitlesCompanion(')
+          ..write('tmdbId: $tmdbId, ')
+          ..write('mediaType: $mediaType, ')
+          ..write('name: $name, ')
+          ..write('posterPath: $posterPath, ')
+          ..write('favoritedAt: $favoritedAt, ')
+          ..write('wantToWatchAt: $wantToWatchAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $StorageLocationsTable extends StorageLocations
     with TableInfo<$StorageLocationsTable, StorageLocation> {
   @override
@@ -1993,6 +2359,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $SubtitleAttemptsTable subtitleAttempts =
       $SubtitleAttemptsTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
+  late final $SavedTitlesTable savedTitles = $SavedTitlesTable(this);
   late final $StorageLocationsTable storageLocations =
       $StorageLocationsTable(this);
   @override
@@ -2004,6 +2371,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         watchHistory,
         subtitleAttempts,
         settings,
+        savedTitles,
         storageLocations
       ];
   @override
@@ -3218,6 +3586,189 @@ typedef $$SettingsTableProcessedTableManager = ProcessedTableManager<
     (Setting, BaseReferences<_$AppDatabase, $SettingsTable, Setting>),
     Setting,
     PrefetchHooks Function()>;
+typedef $$SavedTitlesTableCreateCompanionBuilder = SavedTitlesCompanion
+    Function({
+  required int tmdbId,
+  required String mediaType,
+  required String name,
+  Value<String?> posterPath,
+  Value<DateTime?> favoritedAt,
+  Value<DateTime?> wantToWatchAt,
+  Value<int> rowid,
+});
+typedef $$SavedTitlesTableUpdateCompanionBuilder = SavedTitlesCompanion
+    Function({
+  Value<int> tmdbId,
+  Value<String> mediaType,
+  Value<String> name,
+  Value<String?> posterPath,
+  Value<DateTime?> favoritedAt,
+  Value<DateTime?> wantToWatchAt,
+  Value<int> rowid,
+});
+
+class $$SavedTitlesTableFilterComposer
+    extends Composer<_$AppDatabase, $SavedTitlesTable> {
+  $$SavedTitlesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get tmdbId => $composableBuilder(
+      column: $table.tmdbId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get mediaType => $composableBuilder(
+      column: $table.mediaType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get posterPath => $composableBuilder(
+      column: $table.posterPath, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get favoritedAt => $composableBuilder(
+      column: $table.favoritedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get wantToWatchAt => $composableBuilder(
+      column: $table.wantToWatchAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$SavedTitlesTableOrderingComposer
+    extends Composer<_$AppDatabase, $SavedTitlesTable> {
+  $$SavedTitlesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get tmdbId => $composableBuilder(
+      column: $table.tmdbId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get mediaType => $composableBuilder(
+      column: $table.mediaType, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get posterPath => $composableBuilder(
+      column: $table.posterPath, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get favoritedAt => $composableBuilder(
+      column: $table.favoritedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get wantToWatchAt => $composableBuilder(
+      column: $table.wantToWatchAt,
+      builder: (column) => ColumnOrderings(column));
+}
+
+class $$SavedTitlesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SavedTitlesTable> {
+  $$SavedTitlesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get tmdbId =>
+      $composableBuilder(column: $table.tmdbId, builder: (column) => column);
+
+  GeneratedColumn<String> get mediaType =>
+      $composableBuilder(column: $table.mediaType, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get posterPath => $composableBuilder(
+      column: $table.posterPath, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get favoritedAt => $composableBuilder(
+      column: $table.favoritedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get wantToWatchAt => $composableBuilder(
+      column: $table.wantToWatchAt, builder: (column) => column);
+}
+
+class $$SavedTitlesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $SavedTitlesTable,
+    SavedTitle,
+    $$SavedTitlesTableFilterComposer,
+    $$SavedTitlesTableOrderingComposer,
+    $$SavedTitlesTableAnnotationComposer,
+    $$SavedTitlesTableCreateCompanionBuilder,
+    $$SavedTitlesTableUpdateCompanionBuilder,
+    (SavedTitle, BaseReferences<_$AppDatabase, $SavedTitlesTable, SavedTitle>),
+    SavedTitle,
+    PrefetchHooks Function()> {
+  $$SavedTitlesTableTableManager(_$AppDatabase db, $SavedTitlesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SavedTitlesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SavedTitlesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SavedTitlesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> tmdbId = const Value.absent(),
+            Value<String> mediaType = const Value.absent(),
+            Value<String> name = const Value.absent(),
+            Value<String?> posterPath = const Value.absent(),
+            Value<DateTime?> favoritedAt = const Value.absent(),
+            Value<DateTime?> wantToWatchAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SavedTitlesCompanion(
+            tmdbId: tmdbId,
+            mediaType: mediaType,
+            name: name,
+            posterPath: posterPath,
+            favoritedAt: favoritedAt,
+            wantToWatchAt: wantToWatchAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required int tmdbId,
+            required String mediaType,
+            required String name,
+            Value<String?> posterPath = const Value.absent(),
+            Value<DateTime?> favoritedAt = const Value.absent(),
+            Value<DateTime?> wantToWatchAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SavedTitlesCompanion.insert(
+            tmdbId: tmdbId,
+            mediaType: mediaType,
+            name: name,
+            posterPath: posterPath,
+            favoritedAt: favoritedAt,
+            wantToWatchAt: wantToWatchAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$SavedTitlesTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $SavedTitlesTable,
+    SavedTitle,
+    $$SavedTitlesTableFilterComposer,
+    $$SavedTitlesTableOrderingComposer,
+    $$SavedTitlesTableAnnotationComposer,
+    $$SavedTitlesTableCreateCompanionBuilder,
+    $$SavedTitlesTableUpdateCompanionBuilder,
+    (SavedTitle, BaseReferences<_$AppDatabase, $SavedTitlesTable, SavedTitle>),
+    SavedTitle,
+    PrefetchHooks Function()>;
 typedef $$StorageLocationsTableCreateCompanionBuilder
     = StorageLocationsCompanion Function({
   Value<int> id,
@@ -3398,6 +3949,8 @@ class $AppDatabaseManager {
       $$SubtitleAttemptsTableTableManager(_db, _db.subtitleAttempts);
   $$SettingsTableTableManager get settings =>
       $$SettingsTableTableManager(_db, _db.settings);
+  $$SavedTitlesTableTableManager get savedTitles =>
+      $$SavedTitlesTableTableManager(_db, _db.savedTitles);
   $$StorageLocationsTableTableManager get storageLocations =>
       $$StorageLocationsTableTableManager(_db, _db.storageLocations);
 }

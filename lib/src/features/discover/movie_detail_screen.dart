@@ -7,6 +7,7 @@ import '../../services/acquisition/acquisition.dart';
 import '../../theme/theme.dart';
 import '../../widgets/detail_scaffold.dart';
 import '../../widgets/poster_art.dart';
+import '../library/save_title_buttons.dart';
 import '../acquire/acquire_button.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
@@ -73,6 +74,13 @@ class MovieDetailScreen extends ConsumerWidget {
                 label: const Text('Trailers'),
               ),
           ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        SaveTitleButtons(
+          tmdbId: tile.tmdbId,
+          mediaType: 'movie',
+          name: tile.title,
+          posterPath: tile.posterPath,
         ),
         if (tile.overview.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.xl),

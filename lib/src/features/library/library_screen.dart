@@ -29,6 +29,7 @@ import 'library_match_service.dart';
 import 'library_providers.dart';
 import 'library_service.dart';
 import 'library_tile.dart';
+import 'saved_titles_providers.dart';
 import '../../services/subtitles/subtitle_service.dart';
 
 /// The landing page: a Continue Watching rail (when there's anything to resume)
@@ -41,14 +42,20 @@ class LibraryScreen extends ConsumerWidget {
     final continueAsync = ref.watch(continueWatchingProvider);
     final itemsAsync = ref.watch(libraryItemsProvider);
     final trending = ref.watch(trendingTvProvider).asData?.value ?? const [];
-    final recommended = ref.watch(recommendedProvider).asData?.value ?? const [];
+    final recommended =
+        ref.watch(recommendedProvider).asData?.value ?? const [];
     final popularMovies =
         ref.watch(trendingMoviesProvider).asData?.value ?? const [];
     final documentaries =
         ref.watch(documentaryMoviesProvider).asData?.value ?? const [];
-    final archivePicks = ref.watch(archivePicksProvider).asData?.value ?? const [];
+    final archivePicks =
+        ref.watch(archivePicksProvider).asData?.value ?? const [];
     final newEpisodes =
         ref.watch(newEpisodesProvider).asData?.value ?? const [];
+    final favorites =
+        ref.watch(favoritesProvider).asData?.value ?? const <SavedTitle>[];
+    final wantToWatch =
+        ref.watch(wantToWatchProvider).asData?.value ?? const <SavedTitle>[];
     final resumable = continueAsync.asData?.value ?? const [];
 
     return Scaffold(
@@ -66,6 +73,22 @@ class LibraryScreen extends ConsumerWidget {
                   if (resumable.isNotEmpty)
                     SliverToBoxAdapter(
                         child: _ContinueWatchingRail(entries: resumable)),
+                  if (favorites.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DiscoverRail(
+                        label: 'Favorites',
+                        tiles: favorites.map(_savedTile).toList(),
+                        limit: null,
+                      ),
+                    ),
+                  if (wantToWatch.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DiscoverRail(
+                        label: 'Want to Watch',
+                        tiles: wantToWatch.map(_savedTile).toList(),
+                        limit: null,
+                      ),
+                    ),
                   if (newEpisodes.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _DiscoverRail(
@@ -135,6 +158,15 @@ void _openPlayer(BuildContext context, LibraryItem item) {
   );
 }
 
+/// Maps a saved Favorites/Want-to-watch row to the shared poster-tile
+/// view-model, so those rails reuse the discovery rail + tap-to-detail routing.
+DiscoverTile _savedTile(SavedTitle s) => DiscoverTile(
+      tmdbId: s.tmdbId,
+      title: s.name,
+      mediaType: s.mediaType,
+      posterPath: s.posterPath,
+    );
+
 /// Opens the detail page for a Continue Watching [item]: a matched TV episode
 /// goes to its show detail (seasons/episodes), everything else to the single
 /// library-title detail — mirroring the library grid's navigation.
@@ -179,7 +211,8 @@ List<Widget> _librarySlivers(
     error: (e, _) => const [
       SliverFillRemaining(
         hasScrollBody: false,
-        child: _Message('Library error — see the error log.', color: AppColors.danger),
+        child: _Message('Library error — see the error log.',
+            color: AppColors.danger),
       ),
     ],
     data: (items) {
@@ -335,7 +368,8 @@ class _ContinueWatchingRail extends StatelessWidget {
           height: 210,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.screenPadding),
             itemCount: entries.length,
             separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.lg),
             itemBuilder: (context, i) {
@@ -356,13 +390,22 @@ class _ContinueWatchingRail extends StatelessWidget {
 }
 
 class _DiscoverRail extends StatelessWidget {
-  const _DiscoverRail({required this.label, required this.tiles});
+  const _DiscoverRail({
+    required this.label,
+    required this.tiles,
+    this.limit = 10,
+  });
   final String label;
   final List<DiscoverTile> tiles;
 
+  /// Max tiles to show; null shows all (the user's own lists shouldn't be
+  /// truncated the way the algorithmic discovery rails are).
+  final int? limit;
+
   @override
   Widget build(BuildContext context) {
-    final top = tiles.take(10).toList(growable: false);
+    final lim = limit;
+    final top = lim == null ? tiles : tiles.take(lim).toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -371,7 +414,8 @@ class _DiscoverRail extends StatelessWidget {
           height: 240,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.screenPadding),
             itemCount: top.length,
             separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.lg),
             itemBuilder: (context, i) {
@@ -402,7 +446,8 @@ class _ArchiveRail extends StatelessWidget {
           height: 240,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.screenPadding),
             itemCount: items.length,
             separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.lg),
             itemBuilder: (context, i) {
