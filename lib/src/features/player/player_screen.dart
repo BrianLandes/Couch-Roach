@@ -149,6 +149,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   SubtitleTrack _selectedSubtitle = const SubtitleTrack('auto', null, null);
   final MenuController _subtitleMenuController = MenuController();
 
+  // True while a manual (right-click) subtitle download is in flight — guards
+  // against double-runs and drives the menu item's "Downloading…" label.
+  bool _subtitlesDownloading = false;
+
   // Per-title subtitle timing offset (ms), applied as mpv `sub-delay` and
   // persisted on the library row so a re-watch stays corrected. Range is
   // clamped to ±10s in the editor.
@@ -298,12 +302,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  /// Ask the subtitle service for an English track (skip-check → search →
-  /// download → `<name>.en.srt`), then make sure an English subtitle is
-  /// actually *selected* for display: an already-present track (embedded, or a
-  /// sidecar libmpv auto-loaded) is switched on if it isn't already, otherwise
-  /// the freshly-downloaded sidecar is loaded + selected. Best-effort; a failure
-  /// here never disrupts playback.
+  /// Auto-fetch on open: fetch + select English subtitles, but only when a real
+  /// library title, an OpenSubtitles key, and the auto-download setting all
+  /// allow it. When auto-download is off the user can still trigger it by hand
+  /// from the right-click menu ([_manualDownloadSubtitles]).
   Future<void> _ensureSubtitles() async {
     final log = getIt<ErrorLogService>();
     // Only real library titles get subtitle fetching — trailers and other
@@ -323,12 +325,61 @@ class _PlayerScreenState extends State<PlayerScreen> {
           source: 'PlayerScreen.ensureSubtitles');
       return;
     }
+    log.info('ensuring English subtitles for ${widget.filePath}',
+        source: 'PlayerScreen.ensureSubtitles');
+    await _downloadAndSelectEnglish();
+  }
+
+  /// Manual trigger from the right-click menu — the escape hatch when
+  /// auto-download is off (or found nothing). Same fetch as [_ensureSubtitles]
+  /// but bypasses the auto-download setting, guards against double-runs, and
+  /// reports the outcome to the user via a snackbar.
+  Future<void> _manualDownloadSubtitles() async {
+    _subtitleMenuController.close();
+    final messenger = ScaffoldMessenger.of(context);
+    if (widget.libraryItemId == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text("Subtitles aren't available for this stream.")));
+      return;
+    }
+    if (!const AppConfig().hasOpenSubtitlesKey) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('No OpenSubtitles API key is configured.')));
+      return;
+    }
+    if (_subtitlesDownloading) return;
+    setState(() => _subtitlesDownloading = true);
+    messenger.showSnackBar(const SnackBar(
+        content: Text('Searching for English subtitles…')));
+
+    final result = await _downloadAndSelectEnglish();
+    if (!mounted) return;
+    setState(() => _subtitlesDownloading = false);
+
+    final message = switch (result) {
+      _SubtitleFetchResult.downloaded =>
+        'English subtitles downloaded and turned on.',
+      _SubtitleFetchResult.selectedExisting =>
+        'Turned on the English subtitles.',
+      _SubtitleFetchResult.none => 'No English subtitles found for this title.',
+      _SubtitleFetchResult.error =>
+        "Couldn't download subtitles — see the error log.",
+    };
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Ask the subtitle service for an English track (skip-check → search →
+  /// download → `<name>.en.srt`), then make sure an English subtitle is actually
+  /// *selected* for display: an already-present track (embedded, or a sidecar
+  /// libmpv auto-loaded) is switched on if it isn't already, otherwise the
+  /// freshly-downloaded sidecar is loaded + selected. Returns what happened so a
+  /// caller can report it. Best-effort; a failure here never disrupts playback.
+  Future<_SubtitleFetchResult> _downloadAndSelectEnglish() async {
+    final log = getIt<ErrorLogService>();
     try {
-      log.info('ensuring English subtitles for ${widget.filePath}',
-          source: 'PlayerScreen.ensureSubtitles');
       final srtPath =
           await getIt<SubtitleService>().ensureEnglish(widget.filePath);
-      if (!mounted) return;
+      if (!mounted) return _SubtitleFetchResult.none;
 
       // If libmpv already exposes an English track — an embedded stream, or a
       // sidecar it auto-loaded — select it if it isn't the active one. mpv
@@ -354,13 +405,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
           log.info('English subtitle track ${track.id} already selected',
               source: 'PlayerScreen.ensureSubtitles');
         }
-        return;
+        return _SubtitleFetchResult.selectedExisting;
       }
 
       if (srtPath == null) {
         log.info('no English subtitles available (none found or downloaded)',
             source: 'PlayerScreen.ensureSubtitles');
-        return;
+        return _SubtitleFetchResult.none;
       }
 
       await _player.setSubtitleTrack(
@@ -368,8 +419,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
       log.info('Loaded + selected English subtitles: $srtPath',
           source: 'PlayerScreen.ensureSubtitles');
+      return _SubtitleFetchResult.downloaded;
     } catch (e, st) {
       log.logError(e, stackTrace: st, source: 'PlayerScreen.ensureSubtitles');
+      return _SubtitleFetchResult.error;
     }
   }
 
@@ -1029,6 +1082,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               menuChildren: _subtitleMenuItems(),
                               child: const Text('Subtitles'),
                             ),
+                            // Manual subtitle fetch — surfaced when auto-download
+                            // is off, so subtitles can still be pulled on demand.
+                            if (widget.libraryItemId != null &&
+                                !getIt<SettingsService>().autoDownloadSubtitles)
+                              MenuItemButton(
+                                leadingIcon: _subtitlesDownloading
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.download_rounded,
+                                        size: 18),
+                                onPressed: _subtitlesDownloading
+                                    ? null
+                                    : _manualDownloadSubtitles,
+                                child: Text(_subtitlesDownloading
+                                    ? 'Downloading subtitles…'
+                                    : 'Download English subtitles'),
+                              ),
                             if (_currentItem != null)
                               MenuItemButton(
                                 leadingIcon: const Icon(Icons.refresh_rounded,
@@ -1083,6 +1157,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ),
     );
   }
+}
+
+/// Outcome of an English-subtitle fetch, so the manual trigger can report it.
+enum _SubtitleFetchResult {
+  /// A newly-downloaded sidecar was loaded and selected.
+  downloaded,
+
+  /// An already-present English track (embedded / auto-loaded) was turned on.
+  selectedExisting,
+
+  /// Nothing available — none found and none downloaded.
+  none,
+
+  /// The fetch threw (logged).
+  error,
 }
 
 /// The "Up Next" auto-advance card shown at the end of an episode.
