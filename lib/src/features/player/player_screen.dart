@@ -26,6 +26,7 @@ import '../../services/subtitles/subtitle_skip_check.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
 import '../acquire/acquire_play.dart';
+import '../discover/new_episodes.dart' show isAired;
 import 'credits.dart';
 import 'next_episode.dart';
 
@@ -513,6 +514,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return null;
   }
 
+  /// Whether the next episode has actually aired — so it's real, fetchable
+  /// content to advance to rather than an announced-but-unreleased entry. Uses
+  /// the season's per-episode air dates from TMDB; an unknown/unlisted episode
+  /// (or no TMDB) is treated as not aired, so we don't chase something that
+  /// isn't out.
+  Future<bool> _nextEpisodeAired(int tmdbId, int season, int episode) async {
+    final details = await getIt<DiscoveryClient>().seasonDetails(tmdbId, season);
+    for (final e in details?.episodes ?? const []) {
+      if (e.episodeNumber == episode) {
+        final air = e.airDate == null ? null : DateTime.tryParse(e.airDate!);
+        return isAired(air, DateTime.now());
+      }
+    }
+    return false;
+  }
+
   /// Download the episode after [item] (S{n}E{e+1}) if it isn't already in the
   /// library. Fire-and-forget through the acquisition seam; never blocks play.
   Future<void> _prefetchNext(LibraryItem item) async {
@@ -619,9 +636,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    // 2) Not local — if it's downloading (the prefetch started it), open the
-    // preparing dialog. Don't do this mid-credits, only at the natural end, so a
-    // blocking dialog never covers the credits.
+    // 2) Not local — advance by opening the preparing dialog (which reattaches
+    // to an in-flight prefetch, or resolves + downloads the next episode). Only
+    // at the natural end, so a blocking dialog never covers the credits.
     if (!atEnd) return;
     final daemon = getIt<TorrentDaemon>();
     final downloading = await daemon.taskForDedupeKey(acquisitionDedupeKey(
@@ -633,7 +650,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
         await daemon.taskForDedupeKey(acquisitionDedupeKey(
                 tmdbId: tmdbId, title: showName, season: nextSeason)) !=
             null;
-    if (!downloading || !mounted || _advanced) return;
+    // Advance when the prefetch already started the download, OR the next
+    // episode has actually aired (so it's real, fetchable content). The latter
+    // rolls into a new season's premiere even when the halfway-mark prefetch
+    // missed it. If the next episode isn't out yet, stop silently rather than
+    // popping an error dialog at the true end of what's available.
+    final advance = downloading ||
+        await _nextEpisodeAired(tmdbId, nextSeason, nextEp);
+    if (!advance || !mounted || _advanced) return;
     _advanced = true;
 
     final s = nextSeason.toString().padLeft(2, '0');
