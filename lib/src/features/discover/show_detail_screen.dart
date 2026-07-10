@@ -10,6 +10,7 @@ import '../../data/tmdb/tv_show_details.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
 import '../../widgets/detail_scaffold.dart';
+import '../../widgets/resume_button.dart';
 import '../../widgets/poster_art.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../library/save_title_buttons.dart';
@@ -47,21 +48,25 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
     // pinned header (and back button) are stable across all three states.
     return DetailScaffold(
       title: widget.args.name,
-      children: detailAsync.when(
-        loading: () =>
-            const [_CenteredNotice(child: CircularProgressIndicator())],
-        error: (e, _) => const [
-          _CenteredNotice(
-            child: Text(
-              'Could not load details — see the error log.',
-              style: TextStyle(color: AppColors.danger),
+      children: [
+        // Resume the most recently watched episode of this show, if any.
+        ResumeButton(tmdbId: widget.args.tmdbId),
+        ...detailAsync.when(
+          loading: () =>
+              const [_CenteredNotice(child: CircularProgressIndicator())],
+          error: (e, _) => const [
+            _CenteredNotice(
+              child: Text(
+                'Could not load details — see the error log.',
+                style: TextStyle(color: AppColors.danger),
+              ),
             ),
-          ),
-        ],
-        data: (details) => details == null
-            ? const [_CenteredNotice(child: Text('Not found on TMDB'))]
-            : _contentChildren(details),
-      ),
+          ],
+          data: (details) => details == null
+              ? const [_CenteredNotice(child: Text('Not found on TMDB'))]
+              : _contentChildren(details),
+        ),
+      ],
     );
   }
 

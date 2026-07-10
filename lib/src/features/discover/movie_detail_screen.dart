@@ -7,6 +7,7 @@ import '../../services/acquisition/acquisition.dart';
 import '../../theme/theme.dart';
 import '../../widgets/detail_scaffold.dart';
 import '../../widgets/poster_art.dart';
+import '../../widgets/resume_button.dart';
 import '../library/save_title_buttons.dart';
 import '../acquire/acquire_button.dart';
 import '../player/player_screen.dart';
@@ -34,6 +35,8 @@ class MovieDetailScreen extends ConsumerWidget {
       children: [
         _Hero(tile: tile),
         const SizedBox(height: AppSpacing.lg),
+        // Resume the in-progress movie, if any, above the play/acquire row.
+        ResumeButton(tmdbId: tile.tmdbId),
         // Play/Acquire + Trailers + Favorite + Want-to-watch share one wrapping
         // row (the save toggles live in SaveTitleButtons).
         SaveTitleButtons(

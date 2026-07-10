@@ -5,6 +5,7 @@ import '../../services/acquisition/archive_browse_service.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/focusable_card.dart';
+import '../../widgets/fullscreen_toggle_button.dart';
 import '../../widgets/poster_art.dart';
 import '../downloads/download_format.dart' show formatBytes;
 import 'archive_play.dart';
@@ -44,6 +45,8 @@ class ArchiveDetailScreen extends ConsumerWidget {
                       detail: detailAsync.asData?.value,
                     ),
                   ),
+                  const SizedBox(width: AppSpacing.sm),
+                  const FullscreenToggleButton(),
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),

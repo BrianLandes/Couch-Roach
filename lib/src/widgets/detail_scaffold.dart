@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/theme.dart';
 import 'app_back_button.dart';
+import 'fullscreen_toggle_button.dart';
 
 /// Height reserved at the top for the pinned detail header. The scroll body is
 /// inset by this much; the header floats over it.
@@ -132,6 +133,8 @@ class _DetailHeader extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(width: AppSpacing.xs),
+          const FullscreenToggleButton(),
         ],
       ),
     );
