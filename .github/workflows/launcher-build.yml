@@ -1,0 +1,52 @@
+name: Launcher build
+
+# Manual trigger only — Actions tab → "Launcher build" → Run workflow.
+# The launcher (couch_roach_launcher.exe) is a small, rarely-changing package:
+# you install it once and it self-updates the app. So it's built on demand here
+# rather than on every app build. Run this when the launcher code changes; grab
+# the couch-roach-launcher artifact and replace the exe on the machine.
+
+on:
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: "3.44.5"
+
+jobs:
+  launcher:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Build launcher (release)
+        working-directory: launcher
+        run: |
+          flutter pub get
+          flutter build windows --release
+
+      - name: Zip the launcher bundle
+        shell: pwsh
+        run: |
+          $zip = "couch-roach-launcher-build${{ github.run_number }}.zip"
+          Compress-Archive -Path "launcher/build/windows/x64/runner/Release/*" -DestinationPath $zip -Force
+          "LAUNCHER_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: couch-roach-launcher
+          path: ${{ env.LAUNCHER_ZIP }}
+          if-no-files-found: error
