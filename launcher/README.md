@@ -26,11 +26,13 @@ tmp\                     the in-flight download
 ## Sidecars
 
 The four sidecars (qBittorrent, yt-dlp, ffprobe, Jackett) are **not** bundled in
-the app anymore — the app zip is small. Instead CI publishes them as a separate
-`sidecars-<tag>.zip` release asset, and the launcher provisions them into `bin\`
-before launching the app (which searches `bin\` first). The `<tag>` is a hash of
-the sidecar binaries, so the launcher only re-downloads them when they actually
-change, not on every app update.
+the app anymore — the app zip is small. The "Launcher & sidecars" workflow
+publishes them as a `sidecars-<tag>.zip` asset on a dedicated `sidecars`
+**prerelease** (prerelease so it never becomes `releases/latest` and disturbs the
+app-build detection), and the launcher fetches that by tag and provisions them
+into `bin\` before launching the app (which searches `bin\` first). The `<tag>`
+is a hash of the sidecar binaries, so the launcher only re-downloads them when
+they actually change — and the app build no longer rebuilds them at all.
 
 ## One-time setup
 

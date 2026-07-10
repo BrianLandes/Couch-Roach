@@ -58,33 +58,11 @@ jobs:
           }
           EOF
 
-      # Fetch + extract the qBittorrent daemon binary into third_party/ so the
-      # CMake install rule bundles it next to the app exe (7-Zip is preinstalled
-      # on windows-latest). No official headless nox.exe exists for Windows, so
-      # this extracts the GUI qbittorrent.exe from the official signed installer;
-      # the app runs it hidden via its WebUI. See tool/fetch_qbittorrent_windows.ps1.
-      - name: Vendor qBittorrent daemon
-        shell: pwsh
-        run: ./tool/fetch_qbittorrent_windows.ps1
-
-      # yt-dlp lets libmpv resolve YouTube trailers; ffprobe is the fast
-      # subtitle-stream probe. Both are extracted into third_party/ so the CMake
-      # install rules bundle them next to the app exe. See tool/fetch_*_windows.ps1.
-      - name: Vendor yt-dlp
-        shell: pwsh
-        run: ./tool/fetch_ytdlp_windows.ps1
-
-      - name: Vendor ffprobe
-        shell: pwsh
-        run: ./tool/fetch_ffprobe_windows.ps1
-
-      # Jackett indexer sidecar (self-contained .NET tree) — extracted into
-      # third_party/ so the CMake rule bundles it as jackett/ next to the app exe.
-      # See tool/fetch_jackett_windows.ps1.
-      - name: Vendor Jackett
-        shell: pwsh
-        run: ./tool/fetch_jackett_windows.ps1
-
+      # NOTE: the sidecars (qBittorrent/yt-dlp/ffprobe/Jackett) are NOT vendored
+      # or bundled here anymore — they're built and published separately by the
+      # "Launcher & sidecars" workflow, and the launcher provisions them at
+      # runtime. This keeps the app build fast (no 100MB ffmpeg download, no
+      # installer extraction).
       - name: Build Windows (${{ inputs.build_mode }})
         run: flutter build windows --${{ inputs.build_mode }} --dart-define-from-file=dart_define.json
 
@@ -129,49 +107,12 @@ jobs:
           path: ${{ env.ZIP_PATH }}
           if-no-files-found: error
 
-      # Assemble the vendored sidecars (populated by the Vendor steps above) into
-      # a flat bin layout — qbittorrent.exe, yt-dlp.exe, ffprobe.exe, jackett/ —
-      # and publish them as a separate release asset the launcher provisions into
-      # %LOCALAPPDATA%\CouchRoach\bin. They're no longer bundled into the app zip
-      # (see windows/CMakeLists.txt). The content-hash tag in the filename stays
-      # stable while the sidecars don't change, so the launcher only re-downloads
-      # them on a real version bump — not on every app update.
-      - name: Package sidecars
-        if: ${{ inputs.build_mode == 'release' }}
-        shell: pwsh
-        run: |
-          $stage = "sidecars_stage"
-          New-Item -ItemType Directory -Force -Path $stage, "$stage/jackett" | Out-Null
-          Copy-Item third_party/qbittorrent/win-x64/qbittorrent.exe $stage/
-          Copy-Item third_party/yt-dlp/win-x64/yt-dlp.exe $stage/
-          Copy-Item third_party/ffprobe/win-x64/ffprobe.exe $stage/
-          Copy-Item third_party/jackett/win-x64/* "$stage/jackett/" -Recurse -Force
-          Copy-Item third_party/qbittorrent/LICENSE-qbittorrent.txt $stage/ -ErrorAction SilentlyContinue
-          Copy-Item third_party/yt-dlp/LICENSE-yt-dlp.txt $stage/ -ErrorAction SilentlyContinue
-          Copy-Item third_party/ffprobe/LICENSE-ffmpeg.txt $stage/ -ErrorAction SilentlyContinue
-          Copy-Item third_party/jackett/LICENSE-jackett.txt $stage/ -ErrorAction SilentlyContinue
-
-          # Content tag: hash the four key binaries so the asset name is stable
-          # while the sidecars are unchanged (launcher then skips re-download).
-          $parts = @(
-            (Get-FileHash "$stage/qbittorrent.exe").Hash,
-            (Get-FileHash "$stage/yt-dlp.exe").Hash,
-            (Get-FileHash "$stage/ffprobe.exe").Hash,
-            (Get-FileHash "$stage/jackett/JackettConsole.exe").Hash
-          ) -join ''
-          $sha = [System.Security.Cryptography.SHA256]::Create()
-          $bytes = [System.Text.Encoding]::UTF8.GetBytes($parts)
-          $tag = (($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 8)
-
-          $zip = "sidecars-$tag.zip"
-          Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
-          "SIDECARS_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "Sidecars asset: $zip"
-
       # Publish a GitHub Release the launcher polls via /releases/latest. Release
       # builds only — a profile/debug dispatch never becomes an update the
       # launcher would install. The manifest is attached both inside the zip and
       # as its own asset so the launcher can read it without downloading the zip.
+      # (Sidecars are published separately — see the "Launcher & sidecars"
+      # workflow — so they're not rebuilt on every app build.)
       - name: Publish Release
         if: ${{ inputs.build_mode == 'release' }}
         uses: softprops/action-gh-release@v2
@@ -182,4 +123,3 @@ jobs:
           files: |
             ${{ env.ZIP_PATH }}
             ${{ env.OUT_DIR }}/manifest.json
-            ${{ env.SIDECARS_ZIP }}

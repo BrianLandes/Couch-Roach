@@ -23,7 +23,7 @@ void main() {
     }) =>
         {'tag_name': tag, 'assets': assets};
 
-    test('extracts the build, app zip, and sidecars zip (with its tag)', () {
+    test('extracts the build and the app zip', () {
       final info = parseLatestRelease(release(
         tag: 'build-42',
         assets: [
@@ -32,38 +32,22 @@ void main() {
             'name': 'couch-roach-windows-release-build42.zip',
             'url': 'https://api/x/2',
           },
-          {'name': 'sidecars-a1b2c3d4.zip', 'url': 'https://api/x/3'},
         ],
       ));
       expect(info, isNotNull);
       expect(info!.build, 42);
       expect(info.appZip!.url, 'https://api/x/2');
-      expect(info.appZip!.name, endsWith('.zip'));
-      expect(info.sidecars!.url, 'https://api/x/3');
-      expect(info.sidecarsTag, 'a1b2c3d4');
     });
 
-    test('sidecars null when the release has no sidecars asset', () {
-      final info = parseLatestRelease(release(
-        tag: 'build-42',
-        assets: [
-          {'name': 'app.zip', 'url': 'https://api/x/2'},
-        ],
-      ));
-      expect(info!.appZip, isNotNull);
-      expect(info.sidecars, isNull);
-      expect(info.sidecarsTag, isNull);
-    });
-
-    test('the sidecars zip is not mistaken for the app zip', () {
+    test('a stray sidecars zip is never mistaken for the app zip', () {
       final info = parseLatestRelease(release(
         tag: 'build-42',
         assets: [
           {'name': 'sidecars-deadbeef.zip', 'url': 'https://api/x/3'},
+          {'name': 'couch-roach-windows-release-build42.zip', 'url': 'https://api/x/2'},
         ],
       ));
-      expect(info!.appZip, isNull);
-      expect(info.sidecars, isNotNull);
+      expect(info!.appZip!.url, 'https://api/x/2');
     });
 
     test('null for an unrecognized tag', () {
@@ -74,6 +58,25 @@ void main() {
         ],
       ));
       expect(info, isNull);
+    });
+  });
+
+  group('parseSidecarsRelease', () {
+    test('finds the sidecars asset and its content tag', () {
+      final sc = parseSidecarsRelease({
+        'tag_name': 'sidecars',
+        'assets': [
+          {'name': 'sidecars-a1b2c3d4.zip', 'url': 'https://api/s/1'},
+        ],
+      });
+      expect(sc, isNotNull);
+      expect(sc!.tag, 'a1b2c3d4');
+      expect(sc.asset.url, 'https://api/s/1');
+    });
+
+    test('null when there is no sidecars asset', () {
+      final sc = parseSidecarsRelease({'tag_name': 'sidecars', 'assets': []});
+      expect(sc, isNull);
     });
   });
 

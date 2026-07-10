@@ -1,10 +1,13 @@
-name: Launcher build
+name: Launcher & sidecars
 
-# Manual trigger only — Actions tab → "Launcher build" → Run workflow.
-# The launcher (couch_roach_launcher.exe) is a small, rarely-changing package:
-# you install it once and it self-updates the app. So it's built on demand here
-# rather than on every app build. Run this when the launcher code changes; grab
-# the couch-roach-launcher artifact and replace the exe on the machine.
+# Manual trigger only — Actions tab → "Launcher & sidecars" → Run workflow.
+# These are the rarely-changing "provisioning" assets, kept off the app build's
+# hot path:
+#   • the launcher (couch_roach_launcher.exe) — install once, self-updates the app
+#   • the sidecars bundle (qBittorrent/yt-dlp/ffprobe/Jackett) — the launcher
+#     provisions it into %LOCALAPPDATA%\CouchRoach\bin at runtime
+# Run this when the launcher code changes or a sidecar version is bumped. The app
+# build no longer rebuilds either, so app builds stay fast.
 
 on:
   workflow_dispatch:
@@ -50,3 +53,81 @@ jobs:
           name: couch-roach-launcher
           path: ${{ env.LAUNCHER_ZIP }}
           if-no-files-found: error
+
+  # Vendor the four sidecars, bundle them, and publish to a dedicated `sidecars`
+  # PRERELEASE. Prerelease so it never becomes releases/latest (which would break
+  # the launcher's app-build detection). The launcher fetches this by tag.
+  sidecars:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 7-Zip (preinstalled on windows-latest) is needed to extract qbittorrent.exe
+      # from the NSIS installer.
+      - name: Vendor qBittorrent daemon
+        shell: pwsh
+        run: ./tool/fetch_qbittorrent_windows.ps1
+
+      - name: Vendor yt-dlp
+        shell: pwsh
+        run: ./tool/fetch_ytdlp_windows.ps1
+
+      - name: Vendor ffprobe
+        shell: pwsh
+        run: ./tool/fetch_ffprobe_windows.ps1
+
+      - name: Vendor Jackett
+        shell: pwsh
+        run: ./tool/fetch_jackett_windows.ps1
+
+      # Assemble a flat bin layout (qbittorrent.exe, yt-dlp.exe, ffprobe.exe,
+      # jackett/) and name the zip by a content hash of the four binaries — so
+      # the launcher only re-downloads when a sidecar actually changes.
+      - name: Package sidecars
+        shell: pwsh
+        run: |
+          $stage = "sidecars_stage"
+          New-Item -ItemType Directory -Force -Path $stage, "$stage/jackett" | Out-Null
+          Copy-Item third_party/qbittorrent/win-x64/qbittorrent.exe $stage/
+          Copy-Item third_party/yt-dlp/win-x64/yt-dlp.exe $stage/
+          Copy-Item third_party/ffprobe/win-x64/ffprobe.exe $stage/
+          Copy-Item third_party/jackett/win-x64/* "$stage/jackett/" -Recurse -Force
+          Copy-Item third_party/qbittorrent/LICENSE-qbittorrent.txt $stage/ -ErrorAction SilentlyContinue
+          Copy-Item third_party/yt-dlp/LICENSE-yt-dlp.txt $stage/ -ErrorAction SilentlyContinue
+          Copy-Item third_party/ffprobe/LICENSE-ffmpeg.txt $stage/ -ErrorAction SilentlyContinue
+          Copy-Item third_party/jackett/LICENSE-jackett.txt $stage/ -ErrorAction SilentlyContinue
+
+          $parts = @(
+            (Get-FileHash "$stage/qbittorrent.exe").Hash,
+            (Get-FileHash "$stage/yt-dlp.exe").Hash,
+            (Get-FileHash "$stage/ffprobe.exe").Hash,
+            (Get-FileHash "$stage/jackett/JackettConsole.exe").Hash
+          ) -join ''
+          $sha = [System.Security.Cryptography.SHA256]::Create()
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($parts)
+          $tag = (($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 8)
+
+          $zip = "sidecars-$tag.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
+          "SIDECARS_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Sidecars asset: $zip"
+
+      # Clear the previous `sidecars` release + tag first so the release carries
+      # exactly one sidecars-*.zip (no stale assets accumulating across bumps).
+      - name: Clear previous sidecars release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete sidecars --yes --cleanup-tag || true
+
+      - name: Publish sidecars prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sidecars
+          name: Sidecars bundle
+          prerelease: true
+          make_latest: false
+          files: ${{ env.SIDECARS_ZIP }}

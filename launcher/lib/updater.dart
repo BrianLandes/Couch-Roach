@@ -19,10 +19,10 @@ int? buildNumberFromTag(String tag) {
 
 final _sidecarsAsset = RegExp(r'^sidecars-([0-9a-fA-F]+)\.zip$');
 
-/// Parse GitHub's `releases/latest` JSON into the build number, the app .zip
-/// asset, and the sidecars .zip asset (named `sidecars-<contenttag>.zip`, so its
-/// tag is stable while the sidecars don't change). Null when the tag isn't a
-/// `build-N`.
+/// Parse GitHub's `releases/latest` JSON into the build number + the app .zip
+/// asset. Null when the tag isn't a `build-N`. A `sidecars-*.zip` asset (present
+/// on older releases) is skipped so it's never mistaken for the app zip — the
+/// sidecars now live in their own release (see [parseSidecarsRelease]).
 ReleaseInfo? parseLatestRelease(Map<String, dynamic> json) {
   final tag = json['tag_name'];
   if (tag is! String) return null;
@@ -30,8 +30,23 @@ ReleaseInfo? parseLatestRelease(Map<String, dynamic> json) {
   if (build == null) return null;
 
   ReleaseAsset? appZip;
-  ReleaseAsset? sidecars;
-  String? sidecarsTag;
+  for (final a in (json['assets'] as List?) ?? const []) {
+    if (a is! Map) continue;
+    final name = a['name'];
+    final url = a['url'];
+    if (name is! String || url is! String) continue;
+    if (_sidecarsAsset.hasMatch(name)) continue; // not the app build
+    if (name.toLowerCase().endsWith('.zip')) {
+      appZip ??= ReleaseAsset(url: url, name: name);
+    }
+  }
+  return ReleaseInfo(build: build, appZip: appZip);
+}
+
+/// Find the `sidecars-<contenttag>.zip` asset in the dedicated `sidecars`
+/// prerelease JSON. The tag is a content hash, stable while the sidecars don't
+/// change. Null when the release has no sidecars asset.
+SidecarsInfo? parseSidecarsRelease(Map<String, dynamic> json) {
   for (final a in (json['assets'] as List?) ?? const []) {
     if (a is! Map) continue;
     final name = a['name'];
@@ -39,14 +54,10 @@ ReleaseInfo? parseLatestRelease(Map<String, dynamic> json) {
     if (name is! String || url is! String) continue;
     final m = _sidecarsAsset.firstMatch(name);
     if (m != null) {
-      sidecars = ReleaseAsset(url: url, name: name);
-      sidecarsTag = m.group(1);
-    } else if (name.toLowerCase().endsWith('.zip')) {
-      appZip ??= ReleaseAsset(url: url, name: name);
+      return SidecarsInfo(asset: ReleaseAsset(url: url, name: name), tag: m.group(1)!);
     }
   }
-  return ReleaseInfo(
-      build: build, appZip: appZip, sidecars: sidecars, sidecarsTag: sidecarsTag);
+  return null;
 }
 
 /// The installed build recorded in `current.json`, or null when nothing is
@@ -97,16 +108,15 @@ class ReleaseAsset {
 }
 
 class ReleaseInfo {
-  const ReleaseInfo({
-    required this.build,
-    this.appZip,
-    this.sidecars,
-    this.sidecarsTag,
-  });
+  const ReleaseInfo({required this.build, this.appZip});
   final int build;
   final ReleaseAsset? appZip;
-  final ReleaseAsset? sidecars;
-  final String? sidecarsTag;
+}
+
+class SidecarsInfo {
+  const SidecarsInfo({required this.asset, required this.tag});
+  final ReleaseAsset asset;
+  final String tag;
 }
 
 class LauncherConfig {
@@ -213,7 +223,7 @@ class Updater {
     // Provision sidecars into the shared bin dir (best-effort — the app degrades
     // per-feature if one is missing, and the next launch retries).
     try {
-      await _provisionSidecars(config, latest, onStatus);
+      await _provisionSidecars(config, onStatus);
     } catch (_) {}
 
     return _launch(buildToLaunch, onStatus);
@@ -257,20 +267,16 @@ class Updater {
 
   Future<void> _provisionSidecars(
     LauncherConfig config,
-    ReleaseInfo latest,
     void Function(UpdateStatus) onStatus,
   ) async {
-    final sc = latest.sidecars;
-    final tag = latest.sidecarsTag;
-    if (sc == null || tag == null) return; // older release without a bundle
+    final sc = await _fetchSidecars(config);
+    if (sc == null) return; // no sidecars release yet — leave bin as-is
     final installedTag =
         installedSidecarsTag(await _readFile(paths.sidecarsFile));
-    if (installedTag == tag && _sidecarsPresent()) return; // already current
+    if (installedTag == sc.tag && _sidecarsPresent()) return; // already current
 
-    onStatus(const UpdateStatus(UpdatePhase.downloading,
-        message: 'Preparing components…', fraction: 0));
     final zip = await _downloadAsset(
-        config, sc, onStatus, 'Preparing components…');
+        config, sc.asset, onStatus, 'Preparing components…');
     onStatus(const UpdateStatus(UpdatePhase.extracting,
         message: 'Preparing components…'));
     await Directory(paths.binDir).create(recursive: true);
@@ -278,7 +284,27 @@ class Updater {
     // locked; overwriting the rest is fine and self-heals next launch).
     extractFileToDisk(zip, paths.binDir);
     _tryDelete(zip);
-    await _writeJson(paths.sidecarsFile, {'tag': tag});
+    await _writeJson(paths.sidecarsFile, {'tag': sc.tag});
+  }
+
+  /// Fetch the dedicated `sidecars` prerelease and find its bundle asset. Null
+  /// (not an error) when that release doesn't exist yet.
+  Future<SidecarsInfo?> _fetchSidecars(LauncherConfig config) async {
+    final res = await _client.get(
+      Uri.parse(
+          'https://api.github.com/repos/${config.repo}/releases/tags/sidecars'),
+      headers: {
+        'Authorization': 'Bearer ${config.githubToken}',
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'couch-roach-launcher',
+      },
+    );
+    if (res.statusCode == 404) return null;
+    if (res.statusCode != 200) {
+      throw HttpException('GitHub API responded ${res.statusCode}');
+    }
+    return parseSidecarsRelease(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
   /// Whether the key sidecars are present in the bin dir.
