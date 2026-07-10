@@ -1,0 +1,23 @@
+name: couch_roach_launcher
+description: "Self-updating launcher for Couch Roach — fetches the newest build, then launches it."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Minimal, on purpose — the launcher stays dumb so it never needs updating.
+  http: ^1.2.0
+  archive: ^3.6.1
+  path: ^1.9.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

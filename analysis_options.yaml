@@ -3,6 +3,8 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - "**/*.g.dart"
+    # The launcher is a separate package with its own pubspec/analysis_options.
+    - "launcher/**"
 
 linter:
   rules:
