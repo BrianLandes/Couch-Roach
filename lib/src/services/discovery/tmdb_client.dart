@@ -5,6 +5,7 @@ import 'package:injectable/injectable.dart';
 
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
+import '../../data/tmdb/credits.dart';
 import '../../data/tmdb/movie_summary.dart';
 import '../../data/tmdb/season.dart';
 import '../../data/tmdb/tmdb_video.dart';
@@ -45,6 +46,23 @@ abstract class DiscoveryClient {
     required int tmdbId,
     required int seasonNumber,
   });
+
+  /// The cast credited on a specific TV episode — its guest stars and its
+  /// (episode-scoped) regular cast. Drives the "Who's in this?" panel.
+  Future<({List<CastMember> guestStars, List<CastMember> cast})> episodeCredits(
+    int tmdbId,
+    int seasonNumber,
+    int episodeNumber,
+  );
+
+  /// A show's main/recurring cast (`/tv/{id}/credits`).
+  Future<List<CastMember>> tvCast(int tmdbId);
+
+  /// A movie's cast (`/movie/{id}/credits`).
+  Future<List<CastMember>> movieCast(int tmdbId);
+
+  /// A person's combined film/TV credits — the "known for" feed for an actor.
+  Future<List<PersonCredit>> personCredits(int personId);
 }
 
 @LazySingleton(as: DiscoveryClient)
@@ -169,4 +187,48 @@ class TmdbClient implements DiscoveryClient {
         await _get('/tv/$tmdbId/season/$seasonNumber/videos'),
         TmdbVideo.fromJson,
       );
+
+  @override
+  Future<({List<CastMember> guestStars, List<CastMember> cast})> episodeCredits(
+    int tmdbId,
+    int seasonNumber,
+    int episodeNumber,
+  ) async {
+    final json = await _get(
+        '/tv/$tmdbId/season/$seasonNumber/episode/$episodeNumber/credits');
+    return (
+      guestStars: _list(json, 'guest_stars', CastMember.fromJson),
+      cast: _list(json, 'cast', CastMember.fromJson),
+    );
+  }
+
+  @override
+  Future<List<CastMember>> tvCast(int tmdbId) async =>
+      _list(await _get('/tv/$tmdbId/credits'), 'cast', CastMember.fromJson);
+
+  @override
+  Future<List<CastMember>> movieCast(int tmdbId) async =>
+      _list(await _get('/movie/$tmdbId/credits'), 'cast', CastMember.fromJson);
+
+  @override
+  Future<List<PersonCredit>> personCredits(int personId) async => _list(
+        await _get('/person/$personId/combined_credits'),
+        'cast',
+        PersonCredit.fromJson,
+      );
+
+  /// Like [_results] but reads an arbitrary array [key] (credits use
+  /// `cast`/`guest_stars`, not `results`).
+  List<T> _list<T>(
+    Map<String, dynamic>? json,
+    String key,
+    T Function(Map<String, dynamic>) fromJson,
+  ) {
+    final list = json?[key] as List<dynamic>?;
+    if (list == null) return const [];
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map(fromJson)
+        .toList(growable: false);
+  }
 }

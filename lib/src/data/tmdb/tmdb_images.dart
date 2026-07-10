@@ -11,4 +11,8 @@ abstract final class TmdbImages {
 
   static String? still(String? path, {String size = 'w300'}) =>
       path == null ? null : '$_base/$size$path';
+
+  /// Actor headshot (cast lists). `w185` is TMDB's portrait bucket.
+  static String? profile(String? path, {String size = 'w185'}) =>
+      path == null ? null : '$_base/$size$path';
 }

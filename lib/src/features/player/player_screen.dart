@@ -13,6 +13,7 @@ import 'package:media_kit_video/media_kit_video.dart' hide toggleFullscreen;
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
 import '../../core/media/ytdlp.dart';
+import '../../core/platform/open_url.dart';
 import '../../core/media/ytdlp_resolver.dart';
 import '../../core/settings/settings_service.dart';
 import '../../core/window/window_service.dart';
@@ -28,6 +29,7 @@ import '../../services/subtitles/subtitle_skip_check.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
 import '../acquire/acquire_play.dart';
+import '../cast/cast_dialog.dart';
 import 'audio_selection.dart';
 import 'next_episode.dart';
 import 'next_episode_button.dart';
@@ -949,6 +951,69 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  /// "Who's in this?" — open the cast panel for the current title (pulled from
+  /// TMDB), or fall back to a typed web search when there's no TMDB match.
+  Future<void> _showCast() async {
+    _subtitleMenuController.close();
+    final item = _currentItem;
+    final tmdbId = item?.tmdbId;
+    if (item == null || tmdbId == null) {
+      await _lookupActorByTyping();
+      return;
+    }
+    final title = _effectiveTitle ?? item.tmdbName ?? item.title;
+    final query = (item.mediaType == 'tv' &&
+            item.season != null &&
+            item.episode != null)
+        ? CastQuery.episode(
+            tmdbId: tmdbId,
+            season: item.season!,
+            episode: item.episode!,
+            title: title)
+        : CastQuery.movie(tmdbId: tmdbId, title: title);
+    if (mounted) await showCastDialog(context, query);
+  }
+
+  /// Fallback for an unmatched title: type a character name and hand off to a
+  /// web search for who plays them.
+  Future<void> _lookupActorByTyping() async {
+    final controller = TextEditingController();
+    final title = _effectiveTitle ?? widget.title ?? '';
+    final q = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Look up an actor'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+                "Type the character's name and we'll search the web for who "
+                'plays them.'),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(hintText: 'Character name'),
+              onSubmitted: (v) => Navigator.pop(ctx, v),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text),
+              child: const Text('Search')),
+        ],
+      ),
+    );
+    if (q == null || q.trim().isEmpty) return;
+    final search = '${q.trim()} $title actor'.trim();
+    await openUrl(
+        'https://www.google.com/search?q=${Uri.encodeQueryComponent(search)}');
+  }
+
   // libmpv exposes the channel count on either field depending on the container;
   // take whichever is larger, defaulting to 0 (unknown) so it never wins a tie.
   int _channelCount(AudioTrack t) {
@@ -1293,6 +1358,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               menuChildren: _subtitleMenuItems(),
                               child: const Text('Subtitles'),
                             ),
+                            // "Who's in this?" — pull the episode/movie cast from
+                            // TMDB (a typed web search when there's no match).
+                            if (!_isNetworkSource)
+                              MenuItemButton(
+                                leadingIcon: const Icon(
+                                    Icons.people_alt_outlined,
+                                    size: 18),
+                                onPressed: _showCast,
+                                child: const Text('Who’s in this?'),
+                              ),
                             // Manual subtitle fetch — surfaced when auto-download
                             // is off, so subtitles can still be pulled on demand.
                             if (widget.libraryItemId != null &&

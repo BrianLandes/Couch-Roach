@@ -170,6 +170,70 @@ void main() {
     expect(vids.single.name, 'Season 2 Trailer');
   });
 
+  test('episodeCredits parses guest stars and cast separately', () async {
+    final client = clientFor({
+      '/tv/1399/season/1/episode/1/credits': {
+        'cast': [
+          {'id': 10, 'name': 'Sean Bean', 'character': 'Ned', 'order': 0},
+        ],
+        'guest_stars': [
+          {'id': 20, 'name': 'Guest One', 'character': 'Innkeeper'},
+        ],
+      },
+    });
+    final credits = await client.episodeCredits(1399, 1, 1);
+    expect(credits.cast.single.name, 'Sean Bean');
+    expect(credits.cast.single.character, 'Ned');
+    expect(credits.guestStars.single.personId, 20);
+  });
+
+  test('tvCast / movieCast read the cast array', () async {
+    final client = clientFor({
+      '/tv/1399/credits': {
+        'cast': [
+          {'id': 10, 'name': 'A', 'character': 'X'},
+          {'id': 11, 'name': 'B', 'character': 'Y'},
+        ],
+      },
+      '/movie/550/credits': {
+        'cast': [
+          {'id': 12, 'name': 'C', 'character': 'Z', 'profile_path': '/c.jpg'},
+        ],
+      },
+    });
+    expect((await client.tvCast(1399)).map((c) => c.name), ['A', 'B']);
+    expect((await client.movieCast(550)).single.profilePath, '/c.jpg');
+  });
+
+  test('personCredits parses combined credits (movies + tv)', () async {
+    final client = clientFor({
+      '/person/10/combined_credits': {
+        'cast': [
+          {
+            'id': 550,
+            'media_type': 'movie',
+            'title': 'Fight Club',
+            'poster_path': '/fc.jpg',
+            'popularity': 42.0,
+            'release_date': '1999-10-15',
+          },
+          {
+            'id': 1399,
+            'media_type': 'tv',
+            'name': 'Game of Thrones',
+            'poster_path': '/got.jpg',
+            'first_air_date': '2011-04-17',
+          },
+        ],
+      },
+    });
+    final credits = await client.personCredits(10);
+    expect(credits, hasLength(2));
+    expect(credits[0].displayTitle, 'Fight Club');
+    expect(credits[0].year, '1999');
+    expect(credits[1].displayTitle, 'Game of Thrones');
+  });
+
   test('non-200 degrades to empty/null (logged, not thrown)', () async {
     final client = clientFor({}); // everything 404
     expect(await client.searchTv('x'), isEmpty);
