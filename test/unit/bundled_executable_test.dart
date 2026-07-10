@@ -46,4 +46,30 @@ void main() {
       expect(seen, p.join('/some/where', 'yt-dlp'));
     });
   });
+
+  group('firstExecutableIn', () {
+    const bin = '/local/CouchRoach/bin';
+    const exeDir = '/app/bundle';
+
+    test('prefers the earlier dir (launcher bin over next-to-exe)', () {
+      final present = {
+        p.join(bin, 'ffprobe.exe'),
+        p.join(exeDir, 'ffprobe.exe'),
+      };
+      final path = firstExecutableIn(['ffprobe.exe'], [bin, exeDir], present.contains);
+      expect(path, p.join(bin, 'ffprobe.exe'));
+    });
+
+    test('falls back to a later dir when the earlier one lacks it', () {
+      final present = {p.join(exeDir, 'ffprobe.exe')};
+      final path = firstExecutableIn(['ffprobe.exe'], [bin, exeDir], present.contains);
+      expect(path, p.join(exeDir, 'ffprobe.exe'));
+    });
+
+    test('null when no dir has any candidate', () {
+      final path =
+          firstExecutableIn(['ffprobe.exe'], [bin, exeDir], (_) => false);
+      expect(path, isNull);
+    });
+  });
 }

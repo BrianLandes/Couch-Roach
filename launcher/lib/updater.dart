@@ -17,26 +17,36 @@ int? buildNumberFromTag(String tag) {
   return m == null ? null : int.tryParse(m.group(1)!);
 }
 
-/// The .zip build asset from GitHub's `releases/latest` JSON, plus the build
-/// number from the tag. Null when the release isn't a recognizable Couch Roach
-/// build (no `build-N` tag, or no .zip asset).
+final _sidecarsAsset = RegExp(r'^sidecars-([0-9a-fA-F]+)\.zip$');
+
+/// Parse GitHub's `releases/latest` JSON into the build number, the app .zip
+/// asset, and the sidecars .zip asset (named `sidecars-<contenttag>.zip`, so its
+/// tag is stable while the sidecars don't change). Null when the tag isn't a
+/// `build-N`.
 ReleaseInfo? parseLatestRelease(Map<String, dynamic> json) {
   final tag = json['tag_name'];
   if (tag is! String) return null;
   final build = buildNumberFromTag(tag);
   if (build == null) return null;
-  final assets = (json['assets'] as List?) ?? const [];
-  for (final a in assets) {
+
+  ReleaseAsset? appZip;
+  ReleaseAsset? sidecars;
+  String? sidecarsTag;
+  for (final a in (json['assets'] as List?) ?? const []) {
     if (a is! Map) continue;
     final name = a['name'];
     final url = a['url'];
-    if (name is String &&
-        url is String &&
-        name.toLowerCase().endsWith('.zip')) {
-      return ReleaseInfo(build: build, zipAssetUrl: url, zipAssetName: name);
+    if (name is! String || url is! String) continue;
+    final m = _sidecarsAsset.firstMatch(name);
+    if (m != null) {
+      sidecars = ReleaseAsset(url: url, name: name);
+      sidecarsTag = m.group(1);
+    } else if (name.toLowerCase().endsWith('.zip')) {
+      appZip ??= ReleaseAsset(url: url, name: name);
     }
   }
-  return null;
+  return ReleaseInfo(
+      build: build, appZip: appZip, sidecars: sidecars, sidecarsTag: sidecarsTag);
 }
 
 /// The installed build recorded in `current.json`, or null when nothing is
@@ -44,16 +54,24 @@ ReleaseInfo? parseLatestRelease(Map<String, dynamic> json) {
 int? installedBuildFrom(String? currentJson) {
   if (currentJson == null) return null;
   try {
-    final m = jsonDecode(currentJson) as Map<String, dynamic>;
-    final b = m['build'];
+    final b = (jsonDecode(currentJson) as Map<String, dynamic>)['build'];
     if (b is int) return b;
     if (b is String) return int.tryParse(b);
   } catch (_) {}
   return null;
 }
 
-/// The launcher's config (from `launcher.json`), with sensible defaults so a
-/// missing/garbled file just means "no token yet".
+/// The sidecars tag recorded in `bin/sidecars.json`, or null.
+String? installedSidecarsTag(String? sidecarsJson) {
+  if (sidecarsJson == null) return null;
+  try {
+    final t = (jsonDecode(sidecarsJson) as Map<String, dynamic>)['tag'];
+    return t is String ? t : null;
+  } catch (_) {}
+  return null;
+}
+
+/// The launcher's config (from `launcher.json`), defaulting sensibly.
 LauncherConfig parseConfig(String? json) {
   if (json == null) return const LauncherConfig();
   try {
@@ -69,18 +87,26 @@ LauncherConfig parseConfig(String? json) {
   }
 }
 
+class ReleaseAsset {
+  const ReleaseAsset({required this.url, required this.name});
+
+  /// The GitHub *API* URL of the asset — downloaded with
+  /// `Accept: application/octet-stream`, which works for a private repo.
+  final String url;
+  final String name;
+}
+
 class ReleaseInfo {
   const ReleaseInfo({
     required this.build,
-    required this.zipAssetUrl,
-    required this.zipAssetName,
+    this.appZip,
+    this.sidecars,
+    this.sidecarsTag,
   });
   final int build;
-
-  /// The GitHub *API* URL of the asset (not the browser URL) — downloaded with
-  /// `Accept: application/octet-stream`, which works for a private repo.
-  final String zipAssetUrl;
-  final String zipAssetName;
+  final ReleaseAsset? appZip;
+  final ReleaseAsset? sidecars;
+  final String? sidecarsTag;
 }
 
 class LauncherConfig {
@@ -105,6 +131,8 @@ class LauncherPaths {
   String get configFile => p.join(base, 'config', 'launcher.json');
   String get appDir => p.join(base, 'app');
   String get currentFile => p.join(appDir, 'current.json');
+  String get binDir => p.join(base, 'bin');
+  String get sidecarsFile => p.join(binDir, 'sidecars.json');
   String get tmpDir => p.join(base, 'tmp');
   String installDir(int build) => p.join(appDir, 'build-$build');
   String exePath(int build) => p.join(installDir(build), 'couch_roach.exe');
@@ -124,8 +152,9 @@ class UpdateStatus {
 // ── The updater ─────────────────────────────────────────────────────────────
 
 /// Checks the newest published build, installs it if it beats what's on disk,
-/// and launches it. Degrades gracefully: with no token (or no network) but an
-/// app already installed, it just launches the installed build.
+/// provisions the sidecars (qBittorrent/yt-dlp/ffprobe/Jackett) into the shared
+/// bin dir, and launches the app. Degrades gracefully: with no token or no
+/// network but an app already installed, it just launches the installed build.
 class Updater {
   Updater({http.Client? client, LauncherPaths? paths})
       : _client = client ?? http.Client(),
@@ -134,8 +163,8 @@ class Updater {
   final http.Client _client;
   final LauncherPaths paths;
 
-  /// Runs the whole flow, reporting each phase through [onStatus]. Returns the
-  /// build it launched, or null when it stopped at an error state.
+  /// Runs the flow, reporting each phase through [onStatus]. Returns the build
+  /// it launched, or null when it stopped at an error state.
   Future<int?> run(void Function(UpdateStatus) onStatus) async {
     onStatus(const UpdateStatus(UpdatePhase.checking,
         message: 'Checking for updates…'));
@@ -158,7 +187,6 @@ class Updater {
           message: "Couldn't reach GitHub and nothing is installed yet.\n$e"));
       return null;
     }
-
     if (latest == null) {
       if (installed != null) return _launch(installed, onStatus);
       onStatus(const UpdateStatus(UpdatePhase.error,
@@ -166,23 +194,29 @@ class Updater {
       return null;
     }
 
-    if (installed != null && latest.build <= installed) {
-      return _launch(installed, onStatus);
+    // Install a newer app build if there is one; otherwise keep what's on disk.
+    var buildToLaunch = installed;
+    if (installed == null || latest.build > installed) {
+      try {
+        await _installApp(config, latest, onStatus);
+        buildToLaunch = latest.build;
+      } catch (e) {
+        if (installed == null) {
+          onStatus(UpdateStatus(UpdatePhase.error, message: 'Update failed.\n$e'));
+          return null;
+        }
+        // A failed update shouldn't strand the user on a working install.
+      }
     }
+    if (buildToLaunch == null) return null;
 
+    // Provision sidecars into the shared bin dir (best-effort — the app degrades
+    // per-feature if one is missing, and the next launch retries).
     try {
-      final zip = await _download(config, latest, onStatus);
-      onStatus(const UpdateStatus(UpdatePhase.extracting, message: 'Installing…'));
-      await _install(zip, latest.build);
-      await _writeCurrent(latest.build);
-      _reapOld(latest.build);
-    } catch (e) {
-      // A failed update shouldn't strand the user on a working install.
-      if (installed != null) return _launch(installed, onStatus);
-      onStatus(UpdateStatus(UpdatePhase.error, message: 'Update failed.\n$e'));
-      return null;
-    }
-    return _launch(latest.build, onStatus);
+      await _provisionSidecars(config, latest, onStatus);
+    } catch (_) {}
+
+    return _launch(buildToLaunch, onStatus);
   }
 
   Future<ReleaseInfo?> _fetchLatest(LauncherConfig config) async {
@@ -201,17 +235,70 @@ class Updater {
     return parseLatestRelease(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
-  Future<String> _download(
+  Future<void> _installApp(
     LauncherConfig config,
     ReleaseInfo latest,
     void Function(UpdateStatus) onStatus,
   ) async {
-    onStatus(const UpdateStatus(UpdatePhase.downloading,
-        message: 'Downloading update…', fraction: 0));
+    final appZip = latest.appZip;
+    if (appZip == null) throw const HttpException('release has no app build');
+    final zip = await _downloadAsset(
+        config, appZip, onStatus, 'Downloading update…');
+    onStatus(const UpdateStatus(UpdatePhase.extracting, message: 'Installing…'));
+    final dir = Directory(paths.installDir(latest.build));
+    if (await dir.exists()) await dir.delete(recursive: true);
+    await dir.create(recursive: true);
+    extractFileToDisk(zip, dir.path);
+    _tryDelete(zip);
+    await _writeJson(paths.currentFile,
+        {'build': latest.build, 'dir': 'build-${latest.build}'});
+    _reapOldBuilds(latest.build);
+  }
 
-    // Ask the asset endpoint for the binary; it 302s to a signed URL. Follow
-    // that redirect WITHOUT the auth header — the storage host rejects it.
-    final req = http.Request('GET', Uri.parse(latest.zipAssetUrl))
+  Future<void> _provisionSidecars(
+    LauncherConfig config,
+    ReleaseInfo latest,
+    void Function(UpdateStatus) onStatus,
+  ) async {
+    final sc = latest.sidecars;
+    final tag = latest.sidecarsTag;
+    if (sc == null || tag == null) return; // older release without a bundle
+    final installedTag =
+        installedSidecarsTag(await _readFile(paths.sidecarsFile));
+    if (installedTag == tag && _sidecarsPresent()) return; // already current
+
+    onStatus(const UpdateStatus(UpdatePhase.downloading,
+        message: 'Preparing components…', fraction: 0));
+    final zip = await _downloadAsset(
+        config, sc, onStatus, 'Preparing components…');
+    onStatus(const UpdateStatus(UpdatePhase.extracting,
+        message: 'Preparing components…'));
+    await Directory(paths.binDir).create(recursive: true);
+    // Extract over the existing files (no wipe — a running sidecar's file may be
+    // locked; overwriting the rest is fine and self-heals next launch).
+    extractFileToDisk(zip, paths.binDir);
+    _tryDelete(zip);
+    await _writeJson(paths.sidecarsFile, {'tag': tag});
+  }
+
+  /// Whether the key sidecars are present in the bin dir.
+  bool _sidecarsPresent() =>
+      File(p.join(paths.binDir, 'qbittorrent.exe')).existsSync() &&
+      File(p.join(paths.binDir, 'yt-dlp.exe')).existsSync() &&
+      File(p.join(paths.binDir, 'ffprobe.exe')).existsSync() &&
+      File(p.join(paths.binDir, 'jackett', 'JackettConsole.exe')).existsSync();
+
+  Future<String> _downloadAsset(
+    LauncherConfig config,
+    ReleaseAsset asset,
+    void Function(UpdateStatus) onStatus,
+    String message,
+  ) async {
+    onStatus(UpdateStatus(UpdatePhase.downloading, message: message, fraction: 0));
+
+    // The asset endpoint 302s to a signed storage URL. Follow that redirect
+    // WITHOUT the auth header — the storage host rejects it.
+    final req = http.Request('GET', Uri.parse(asset.url))
       ..followRedirects = false
       ..headers.addAll({
         'Authorization': 'Bearer ${config.githubToken}',
@@ -222,9 +309,8 @@ class Updater {
     if (streamed.statusCode >= 300 && streamed.statusCode < 400) {
       final loc = streamed.headers['location'];
       if (loc == null) throw const HttpException('redirect without a location');
-      final redirect = http.Request('GET', Uri.parse(loc))
-        ..headers['User-Agent'] = 'couch-roach-launcher';
-      streamed = await _client.send(redirect);
+      streamed = await _client.send(http.Request('GET', Uri.parse(loc))
+        ..headers['User-Agent'] = 'couch-roach-launcher');
     }
     if (streamed.statusCode != 200) {
       throw HttpException('download responded ${streamed.statusCode}');
@@ -232,7 +318,7 @@ class Updater {
 
     final total = streamed.contentLength ?? 0;
     await Directory(paths.tmpDir).create(recursive: true);
-    final file = File(p.join(paths.tmpDir, latest.zipAssetName));
+    final file = File(p.join(paths.tmpDir, asset.name));
     final sink = file.openWrite();
     var received = 0;
     await for (final chunk in streamed.stream) {
@@ -240,32 +326,15 @@ class Updater {
       received += chunk.length;
       if (total > 0) {
         onStatus(UpdateStatus(UpdatePhase.downloading,
-            message: 'Downloading update…', fraction: received / total));
+            message: message, fraction: received / total));
       }
     }
     await sink.close();
     return file.path;
   }
 
-  Future<void> _install(String zipPath, int build) async {
-    final dir = Directory(paths.installDir(build));
-    if (await dir.exists()) await dir.delete(recursive: true);
-    await dir.create(recursive: true);
-    extractFileToDisk(zipPath, dir.path);
-    try {
-      await File(zipPath).delete();
-    } catch (_) {}
-  }
-
-  Future<void> _writeCurrent(int build) async {
-    final f = File(paths.currentFile);
-    await f.parent.create(recursive: true);
-    await f.writeAsString(jsonEncode({'build': build, 'dir': 'build-$build'}));
-  }
-
-  /// Delete every installed build except [keep] — best-effort (a build whose
-  /// files are locked, e.g. a still-running one, is simply skipped).
-  void _reapOld(int keep) {
+  /// Delete every installed build except [keep] — best-effort.
+  void _reapOldBuilds(int keep) {
     final dir = Directory(paths.appDir);
     if (!dir.existsSync()) return;
     for (final e in dir.listSync()) {
@@ -289,6 +358,18 @@ class Updater {
       mode: ProcessStartMode.detached,
     );
     return build;
+  }
+
+  Future<void> _writeJson(String path, Map<String, Object?> data) async {
+    final f = File(path);
+    await f.parent.create(recursive: true);
+    await f.writeAsString(jsonEncode(data));
+  }
+
+  void _tryDelete(String path) {
+    try {
+      File(path).deleteSync();
+    } catch (_) {}
   }
 
   Future<String?> _readFile(String path) async {

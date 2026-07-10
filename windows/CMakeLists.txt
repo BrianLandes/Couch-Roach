@@ -75,52 +75,14 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
-# Bundle the vendored qBittorrent daemon next to the app exe, if present
-# (populated by tool/fetch_qbittorrent_windows.ps1 — run before this build).
-# QbittorrentProcess resolves it there at runtime. Guarded so a build without
-# the vendored binary still succeeds (it just falls back to a PATH lookup).
-set(QBITTORRENT_DIR "${CMAKE_SOURCE_DIR}/../third_party/qbittorrent")
-if(EXISTS "${QBITTORRENT_DIR}/win-x64/qbittorrent.exe")
-  install(PROGRAMS "${QBITTORRENT_DIR}/win-x64/qbittorrent.exe"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
-  install(FILES "${QBITTORRENT_DIR}/LICENSE-qbittorrent.txt"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
-endif()
-
-# Same pattern for the two sidecar tools that also sit beside the app exe:
-#   yt-dlp.exe  — libmpv's ytdl_hook shells out to it to resolve YouTube trailers
-#   ffprobe.exe — the fast subtitle-stream probe in SubtitleSkipCheck
-# Populated by tool/fetch_ytdlp_windows.ps1 and tool/fetch_ffprobe_windows.ps1
-# (run before this build); resolved next to the app exe at runtime. Guarded so a
-# build without them still succeeds (the app falls back to a PATH lookup / its
-# slower probe).
-set(YTDLP_DIR "${CMAKE_SOURCE_DIR}/../third_party/yt-dlp")
-if(EXISTS "${YTDLP_DIR}/win-x64/yt-dlp.exe")
-  install(PROGRAMS "${YTDLP_DIR}/win-x64/yt-dlp.exe"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
-  install(FILES "${YTDLP_DIR}/LICENSE-yt-dlp.txt"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
-endif()
-
-set(FFPROBE_DIR "${CMAKE_SOURCE_DIR}/../third_party/ffprobe")
-if(EXISTS "${FFPROBE_DIR}/win-x64/ffprobe.exe")
-  install(PROGRAMS "${FFPROBE_DIR}/win-x64/ffprobe.exe"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
-  install(FILES "${FFPROBE_DIR}/LICENSE-ffmpeg.txt"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
-endif()
-
-# The Jackett indexer sidecar is a whole self-contained .NET tree, not a single
-# file — bundle the directory as <bundle>/jackett/ (JackettProcess launches
-# jackett/JackettConsole.exe there). Populated by tool/fetch_jackett_windows.ps1;
-# guarded so a build without it still succeeds (indexer path just stays off).
-set(JACKETT_DIR "${CMAKE_SOURCE_DIR}/../third_party/jackett")
-if(EXISTS "${JACKETT_DIR}/win-x64/JackettConsole.exe")
-  install(DIRECTORY "${JACKETT_DIR}/win-x64/"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}/jackett" COMPONENT Runtime)
-  install(FILES "${JACKETT_DIR}/LICENSE-jackett.txt"
-    DESTINATION "${CMAKE_INSTALL_PREFIX}/jackett" COMPONENT Runtime OPTIONAL)
-endif()
+# NOTE: the sidecars (qBittorrent, yt-dlp, ffprobe, Jackett) are NO LONGER
+# bundled next to the app exe. They're published as a separate `sidecars-*.zip`
+# release asset and provisioned by the launcher into
+# %LOCALAPPDATA%\CouchRoach\bin, which the app searches first (see
+# lib/src/core/process/bundled_executable.dart → sidecarSearchDirs). This keeps
+# the app bundle small and lets the sidecars update independently. The
+# next-to-exe lookup still works, so a hand-assembled self-contained build can
+# drop them here if ever needed.
 
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)

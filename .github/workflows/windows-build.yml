@@ -129,6 +129,45 @@ jobs:
           path: ${{ env.ZIP_PATH }}
           if-no-files-found: error
 
+      # Assemble the vendored sidecars (populated by the Vendor steps above) into
+      # a flat bin layout — qbittorrent.exe, yt-dlp.exe, ffprobe.exe, jackett/ —
+      # and publish them as a separate release asset the launcher provisions into
+      # %LOCALAPPDATA%\CouchRoach\bin. They're no longer bundled into the app zip
+      # (see windows/CMakeLists.txt). The content-hash tag in the filename stays
+      # stable while the sidecars don't change, so the launcher only re-downloads
+      # them on a real version bump — not on every app update.
+      - name: Package sidecars
+        if: ${{ inputs.build_mode == 'release' }}
+        shell: pwsh
+        run: |
+          $stage = "sidecars_stage"
+          New-Item -ItemType Directory -Force -Path $stage, "$stage/jackett" | Out-Null
+          Copy-Item third_party/qbittorrent/win-x64/qbittorrent.exe $stage/
+          Copy-Item third_party/yt-dlp/win-x64/yt-dlp.exe $stage/
+          Copy-Item third_party/ffprobe/win-x64/ffprobe.exe $stage/
+          Copy-Item third_party/jackett/win-x64/* "$stage/jackett/" -Recurse -Force
+          Copy-Item third_party/qbittorrent/LICENSE-qbittorrent.txt $stage/ -ErrorAction SilentlyContinue
+          Copy-Item third_party/yt-dlp/LICENSE-yt-dlp.txt $stage/ -ErrorAction SilentlyContinue
+          Copy-Item third_party/ffprobe/LICENSE-ffmpeg.txt $stage/ -ErrorAction SilentlyContinue
+          Copy-Item third_party/jackett/LICENSE-jackett.txt $stage/ -ErrorAction SilentlyContinue
+
+          # Content tag: hash the four key binaries so the asset name is stable
+          # while the sidecars are unchanged (launcher then skips re-download).
+          $parts = @(
+            (Get-FileHash "$stage/qbittorrent.exe").Hash,
+            (Get-FileHash "$stage/yt-dlp.exe").Hash,
+            (Get-FileHash "$stage/ffprobe.exe").Hash,
+            (Get-FileHash "$stage/jackett/JackettConsole.exe").Hash
+          ) -join ''
+          $sha = [System.Security.Cryptography.SHA256]::Create()
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($parts)
+          $tag = (($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 8)
+
+          $zip = "sidecars-$tag.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $zip -Force
+          "SIDECARS_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Sidecars asset: $zip"
+
       # Publish a GitHub Release the launcher polls via /releases/latest. Release
       # builds only — a profile/debug dispatch never becomes an update the
       # launcher would install. The manifest is attached both inside the zip and
@@ -143,6 +182,7 @@ jobs:
           files: |
             ${{ env.ZIP_PATH }}
             ${{ env.OUT_DIR }}/manifest.json
+            ${{ env.SIDECARS_ZIP }}
 
   # Build the self-updating launcher (couch_roach_launcher.exe). It's a separate,
   # deliberately-dumb package: you install it once and it self-updates the app.

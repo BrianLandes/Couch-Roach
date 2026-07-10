@@ -23,7 +23,7 @@ void main() {
     }) =>
         {'tag_name': tag, 'assets': assets};
 
-    test('extracts the build and the .zip asset api url', () {
+    test('extracts the build, app zip, and sidecars zip (with its tag)', () {
       final info = parseLatestRelease(release(
         tag: 'build-42',
         assets: [
@@ -32,22 +32,38 @@ void main() {
             'name': 'couch-roach-windows-release-build42.zip',
             'url': 'https://api/x/2',
           },
+          {'name': 'sidecars-a1b2c3d4.zip', 'url': 'https://api/x/3'},
         ],
       ));
       expect(info, isNotNull);
       expect(info!.build, 42);
-      expect(info.zipAssetUrl, 'https://api/x/2');
-      expect(info.zipAssetName, endsWith('.zip'));
+      expect(info.appZip!.url, 'https://api/x/2');
+      expect(info.appZip!.name, endsWith('.zip'));
+      expect(info.sidecars!.url, 'https://api/x/3');
+      expect(info.sidecarsTag, 'a1b2c3d4');
     });
 
-    test('null when there is no zip asset', () {
+    test('sidecars null when the release has no sidecars asset', () {
       final info = parseLatestRelease(release(
         tag: 'build-42',
         assets: [
-          {'name': 'manifest.json', 'url': 'https://api/x/1'},
+          {'name': 'app.zip', 'url': 'https://api/x/2'},
         ],
       ));
-      expect(info, isNull);
+      expect(info!.appZip, isNotNull);
+      expect(info.sidecars, isNull);
+      expect(info.sidecarsTag, isNull);
+    });
+
+    test('the sidecars zip is not mistaken for the app zip', () {
+      final info = parseLatestRelease(release(
+        tag: 'build-42',
+        assets: [
+          {'name': 'sidecars-deadbeef.zip', 'url': 'https://api/x/3'},
+        ],
+      ));
+      expect(info!.appZip, isNull);
+      expect(info.sidecars, isNotNull);
     });
 
     test('null for an unrecognized tag', () {
@@ -58,6 +74,17 @@ void main() {
         ],
       ));
       expect(info, isNull);
+    });
+  });
+
+  group('installedSidecarsTag', () {
+    test('reads the tag', () {
+      expect(installedSidecarsTag(jsonEncode({'tag': 'a1b2c3d4'})), 'a1b2c3d4');
+    });
+    test('null for missing / garbled input', () {
+      expect(installedSidecarsTag(null), isNull);
+      expect(installedSidecarsTag('nope'), isNull);
+      expect(installedSidecarsTag(jsonEncode({'other': 1})), isNull);
     });
   });
 
@@ -97,6 +124,8 @@ void main() {
       expect(paths.currentFile, contains('current.json'));
       expect(paths.installDir(5), endsWith('build-5'));
       expect(paths.exePath(5), endsWith('couch_roach.exe'));
+      expect(paths.binDir, endsWith('bin'));
+      expect(paths.sidecarsFile, contains('sidecars.json'));
     });
   });
 }

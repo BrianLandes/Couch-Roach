@@ -18,8 +18,19 @@ Everything lives under `%LOCALAPPDATA%\CouchRoach`:
 config\launcher.json     your GitHub token (see below)
 app\current.json         which build is installed
 app\build-<N>\           an installed build (couch_roach.exe + DLLs + data\)
-tmp\                      the in-flight download
+bin\                     the sidecars (qbittorrent.exe, yt-dlp.exe, ffprobe.exe, jackett\)
+bin\sidecars.json        which sidecars bundle is installed
+tmp\                     the in-flight download
 ```
+
+## Sidecars
+
+The four sidecars (qBittorrent, yt-dlp, ffprobe, Jackett) are **not** bundled in
+the app anymore — the app zip is small. Instead CI publishes them as a separate
+`sidecars-<tag>.zip` release asset, and the launcher provisions them into `bin\`
+before launching the app (which searches `bin\` first). The `<tag>` is a hash of
+the sidecar binaries, so the launcher only re-downloads them when they actually
+change, not on every app update.
 
 ## One-time setup
 
