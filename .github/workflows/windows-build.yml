@@ -21,6 +21,12 @@ jobs:
   build:
     runs-on: windows-latest # VS 2022 + MSVC C++ toolchain preinstalled
 
+    # Needed so the Publish Release step can create tags/releases with the
+    # auto-provided GITHUB_TOKEN (no PAT required to *publish* — the launcher
+    # only needs a read-only PAT to *download*).
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -83,17 +89,57 @@ jobs:
         run: flutter build windows --${{ inputs.build_mode }} --dart-define-from-file=dart_define.json
 
       # The .exe won't run on its own — it needs the sibling DLLs and data\
-      # folder. Zip the whole Release dir so the artifact is a runnable bundle.
+      # folder. Drop a manifest.json the launcher reads to compare builds, then
+      # zip the whole Release dir so both the artifact and the release asset are
+      # a runnable bundle.
       - name: Package build output
         shell: bash
         run: |
           OUT_DIR="build/windows/x64/runner/${{ inputs.build_mode == 'release' && 'Release' || inputs.build_mode == 'profile' && 'Profile' || 'Debug' }}"
-          echo "Packaging $OUT_DIR"
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          echo "OUT_DIR=$OUT_DIR" >> "$GITHUB_ENV"
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Packaging $OUT_DIR (version $VERSION, build ${{ github.run_number }})"
           ls -la "$OUT_DIR"
+
+          # `build` is monotonic (github.run_number), so the launcher can compare
+          # it against the installed build without the pubspec version being
+          # hand-bumped every time.
+          cat > "$OUT_DIR/manifest.json" <<EOF
+          {
+            "build": ${{ github.run_number }},
+            "version": "$VERSION",
+            "mode": "${{ inputs.build_mode }}",
+            "commit": "${{ github.sha }}",
+            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Zip the runnable bundle
+        shell: pwsh
+        run: |
+          $zip = "couch-roach-windows-${{ inputs.build_mode }}-build${{ github.run_number }}.zip"
+          Compress-Archive -Path "$env:OUT_DIR/*" -DestinationPath $zip -Force
+          "ZIP_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: couch-roach-windows-${{ inputs.build_mode }}
-          path: build/windows/x64/runner/${{ inputs.build_mode == 'release' && 'Release' || inputs.build_mode == 'profile' && 'Profile' || 'Debug' }}/
+          path: ${{ env.ZIP_PATH }}
           if-no-files-found: error
+
+      # Publish a GitHub Release the launcher polls via /releases/latest. Release
+      # builds only — a profile/debug dispatch never becomes an update the
+      # launcher would install. The manifest is attached both inside the zip and
+      # as its own asset so the launcher can read it without downloading the zip.
+      - name: Publish Release
+        if: ${{ inputs.build_mode == 'release' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Couch Roach build ${{ github.run_number }} (v${{ env.APP_VERSION }})
+          make_latest: true
+          files: |
+            ${{ env.ZIP_PATH }}
+            ${{ env.OUT_DIR }}/manifest.json
