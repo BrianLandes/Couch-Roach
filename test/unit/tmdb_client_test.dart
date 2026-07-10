@@ -68,6 +68,24 @@ void main() {
     expect(details.seasons.single.episodeCount, 10);
   });
 
+  test('movieDetails parses the /movie/{id} response as a summary', () async {
+    final client = clientFor({
+      '/movie/550': {
+        'id': 550,
+        'title': 'Fight Club',
+        'poster_path': '/fc.jpg',
+        'release_date': '1999-10-15',
+        'vote_average': 8.4,
+      },
+    });
+
+    final movie = await client.movieDetails(550);
+    expect(movie, isNotNull);
+    expect(movie!.tmdbId, 550);
+    expect(movie.title, 'Fight Club');
+    expect(movie.posterPath, '/fc.jpg');
+  });
+
   test('seasonDetails parses episodes', () async {
     final client = clientFor({
       '/tv/1399/season/1': {

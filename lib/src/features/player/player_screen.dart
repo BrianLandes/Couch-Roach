@@ -28,8 +28,6 @@ import '../../services/subtitles/subtitle_skip_check.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
 import '../acquire/acquire_play.dart';
-import '../discover/new_episodes.dart' show isAired;
-import 'credits.dart';
 import 'next_episode.dart';
 import 'next_episode_button.dart';
 import 'player_title.dart';
@@ -132,14 +130,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String? _episodeName;
   // Prefetch of the next episode fires once, partway through.
   bool _prefetchedNext = false;
-  // End-of-episode auto-advance: a countdown that, on expiry, runs the pending
-  // action on the Next Episode button. `_autoAdvanceSeconds` is the remaining
-  // count (null = not counting down); `_pendingAdvanceLocal` is the next
-  // episode's library row when it's already local (→ play it directly), else
-  // null (→ the preparing flow fetches/buffers a not-yet-local one).
-  int? _autoAdvanceSeconds;
-  Timer? _autoAdvanceTimer;
-  LibraryItem? _pendingAdvanceLocal;
   // The persistent bottom-right "Next Episode" button, resolved once after open.
   // `_nextEpisode` is the (season, episode) that follows this one — null when
   // this isn't a TV episode or nothing comes after. `_nextLocalItem` is that
@@ -160,17 +150,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _controlsHideTimer;
   static const _controlsHideDelay = Duration(seconds: 3);
   static const _controlsFade = Duration(milliseconds: 150);
-  // Credits detection: chapters read via ffprobe, and the position at which to
-  // roll "Up Next" (a credits chapter, else a runtime-tail heuristic). Computed
-  // once the duration is known. `_creditsChecked` fires the roll at most once
-  // from the position ticks; `_advanced` guards against doing it twice (credits
-  // trigger vs the natural end).
-  List<VideoChapter> _chapters = const [];
-  Duration? _contentRuntime; // the episode's TMDB runtime, if known
-  bool _creditsMetaReady = false;
-  int? _creditsTriggerSec;
-  bool _creditsChecked = false;
-  bool _advanced = false;
 
   bool get _isTvEpisode =>
       _currentItem?.mediaType == 'tv' &&
@@ -237,17 +216,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (mounted) setState(() => _selectedSubtitle = t.subtitle);
       }));
       _subs.add(_player.stream.completed.listen((done) {
-        if (done) {
-          _markCompleted();
-          unawaited(_onCreditsOrEnd());
-        }
+        if (done) _markCompleted();
       }));
 
-      // Credits-detection metadata for a local TV episode: chapters (ffprobe) +
-      // the episode's TMDB runtime (content length). Used by _onPosition to roll
-      // "Up Next" when the credits start rather than at the very end. Best-effort.
+      // Enrich the top-bar title with the episode's TMDB name for a local TV
+      // episode ("Show — S01E03 · Episode Name"). Best-effort.
       if (_isTvEpisode && !_isNetworkSource) {
-        unawaited(_loadCreditsMeta());
+        unawaited(_loadEpisodeName());
       }
       _subs.add(_player.stream.error.listen((message) {
         getIt<ErrorLogService>().logError(
@@ -568,10 +543,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // in the background so it's ready by the time this one ends.
     _maybePrefetchNext(pos);
 
-    // Roll "Up Next" when the credits start (a credits chapter, else a
-    // runtime-tail heuristic) rather than waiting for the very end.
-    _maybeRollCredits(pos);
-
     // Throttle saves to roughly every 5s of progress so we don't hammer the DB.
     final id = widget.libraryItemId;
     if (id == null || _pendingSeek != null) return;
@@ -595,44 +566,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     unawaited(_prefetchNext(item));
   }
 
-  /// When playback reaches the detected credits point, roll "Up Next" once (the
-  /// natural end also triggers it, guarded so it only happens once).
-  void _maybeRollCredits(Duration pos) {
-    if (_creditsChecked || !_isTvEpisode) return;
-    final dur = _player.state.duration;
-    if (dur <= Duration.zero || !_creditsMetaReady) return;
-
-    _creditsTriggerSec ??= creditsStart(
-          duration: dur,
-          chapters: _chapters,
-          contentRuntime: _contentRuntime,
-        )?.inSeconds ??
-        -1;
-    final trigger = _creditsTriggerSec!;
-    if (trigger >= 0 && pos.inSeconds >= trigger) {
-      _creditsChecked = true;
-      unawaited(_onCreditsOrEnd());
-    }
-  }
-
-  /// Load credits-detection metadata for the current episode: chapters (via the
-  /// bundled ffprobe) and the episode's TMDB runtime (content length). Both are
-  /// best-effort; missing data just falls back to the runtime heuristic.
-  Future<void> _loadCreditsMeta() async {
+  /// Fetch the current episode's TMDB name and fold it into the top-bar title.
+  /// Best-effort; a miss just leaves the "Show — S01E03" title as-is.
+  Future<void> _loadEpisodeName() async {
     final item = _currentItem;
     if (item?.tmdbId == null || item?.season == null || item?.episode == null) {
       return;
     }
-    _chapters = await readVideoChapters(widget.filePath);
-    // One season fetch gives both the episode runtime (credits heuristic) and
-    // its name (to enrich the playback title).
     final details =
         await getIt<DiscoveryClient>().seasonDetails(item!.tmdbId!, item.season!);
     for (final e in details?.episodes ?? const []) {
       if (e.episodeNumber == item.episode) {
-        if (e.runtime != null && e.runtime! > 0) {
-          _contentRuntime = Duration(minutes: e.runtime!);
-        }
         if (e.name.trim().isNotEmpty) {
           _episodeName = e.name.trim();
           _refreshDisplayTitle();
@@ -640,7 +584,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         break;
       }
     }
-    _creditsMetaReady = true;
   }
 
   /// The title shown in the top bar: [_displayTitle] once composed from the
@@ -693,22 +636,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  /// Whether the next episode has actually aired — so it's real, fetchable
-  /// content to advance to rather than an announced-but-unreleased entry. Uses
-  /// the season's per-episode air dates from TMDB; an unknown/unlisted episode
-  /// (or no TMDB) is treated as not aired, so we don't chase something that
-  /// isn't out.
-  Future<bool> _nextEpisodeAired(int tmdbId, int season, int episode) async {
-    final details = await getIt<DiscoveryClient>().seasonDetails(tmdbId, season);
-    for (final e in details?.episodes ?? const []) {
-      if (e.episodeNumber == episode) {
-        final air = e.airDate == null ? null : DateTime.tryParse(e.airDate!);
-        return isAired(air, DateTime.now());
-      }
-    }
-    return false;
-  }
-
   /// Download the episode after [item] (S{n}E{e+1}) if it isn't already in the
   /// library. Fire-and-forget through the acquisition seam; never blocks play.
   Future<void> _prefetchNext(LibraryItem item) async {
@@ -755,110 +682,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return nextEpisodeNumber(season, episode, episodeCounts: counts);
   }
 
-  /// Roll the end-of-episode auto-advance: start a countdown on the Next Episode
-  /// button that then runs the right action on its own. Fires at most once
-  /// (guarded by [_advanced]) from either the detected credits point or the
-  /// natural end — the button then stays up and counts down over the credits.
-  ///
-  /// Skips silently for movies/trailers, when there's no next episode, or when a
-  /// not-yet-local next isn't actually gettable (not out and not downloading) —
-  /// rather than chasing content that isn't available.
-  Future<void> _onCreditsOrEnd() async {
-    if (_advanced) return;
-    final item = _currentItem;
-    final tmdbId = item?.tmdbId;
-    final season = item?.season;
-    final episode = item?.episode;
-    if (item == null ||
-        item.mediaType != 'tv' ||
-        tmdbId == null ||
-        season == null ||
-        episode == null) {
-      return;
-    }
-
-    final next = await _nextEpisodeNumber(tmdbId, season, episode);
-    if (next == null || !mounted || _advanced) return;
-    final (nextSeason, nextEp) = next;
-    final showName = item.tmdbName ?? item.title;
-
-    // Is the next episode already in the library?
-    LibraryItem? localNext;
-    for (final e in await _library.localEpisodes(tmdbId)) {
-      if (e.season == nextSeason && e.episode == nextEp) {
-        localNext = e;
-        break;
-      }
-    }
-
-    // Not local → only auto-advance when it's actually gettable: already
-    // downloading (its own torrent or a season pack), or it has aired so the
-    // resolver has real content to fetch. Otherwise stop silently.
-    if (localNext == null) {
-      final daemon = getIt<TorrentDaemon>();
-      final downloading = await daemon.taskForDedupeKey(acquisitionDedupeKey(
-                  tmdbId: tmdbId,
-                  title: showName,
-                  season: nextSeason,
-                  episode: nextEp)) !=
-              null ||
-          await daemon.taskForDedupeKey(acquisitionDedupeKey(
-                  tmdbId: tmdbId, title: showName, season: nextSeason)) !=
-              null;
-      final gettable =
-          downloading || await _nextEpisodeAired(tmdbId, nextSeason, nextEp);
-      if (!gettable || !mounted || _advanced) return;
-    }
-
-    _advanced = true;
-    setState(() {
-      _nextLocalItem = localNext; // keep the button's state snapshot fresh
-      _pendingAdvanceLocal = localNext;
-      _autoAdvanceSeconds = 10;
-    });
-    _autoAdvanceTimer?.cancel();
-    _autoAdvanceTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) {
-        t.cancel();
-        return;
-      }
-      final left = (_autoAdvanceSeconds ?? 1) - 1;
-      setState(() => _autoAdvanceSeconds = left);
-      if (left <= 0) {
-        t.cancel();
-        _advanceNow();
-      }
-    });
-  }
-
-  /// Run the pending auto-advance now — on countdown expiry, or when the user
-  /// taps the button during the countdown. Plays a local next episode directly;
-  /// otherwise opens the preparing flow that fetches/buffers a not-yet-local one
-  /// and plays it in place.
-  void _advanceNow() {
-    _autoAdvanceTimer?.cancel();
-    if (!mounted) return;
-    final local = _pendingAdvanceLocal;
-    if (local != null) {
-      _openEpisode(local);
-    } else {
-      setState(() => _autoAdvanceSeconds = null);
-      unawaited(_playNextWhenReady());
-    }
-  }
-
-  /// Call off the auto-advance (the user hit Cancel). Leaves [_advanced] set so
-  /// it won't roll again for this episode.
-  void _cancelAutoAdvance() {
-    _autoAdvanceTimer?.cancel();
-    if (mounted) setState(() => _autoAdvanceSeconds = null);
-  }
-
   /// Open a local episode in place, replacing this player so Back doesn't return
-  /// to the episode we just moved on from. Shared by the auto-advance and the
-  /// "Play Next Episode" button.
+  /// to the episode we just moved on from. Used by the "Play Next Episode"
+  /// button.
   void _openEpisode(LibraryItem next) {
-    _autoAdvanceTimer?.cancel();
     if (!mounted) return;
     context.pushReplacement(
       Routes.player,
@@ -1080,7 +907,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _persistFinal();
-    _autoAdvanceTimer?.cancel();
     _controlsHideTimer?.cancel();
     // Best-effort: remove the trailer's downloaded caption sidecar.
     _trailerSubDir?.delete(recursive: true).ignore();
@@ -1504,39 +1330,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
             ),
-          // The single "Next Episode" affordance, bottom-right. Mid-episode it
-          // fades with the controls; at the credits/end it enters countdown mode
-          // (stays visible until it auto-advances). Hidden on the error screen.
+          // The single "Next Episode" affordance, bottom-right. It fades in and
+          // out with the player controls (and goes untappable while hidden), so
+          // it's there whenever the UI is up and gone when the UI is. Hidden on
+          // the error screen.
           if (_error == null && _nextEpisode != null)
             Positioned(
               right: AppSpacing.xl,
               bottom: AppSpacing.xxl + AppSpacing.xl,
-              // Force-visible while counting down; otherwise fade (and go
-              // untappable) with the controls.
-              child: Builder(builder: (context) {
-                final show = _controlsVisible || _autoAdvanceSeconds != null;
-                return IgnorePointer(
-                  ignoring: !show,
-                  child: AnimatedOpacity(
-                    opacity: show ? 1.0 : 0.0,
-                    duration: _controlsFade,
-                    child: NextEpisodeButton(
-                      showName: _nextShowName!,
-                      tmdbId: _nextTmdbId!,
-                      season: _nextEpisode!.$1,
-                      episode: _nextEpisode!.$2,
-                      localItem: _nextLocalItem,
-                      downloadRequested: _nextDownloadRequested,
-                      onPlayLocal: _openEpisode,
-                      onPlayWhenReady: _playNextWhenReady,
-                      onDownload: _downloadNextEpisode,
-                      countdownSeconds: _autoAdvanceSeconds,
-                      onAdvanceNow: _advanceNow,
-                      onCancelCountdown: _cancelAutoAdvance,
-                    ),
+              child: IgnorePointer(
+                ignoring: !_controlsVisible,
+                child: AnimatedOpacity(
+                  opacity: _controlsVisible ? 1.0 : 0.0,
+                  duration: _controlsFade,
+                  child: NextEpisodeButton(
+                    showName: _nextShowName!,
+                    tmdbId: _nextTmdbId!,
+                    season: _nextEpisode!.$1,
+                    episode: _nextEpisode!.$2,
+                    localItem: _nextLocalItem,
+                    downloadRequested: _nextDownloadRequested,
+                    onPlayLocal: _openEpisode,
+                    onPlayWhenReady: _playNextWhenReady,
+                    onDownload: _downloadNextEpisode,
                   ),
-                );
-              }),
+                ),
+              ),
             ),
         ],
       ),

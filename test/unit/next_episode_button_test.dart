@@ -48,8 +48,6 @@ void main() {
   NextEpisodeButton button({
     LibraryItem? localItem,
     bool downloadRequested = false,
-    int? countdownSeconds,
-    VoidCallback? onCancelCountdown,
   }) {
     return NextEpisodeButton(
       showName: showName,
@@ -61,9 +59,6 @@ void main() {
       onPlayLocal: (_) {},
       onPlayWhenReady: () {},
       onDownload: () {},
-      countdownSeconds: countdownSeconds,
-      onAdvanceNow: () {},
-      onCancelCountdown: onCancelCountdown ?? () {},
     );
   }
 
@@ -141,40 +136,5 @@ void main() {
     expect(find.text('Play Next Episode'), findsOneWidget);
     expect(find.textContaining('%'), findsNothing);
     expect(find.byType(LinearProgressIndicator), findsNothing);
-  });
-
-  testWidgets('countdown mode (local) → "Play Next Episode · 9s" with Cancel',
-      (tester) async {
-    final db = AppDatabase.forTesting(NativeDatabase.memory());
-    addTearDown(db.close);
-    final library = DriftLibraryRepository(db);
-    await library.upsert(const ScannedFile(
-        filePath: '/tv/s1e3.mkv', title: 'S01E03', mediaType: 'tv'));
-    final item = await library.findByPath('/tv/s1e3.mkv');
-
-    await tester
-        .pumpWidget(host(button(localItem: item, countdownSeconds: 9)));
-    await tester.pump();
-    expect(find.text('Play Next Episode · 9s'), findsOneWidget);
-    expect(find.text('Cancel'), findsOneWidget);
-  });
-
-  testWidgets('countdown mode (not local) → "Play Next when Ready · 9s"',
-      (tester) async {
-    await tester.pumpWidget(host(button(countdownSeconds: 9)));
-    await tester.pump();
-    expect(find.text('Play Next when Ready · 9s'), findsOneWidget);
-    expect(find.text('Cancel'), findsOneWidget);
-  });
-
-  testWidgets('Cancel in countdown mode calls onCancelCountdown',
-      (tester) async {
-    var cancelled = false;
-    await tester.pumpWidget(host(
-      button(countdownSeconds: 5, onCancelCountdown: () => cancelled = true),
-    ));
-    await tester.pump();
-    await tester.tap(find.text('Cancel'));
-    expect(cancelled, isTrue);
   });
 }

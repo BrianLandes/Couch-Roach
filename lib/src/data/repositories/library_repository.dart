@@ -4,8 +4,12 @@ import 'package:injectable/injectable.dart';
 import '../db/database.dart';
 
 /// A media file discovered on disk, before it's persisted. Produced by the
-/// scanner, consumed by [LibraryRepository]. `tmdbId` is resolved later (M2), so
-/// it isn't part of a scan.
+/// scanner, consumed by [LibraryRepository]. A plain disk scan leaves the TMDB
+/// fields null — they're resolved later by [LibraryMatchService] (M2). An
+/// acquire-sourced file, however, already knows its TMDB identity (it was
+/// downloaded *for* a specific show/movie), so it carries [tmdbId] (and the
+/// canonical name/poster) to stamp the row synchronously — otherwise the
+/// next-episode gate, which needs a non-null `tmdbId`, races the async match.
 class ScannedFile {
   const ScannedFile({
     required this.filePath,
@@ -13,6 +17,9 @@ class ScannedFile {
     required this.mediaType,
     this.season,
     this.episode,
+    this.tmdbId,
+    this.tmdbName,
+    this.tmdbPosterPath,
   });
 
   final String filePath;
@@ -22,6 +29,11 @@ class ScannedFile {
   final String mediaType;
   final int? season;
   final int? episode;
+
+  /// Known TMDB identity for an acquire-sourced file; null for a plain scan.
+  final int? tmdbId;
+  final String? tmdbName;
+  final String? tmdbPosterPath;
 }
 
 /// Persists the on-disk library into the `library` table and answers the
@@ -96,16 +108,25 @@ class DriftLibraryRepository implements LibraryRepository {
         filePath: f.filePath,
         season: Value(f.season),
         episode: Value(f.episode),
+        tmdbId: Value(f.tmdbId),
+        tmdbName: Value(f.tmdbName),
+        tmdbPosterPath: Value(f.tmdbPosterPath),
       );
 
   // On conflict we refresh only the scan-derived fields (and clear `missing`);
-  // tmdbId / managed / keep / addedAt are preserved.
+  // managed / keep / addedAt are preserved. The TMDB identity is stamped only
+  // when this file carries one (an acquire): a plain scan has no tmdbId and must
+  // never clobber an existing match.
   LibraryItemsCompanion _onConflict(ScannedFile f) => LibraryItemsCompanion(
         title: Value(f.title),
         mediaType: Value(f.mediaType),
         season: Value(f.season),
         episode: Value(f.episode),
         missing: const Value(false),
+        tmdbId: f.tmdbId == null ? const Value.absent() : Value(f.tmdbId),
+        tmdbName: f.tmdbId == null ? const Value.absent() : Value(f.tmdbName),
+        tmdbPosterPath:
+            f.tmdbId == null ? const Value.absent() : Value(f.tmdbPosterPath),
       );
 
   @override

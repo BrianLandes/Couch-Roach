@@ -29,18 +29,46 @@ class LibraryMatchService {
   /// mid-session (e.g. an acquired episode) so its poster + canonical name
   /// resolve without waiting for the next startup pass, and its Continue
   /// Watching / library tile updates live off the drift stream. No-op when TMDB
-  /// isn't configured, the row is gone, or it's already matched.
+  /// isn't configured, the row is gone, or it's already fully matched (id +
+  /// poster). An acquire stamps the id up front but leaves the poster null, so
+  /// this still runs to back-fill the art.
   Future<void> matchItem(int id) async {
     if (!const AppConfig().hasTmdbKey) return;
     final item = await _library.findById(id);
-    if (item == null || item.tmdbId != null) return;
+    if (item == null) return;
+    if (item.tmdbId != null && item.tmdbPosterPath != null) return;
     await _matchRow(item);
   }
 
-  /// Resolve one unmatched row against TMDB and cache the id/name/poster. Best
-  /// effort — a miss stays null (retried on the next pass); a throw is logged.
+  /// Resolve one row against TMDB and cache the id/name/poster. Best effort — a
+  /// miss stays null (retried on the next pass); a throw is logged. When the row
+  /// already carries a tmdbId (acquire-stamped) we back-fill the name/poster by
+  /// id, deterministically, rather than re-searching by title.
   Future<void> _matchRow(LibraryItem item) async {
     try {
+      final knownId = item.tmdbId;
+      if (knownId != null) {
+        if (item.mediaType == 'tv') {
+          final d = await _tmdb.tvDetails(knownId);
+          if (d != null) {
+            await _library.setTmdbMatch(
+                id: item.id,
+                tmdbId: knownId,
+                name: d.name,
+                posterPath: d.posterPath);
+          }
+        } else {
+          final d = await _tmdb.movieDetails(knownId);
+          if (d != null) {
+            await _library.setTmdbMatch(
+                id: item.id,
+                tmdbId: knownId,
+                name: d.title,
+                posterPath: d.posterPath);
+          }
+        }
+        return;
+      }
       final (title, year) = _splitYear(item.title);
       if (item.mediaType == 'tv') {
         final results = await _tmdb.searchTv(title, year: year);

@@ -74,7 +74,11 @@ Future<Prepared> prepareForPlayback({
   final file = await task.prepareFile(season: season, episode: episode);
 
   // Register as a library item (upsert dedupes on the file path) so the player
-  // records watch history / resume and it surfaces in Continue Watching.
+  // records watch history / resume and it surfaces in Continue Watching. Stamp
+  // the known TMDB id + canonical name onto the row *now* (we downloaded it for
+  // this exact title) so the next-episode feature — gated on a non-null tmdbId —
+  // works immediately, instead of racing the async match below. The poster is
+  // back-filled by that match.
   final library = getIt<LibraryRepository>();
   await library.upsert(ScannedFile(
     filePath: file,
@@ -82,6 +86,8 @@ Future<Prepared> prepareForPlayback({
     mediaType: meta.mediaType,
     season: season,
     episode: episode,
+    tmdbId: meta.tmdbId,
+    tmdbName: meta.tmdbId == null ? null : meta.title,
   ));
   final libraryItemId = (await library.findByPath(file))?.id;
 

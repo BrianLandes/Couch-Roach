@@ -18,6 +18,12 @@ abstract class DiscoveryClient {
   Future<List<TvShowSummary>> searchTv(String query, {int? year});
   Future<List<MovieSummary>> searchMovies(String query, {int? year});
   Future<TvShowDetails?> tvDetails(int tmdbId);
+
+  /// Full movie details (`movie/{id}`) — used to back-fill a known-id movie's
+  /// canonical title + poster without a fuzzy title search. Returned as a
+  /// [MovieSummary] since the details response is a superset of the list shape.
+  Future<MovieSummary?> movieDetails(int tmdbId);
+
   Future<SeasonDetails?> seasonDetails(int tmdbId, int seasonNumber);
   Future<List<TvShowSummary>> trendingTv();
   Future<List<MovieSummary>> trendingMovies();
@@ -108,6 +114,12 @@ class TmdbClient implements DiscoveryClient {
   Future<TvShowDetails?> tvDetails(int tmdbId) async {
     final json = await _get('/tv/$tmdbId');
     return json == null ? null : TvShowDetails.fromJson(json);
+  }
+
+  @override
+  Future<MovieSummary?> movieDetails(int tmdbId) async {
+    final json = await _get('/movie/$tmdbId');
+    return json == null ? null : MovieSummary.fromJson(json);
   }
 
   @override

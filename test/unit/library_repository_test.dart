@@ -74,4 +74,50 @@ void main() {
     await repo.removeByPath('/d/a.mkv');
     expect(await repo.findByPath('/d/a.mkv'), isNull);
   });
+
+  test('an acquire-sourced file stamps its known TMDB identity on insert',
+      () async {
+    // The acquire flow knows the id up front, so the row is matched immediately
+    // (no async race) — this is what makes the next-episode gate work.
+    await repo.upsert(const ScannedFile(
+      filePath: '/tv/show.S02E05.mkv',
+      title: 'Show — S02E05',
+      mediaType: 'tv',
+      season: 2,
+      episode: 5,
+      tmdbId: 42,
+      tmdbName: 'Show',
+    ));
+
+    final row = (await repo.getAll()).single;
+    expect(row.tmdbId, 42);
+    expect(row.tmdbName, 'Show');
+    // Matched rows are queryable as local episodes for the show.
+    expect(await repo.localEpisodes(42), hasLength(1));
+  });
+
+  test('a plain scan never clobbers an existing TMDB match', () async {
+    // First, an acquire stamps the match.
+    await repo.upsert(const ScannedFile(
+      filePath: '/tv/show.S02E05.mkv',
+      title: 'Show — S02E05',
+      mediaType: 'tv',
+      season: 2,
+      episode: 5,
+      tmdbId: 42,
+      tmdbName: 'Show',
+    ));
+    // Then a later disk scan re-upserts the same path carrying no id.
+    await repo.upsert(const ScannedFile(
+      filePath: '/tv/show.S02E05.mkv',
+      title: 'show.S02E05',
+      mediaType: 'tv',
+      season: 2,
+      episode: 5,
+    ));
+
+    final row = (await repo.getAll()).single;
+    expect(row.tmdbId, 42, reason: 'scan must preserve the match');
+    expect(row.tmdbName, 'Show');
+  });
 }

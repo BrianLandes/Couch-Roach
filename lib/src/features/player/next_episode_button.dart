@@ -6,21 +6,13 @@ import '../../services/acquisition/acquisition.dart';
 import '../../theme/theme.dart';
 import '../downloads/downloads_providers.dart';
 
-/// The single "Next Episode" control for a TV episode. It plays two roles with
-/// one look:
-///
-///  • **During playback** (bottom-right, fading with the controls) it reflects
-///    the following episode's live state and acts immediately when tapped:
-///     - already downloaded → **Play Next Episode** (plays it in place)
-///     - downloading → progress + **Play Next when Ready** (opens the preparing
-///       dialog, which reattaches to the download and plays when buffered)
-///     - not fetched yet → **Download Next Episode** (starts a background fetch)
-///
-///  • **At the credits / end** the player puts it into *countdown mode*
-///    ([countdownSeconds] set): it stays visible, shows a "· 9s" countdown next
-///    to the action it's about to auto-run, and offers **Cancel**. On expiry (or
-///    a tap) the player runs the one right action — play a local episode, or
-///    open the preparing flow that fetches/downloads/buffers a not-yet-local one.
+/// The single "Next Episode" control for a TV episode. Shown bottom-right,
+/// fading in and out with the player controls, it reflects the following
+/// episode's live state and acts immediately when tapped:
+///   - already downloaded → **Play Next Episode** (plays it in place)
+///   - downloading → progress + **Play Next when Ready** (opens the preparing
+///     dialog, which reattaches to the download and plays when buffered)
+///   - not fetched yet → **Download Next Episode** (starts a background fetch)
 ///
 /// It watches [downloadForTagProvider] for both the episode's own tag and a
 /// season-pack tag (an episode can be served from a whole-season download), so a
@@ -38,9 +30,6 @@ class NextEpisodeButton extends ConsumerWidget {
     required this.onPlayLocal,
     required this.onPlayWhenReady,
     required this.onDownload,
-    this.countdownSeconds,
-    this.onAdvanceNow,
-    this.onCancelCountdown,
   });
 
   final String showName;
@@ -59,30 +48,9 @@ class NextEpisodeButton extends ConsumerWidget {
   final VoidCallback onPlayWhenReady;
   final VoidCallback onDownload;
 
-  /// Non-null puts the button into auto-advance countdown mode: the remaining
-  /// seconds before the player advances on its own. [onAdvanceNow] fires that
-  /// advance immediately (a tap), [onCancelCountdown] calls it off.
-  final int? countdownSeconds;
-  final VoidCallback? onAdvanceNow;
-  final VoidCallback? onCancelCountdown;
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final local = localItem;
-
-    // Auto-advance countdown (credits / end): one unified action + Cancel. A
-    // local next plays directly; anything else goes through the preparing flow.
-    final secs = countdownSeconds;
-    if (secs != null) {
-      final isLocal = local != null;
-      return _NextEpisodePill(
-        icon: isLocal ? Icons.skip_next_rounded : Icons.hourglass_top_rounded,
-        label: '${isLocal ? 'Play Next Episode' : 'Play Next when Ready'}'
-            ' · ${secs}s',
-        onPressed: onAdvanceNow,
-        onCancel: onCancelCountdown,
-      );
-    }
 
     // 1) Already in the library → play it straight away.
     if (local != null) {
@@ -150,7 +118,6 @@ class _NextEpisodePill extends StatelessWidget {
     required this.onPressed,
     this.progress,
     this.indeterminate = false,
-    this.onCancel,
   });
 
   final IconData icon;
@@ -158,9 +125,6 @@ class _NextEpisodePill extends StatelessWidget {
   final VoidCallback? onPressed;
   final double? progress;
   final bool indeterminate;
-
-  /// When set, a **Cancel** button sits beside the action (auto-advance mode).
-  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -175,17 +139,7 @@ class _NextEpisodePill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (onCancel != null)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(child: action),
-                const SizedBox(width: AppSpacing.sm),
-                TextButton(onPressed: onCancel, child: const Text('Cancel')),
-              ],
-            )
-          else
-            action,
+          action,
           if (showBar)
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.xs),
