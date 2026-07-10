@@ -109,6 +109,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 value: _settings.preferSurroundAudio,
                 onChanged: (v) => _set(_settings.setPreferSurroundAudio(v)),
               ),
+              _DropdownRow(
+                title: 'Preferred audio language',
+                subtitle:
+                    'When downloading, favor releases that carry this dubbed '
+                    'audio. English plays by default.',
+                value: _settings.preferredAudioLanguage,
+                options: _audioLanguageOptions,
+                onChanged: (v) => _set(_settings.setPreferredAudioLanguage(v)),
+              ),
               _ToggleRow(
                 title: 'Skip sign-language versions',
                 subtitle:
@@ -365,6 +374,78 @@ class _IndexerService extends ConsumerWidget {
             label: const Text('Open Jackett'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Audio-language choices for the resolver preference. The value is the
+/// canonical key FilenameMediaInfo.audioLanguageScore understands; '' = none.
+const _audioLanguageOptions = <(String, String)>[
+  ('', 'None (English)'),
+  ('portuguese', 'Portuguese'),
+  ('spanish', 'Spanish'),
+  ('french', 'French'),
+  ('german', 'German'),
+  ('italian', 'Italian'),
+  ('japanese', 'Japanese'),
+];
+
+class _DropdownRow extends StatelessWidget {
+  const _DropdownRow({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String subtitle;
+  final String value;
+  final List<(String, String)> options;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    // Fall back to the first option if the stored value isn't a known key.
+    final current =
+        options.any((o) => o.$1 == value) ? value : options.first.$1;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: GlassSurface(
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: text.titleMedium),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(subtitle,
+                      style: text.bodySmall
+                          ?.copyWith(color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            DropdownButton<String>(
+              value: current,
+              underline: const SizedBox.shrink(),
+              borderRadius: AppRadii.rMd,
+              items: [
+                for (final o in options)
+                  DropdownMenuItem(value: o.$1, child: Text(o.$2)),
+              ],
+              onChanged: (v) {
+                if (v != null) onChanged(v);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

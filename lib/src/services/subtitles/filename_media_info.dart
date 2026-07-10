@@ -82,6 +82,66 @@ class FilenameMediaInfo {
   static bool looksLikeSignLanguage(String text) =>
       _signLanguage.hasMatch(text.replaceAll(RegExp(r'[._]+'), ' '));
 
+  // Distinctive audio-language tokens a release title carries (dub/lang tags,
+  // scene codes, native-language words). Deliberately conservative — bare
+  // two-letter codes like "it"/"de"/"es" are common English/Latin words, so
+  // they're left out to avoid false positives. Keyed by a canonical language
+  // name (what the setting stores). Aliases may be multi-word phrases; they're
+  // matched as whole words against the space-normalized title.
+  static const _audioLangWords = <String, Set<String>>{
+    'portuguese': {'portuguese', 'portugues', 'dublado', 'pt br', 'pt pt', 'pob'},
+    'spanish': {'spanish', 'espanol', 'castellano', 'latino', 'spa'},
+    'french': {'french', 'francais', 'truefrench', 'vostfr', 'vff', 'fre'},
+    'german': {'german', 'deutsch', 'ger'},
+    'italian': {'italian', 'italiano', 'ita'},
+    'japanese': {'japanese', 'japones', 'jpn'},
+  };
+  // Generic "carries more than one audio track" markers — a weaker positive
+  // than an explicit language tag (the target language *might* be in there).
+  static final _multiAudio =
+      RegExp(r'\b(multi|dual audio|dual)\b', caseSensitive: false);
+
+  // Maps a user-entered language *code* to its canonical key. Kept separate from
+  // the title-matching tokens above so that ambiguous two-letter codes ('it',
+  // 'de') canonicalize the setting/query without ever matching inside a title.
+  static const _audioLangCodes = <String, String>{
+    'pt': 'portuguese', 'ptbr': 'portuguese', 'pt-br': 'portuguese',
+    'es': 'spanish', 'spa': 'spanish',
+    'fr': 'french', 'fre': 'french',
+    'de': 'german', 'ger': 'german',
+    'it': 'italian', 'ita': 'italian',
+    'ja': 'japanese', 'jp': 'japanese', 'jpn': 'japanese',
+  };
+
+  /// How strongly [title] indicates it carries [language] audio: 2 for an
+  /// explicit language tag, 1 for a generic multi/dual-audio marker, 0 for
+  /// none. Empty [language] always scores 0 (no preference). Best-effort — used
+  /// only to *rank* candidates, never to reject them. Pure + tested.
+  static int audioLanguageScore(String title, String language) {
+    final key = _audioLangKey(language);
+    if (key.isEmpty) return 0;
+    final norm = ' ${title.toLowerCase().replaceAll(RegExp('[^a-z0-9]+'), ' ').trim()} ';
+    final aliases = _audioLangWords[key] ?? {key};
+    for (final a in aliases) {
+      if (RegExp('\\b${RegExp.escape(a)}\\b').hasMatch(norm)) return 2;
+    }
+    return _multiAudio.hasMatch(norm) ? 1 : 0;
+  }
+
+  /// Canonicalize a user-entered language ('pt', 'Portuguese', 'português') to a
+  /// key in [_audioLangWords], or return the lowercased input for an unknown
+  /// language (so it still matches its own literal name).
+  static String _audioLangKey(String language) {
+    final q = language.toLowerCase().trim();
+    if (q.isEmpty || _audioLangWords.containsKey(q)) return q;
+    final code = _audioLangCodes[q];
+    if (code != null) return code;
+    for (final e in _audioLangWords.entries) {
+      if (e.value.contains(q)) return e.key;
+    }
+    return q;
+  }
+
   static FilenameMediaInfo parse(String filename) {
     final name = p
         .basenameWithoutExtension(filename)

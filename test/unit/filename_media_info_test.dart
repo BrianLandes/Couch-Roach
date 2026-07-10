@@ -136,4 +136,37 @@ void main() {
           isFalse);
     });
   });
+
+  group('audioLanguageScore', () {
+    int score(String title, String lang) =>
+        FilenameMediaInfo.audioLanguageScore(title, lang);
+
+    test('explicit language tags score 2', () {
+      expect(score('Some.Movie.2020.Dublado.PT.1080p', 'portuguese'), 2);
+      expect(score('Some.Movie.PORTUGUES', 'portuguese'), 2);
+      // Accepts a language code / native name as the query too.
+      expect(score('Filme.TRUEFRENCH.1080p', 'fr'), 2);
+      expect(score('Film.iTA.BluRay', 'italian'), 2);
+    });
+
+    test('a generic multi/dual-audio marker scores 1', () {
+      expect(score('Some.Movie.2020.MULTI.1080p', 'portuguese'), 1);
+      expect(score('Some.Movie.Dual.Audio.720p', 'spanish'), 1);
+    });
+
+    test('an unrelated release scores 0', () {
+      expect(score('Some.Movie.2020.1080p.WEB-DL', 'portuguese'), 0);
+    });
+
+    test('empty preference always scores 0', () {
+      expect(score('Some.Movie.Dublado.PT', ''), 0);
+    });
+
+    test('does not false-match a bare code inside a word', () {
+      // "it" (Italian code) is intentionally not a token — "It" the film and
+      // words like "spirit" must not read as Italian audio.
+      expect(score('It.2017.1080p.BluRay', 'italian'), 0);
+      expect(score('Spirit.2002.1080p', 'italian'), 0);
+    });
+  });
 }

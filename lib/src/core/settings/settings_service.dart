@@ -24,6 +24,7 @@ class SettingsService extends ChangeNotifier {
   static const _kCleanupGraceDays = 'cleanupGraceDays';
   static const _kPreferSurround = 'preferSurroundAudio';
   static const _kExcludeSignLanguage = 'excludeSignLanguage';
+  static const _kPreferredAudioLanguage = 'preferredAudioLanguage';
   static const _kHardwareVideo = 'hardwareVideoAcceleration';
   static const _kLowPowerVideo = 'lowPowerVideo';
   static const _kInternetArchive = 'internetArchiveEnabled';
@@ -58,6 +59,12 @@ class SettingsService extends ChangeNotifier {
   /// subtitle picking.
   bool get excludeSignLanguage => _boolOr(_kExcludeSignLanguage, true);
 
+  /// Canonical language name the user wants *dubbed audio* in (e.g.
+  /// 'portuguese'); empty = no preference (English-first, today's behaviour).
+  /// When set, the resolver ranks releases whose title tags this language above
+  /// the rest.
+  String get preferredAudioLanguage => _cache[_kPreferredAudioLanguage] ?? '';
+
   /// Use GPU hardware video decoding (libmpv `hwdec`). Off by default: some
   /// setups decode fine but render a solid-color frame. A box with a working
   /// iGPU should turn this ON — it offloads decoding from a weak CPU.
@@ -82,6 +89,8 @@ class SettingsService extends ChangeNotifier {
   Future<void> setPreferSurroundAudio(bool v) => _setBool(_kPreferSurround, v);
   Future<void> setExcludeSignLanguage(bool v) =>
       _setBool(_kExcludeSignLanguage, v);
+  Future<void> setPreferredAudioLanguage(String v) =>
+      _setString(_kPreferredAudioLanguage, v);
   Future<void> setHardwareVideoAcceleration(bool v) =>
       _setBool(_kHardwareVideo, v);
   Future<void> setLowPowerVideo(bool v) => _setBool(_kLowPowerVideo, v);

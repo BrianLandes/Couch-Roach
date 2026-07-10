@@ -53,15 +53,17 @@ class JackettResolver implements AcquisitionResolver {
     }
 
     final excludeSign = _settings.excludeSignLanguage;
+    final preferLang = _settings.preferredAudioLanguage;
     try {
       // TV episode: verify the release actually is this episode — never trust the
       // indexer's season/ep filtering, which routinely returns other episodes.
       if (season != null && episode != null) {
         // Tier 1 — a release whose title parses to exactly this S/E.
         final episodeResults = await _query(config, meta, season, episode);
-        final episodeBest = pickBestTorznabResult(verifiedEpisodeResults(
-            episodeResults, meta, season, episode,
-            excludeSignLanguage: excludeSign, excludeUrls: exclude));
+        final episodeBest = pickBestTorznabResult(
+            verifiedEpisodeResults(episodeResults, meta, season, episode,
+                excludeSignLanguage: excludeSign, excludeUrls: exclude),
+            preferAudioLanguage: preferLang);
         if (episodeBest != null) {
           _log.info(
               'resolved S${season}E$episode as a single episode: '
@@ -76,9 +78,10 @@ class JackettResolver implements AcquisitionResolver {
         // pack (separate season-only query); the daemon extracts this episode's
         // file from it.
         final packResults = await _query(config, meta, season, null);
-        final packBest = pickBestTorznabResult(seasonPackResults(
-            packResults, meta, season,
-            excludeSignLanguage: excludeSign, excludeUrls: exclude));
+        final packBest = pickBestTorznabResult(
+            seasonPackResults(packResults, meta, season,
+                excludeSignLanguage: excludeSign, excludeUrls: exclude),
+            preferAudioLanguage: preferLang);
         if (packBest != null) {
           _log.info(
               'no verified single episode for S${season}E$episode — falling '
@@ -105,7 +108,7 @@ class JackettResolver implements AcquisitionResolver {
         }
         return !exclude.contains(r.downloadUrl);
       }).toList();
-      final best = pickBestTorznabResult(pool);
+      final best = pickBestTorznabResult(pool, preferAudioLanguage: preferLang);
       if (best == null) return null;
       return TorrentHandle(
           magnetOrUrl: best.downloadUrl, displayName: best.title);
@@ -228,11 +231,23 @@ List<TorznabResult> parseTorznabResults(String xmlBody) {
 }
 
 /// Rank Torznab hits and return the best, or null when [results] is empty.
-/// Seed health is the dominant streaming signal, so sort by seeders desc, then
-/// prefer the larger file (usually the higher-quality release). Pure + tested.
-TorznabResult? pickBestTorznabResult(List<TorznabResult> results) {
+/// When [preferAudioLanguage] is set (a non-empty language the user wants dubbed
+/// audio in), releases whose title tags that language rank first — an explicit
+/// tag over a generic multi/dual-audio marker over neither — before the usual
+/// signals. Otherwise, and to break ties, seed health dominates (the streaming
+/// signal), then the larger file (usually higher quality). Pure + tested.
+TorznabResult? pickBestTorznabResult(
+  List<TorznabResult> results, {
+  String? preferAudioLanguage,
+}) {
   if (results.isEmpty) return null;
+  final lang = preferAudioLanguage?.trim() ?? '';
   final sorted = [...results]..sort((a, b) {
+      if (lang.isNotEmpty) {
+        final sa = FilenameMediaInfo.audioLanguageScore(a.title, lang);
+        final sb = FilenameMediaInfo.audioLanguageScore(b.title, lang);
+        if (sa != sb) return sb.compareTo(sa);
+      }
       if (a.seeders != b.seeders) return b.seeders.compareTo(a.seeders);
       return b.sizeBytes.compareTo(a.sizeBytes);
     });

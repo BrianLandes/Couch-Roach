@@ -123,6 +123,42 @@ void main() {
       ]);
       expect(best!.title, 'big');
     });
+
+    test('a preferred audio language outranks pure seed health', () {
+      final best = pickBestTorznabResult(
+        const [
+          TorznabResult(
+              title: 'Some.Movie.2020.1080p', downloadUrl: 'magnet:en', seeders: 500),
+          TorznabResult(
+              title: 'Some.Movie.2020.1080p.Dublado.PT',
+              downloadUrl: 'magnet:pt',
+              seeders: 20),
+        ],
+        preferAudioLanguage: 'portuguese',
+      );
+      expect(best!.downloadUrl, 'magnet:pt');
+    });
+
+    test('within the preferred language, seed health still decides', () {
+      final best = pickBestTorznabResult(
+        const [
+          TorznabResult(
+              title: 'Some.Movie.Dublado', downloadUrl: 'magnet:pt-low', seeders: 5),
+          TorznabResult(
+              title: 'Some.Movie.Portugues', downloadUrl: 'magnet:pt-hi', seeders: 90),
+        ],
+        preferAudioLanguage: 'portuguese',
+      );
+      expect(best!.downloadUrl, 'magnet:pt-hi');
+    });
+
+    test('no preference leaves seed-health ranking unchanged', () {
+      final best = pickBestTorznabResult(const [
+        TorznabResult(title: 'Movie.Dublado', downloadUrl: 'magnet:pt', seeders: 20),
+        TorznabResult(title: 'Movie.1080p', downloadUrl: 'magnet:en', seeders: 500),
+      ]);
+      expect(best!.downloadUrl, 'magnet:en');
+    });
   });
 
   group('verifiedEpisodeResults', () {
