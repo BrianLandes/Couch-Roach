@@ -7,11 +7,14 @@ import '../../core/logging/error_log_service.dart';
 import '../../core/settings/settings_service.dart';
 import '../../core/storage/storage_manager.dart';
 import '../../data/repositories/library_repository.dart';
+import '../../data/tmdb/season.dart';
 import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../../services/acquisition/acquisition_session.dart';
+import '../../services/discovery/tmdb_client.dart';
 import '../../services/vpn/vpn_service.dart';
+import '../discover/new_episodes.dart' show isAired;
 import '../library/library_match_service.dart';
 import '../player/player_screen.dart';
 import 'preparing_dialog.dart';
@@ -281,6 +284,72 @@ Future<void> prefetchEpisode({
   await daemon.add(handle, savePath: savePath, dedupeKey: addKey);
   log.info('prefetching next episode S${season}E$episode of "$showName"',
       source: 'AcquirePrefetch');
+}
+
+/// The episode numbers in [episodes] that have aired by [now] — the ones with
+/// real content to fetch (skip announced-but-unreleased entries). Pure + tested.
+List<int> airedEpisodeNumbers(List<EpisodeSummary> episodes, DateTime now) => [
+      for (final e in episodes)
+        if (isAired(
+            e.airDate == null ? null : DateTime.tryParse(e.airDate!), now))
+          e.episodeNumber,
+    ];
+
+/// Queue background downloads for a batch of [episodes] ((season, episode)) of a
+/// show — the show detail "Download All". Skips episodes already in the library;
+/// [prefetchEpisode] itself skips ones already downloading (or covered by a
+/// season pack). Returns how many were asked to fetch (i.e. not already local).
+Future<int> downloadEpisodes({
+  required String showName,
+  required int tmdbId,
+  required List<(int, int)> episodes,
+}) async {
+  final local = {
+    for (final e in await getIt<LibraryRepository>().localEpisodes(tmdbId))
+      if (e.season != null && e.episode != null) (e.season!, e.episode!),
+  };
+  var queued = 0;
+  for (final (season, episode) in episodes) {
+    if (local.contains((season, episode))) continue;
+    await prefetchEpisode(
+        showName: showName, tmdbId: tmdbId, season: season, episode: episode);
+    queued++;
+  }
+  return queued;
+}
+
+/// "Download all" for one season: fetch its episode list, keep the aired ones,
+/// and queue them. Returns how many were queued.
+Future<int> downloadSeason({
+  required String showName,
+  required int tmdbId,
+  required int season,
+}) async {
+  final details = await getIt<DiscoveryClient>().seasonDetails(tmdbId, season);
+  final eps = airedEpisodeNumbers(details?.episodes ?? const [], DateTime.now());
+  return downloadEpisodes(
+    showName: showName,
+    tmdbId: tmdbId,
+    episodes: [for (final e in eps) (season, e)],
+  );
+}
+
+/// "Download all" across every season in [seasonNumbers]. Returns the total
+/// queued.
+Future<int> downloadAllSeasons({
+  required String showName,
+  required int tmdbId,
+  required List<int> seasonNumbers,
+}) async {
+  final all = <(int, int)>[];
+  for (final season in seasonNumbers) {
+    final details = await getIt<DiscoveryClient>().seasonDetails(tmdbId, season);
+    for (final e
+        in airedEpisodeNumbers(details?.episodes ?? const [], DateTime.now())) {
+      all.add((season, e));
+    }
+  }
+  return downloadEpisodes(showName: showName, tmdbId: tmdbId, episodes: all);
 }
 
 /// Open the blocking "preparing" dialog for a title and play it the moment it's

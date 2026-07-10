@@ -15,6 +15,7 @@ import '../../widgets/poster_art.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../library/save_title_buttons.dart';
 import '../acquire/acquire_button.dart';
+import '../acquire/acquire_play.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
 import 'new_episodes.dart';
@@ -109,6 +110,13 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
           selected: selected,
           onSelect: (n) => setState(() => _season = n),
         ),
+        const SizedBox(height: AppSpacing.sm),
+        _DownloadAllButton(
+          tmdbId: details.tmdbId,
+          showName: details.name,
+          selectedSeason: selected,
+          seasonNumbers: [for (final s in seasons) s.seasonNumber],
+        ),
         const SizedBox(height: AppSpacing.md),
         _EpisodeList(
           tmdbId: details.tmdbId,
@@ -200,6 +208,82 @@ class _Hero extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+enum _DownloadScope { season, all }
+
+/// "Download…" for a whole show: asks whether to grab every aired episode of the
+/// selected season or of all seasons, then queues them as background downloads
+/// through the acquisition seam (skipping ones already local / downloading).
+class _DownloadAllButton extends StatelessWidget {
+  const _DownloadAllButton({
+    required this.tmdbId,
+    required this.showName,
+    required this.selectedSeason,
+    required this.seasonNumbers,
+  });
+
+  final int tmdbId;
+  final String showName;
+  final int selectedSeason;
+  final List<int> seasonNumbers;
+
+  Future<void> _run(BuildContext context) async {
+    final scope = await showDialog<_DownloadScope>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Download episodes'),
+        content: Text(
+          'Download every aired episode of Season $selectedSeason, or of all '
+          '${seasonNumbers.length} season${seasonNumbers.length == 1 ? '' : 's'}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _DownloadScope.season),
+            child: Text('Season $selectedSeason'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, _DownloadScope.all),
+            child: const Text('All seasons'),
+          ),
+        ],
+      ),
+    );
+    if (scope == null || !context.mounted) return;
+    if (!await ensureStreamingVpn(context) || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Queuing downloads…')),
+    );
+    final queued = switch (scope) {
+      _DownloadScope.season => await downloadSeason(
+          showName: showName, tmdbId: tmdbId, season: selectedSeason),
+      _DownloadScope.all => await downloadAllSeasons(
+          showName: showName, tmdbId: tmdbId, seasonNumbers: seasonNumbers),
+    };
+    messenger.showSnackBar(SnackBar(
+      content: Text(queued == 0
+          ? 'Nothing new — those episodes are already here or downloading.'
+          : 'Queued $queued episode${queued == 1 ? '' : 's'} to download.'),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton.icon(
+        onPressed: () => _run(context),
+        icon: const Icon(Icons.download_rounded),
+        label: const Text('Download…'),
       ),
     );
   }
