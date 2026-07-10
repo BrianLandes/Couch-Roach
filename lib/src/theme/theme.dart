@@ -106,6 +106,22 @@ abstract final class AppTheme {
         thickness: 1,
         space: 1,
       ),
+      // Chunky, grabbable scrollbars for the 10-foot / mouse-driven UI. Always
+      // visibility is forced per-axis in AppScrollBehavior (vertical only, so
+      // the horizontal tile rails stay clean); this sets the look.
+      scrollbarTheme: ScrollbarThemeData(
+        thickness: WidgetStateProperty.all(12),
+        radius: const Radius.circular(6),
+        minThumbLength: 48,
+        interactive: true,
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.dragged) ||
+              states.contains(WidgetState.hovered)) {
+            return AppColors.textSecondary;
+          }
+          return AppColors.textTertiary;
+        }),
+      ),
     );
   }
 }

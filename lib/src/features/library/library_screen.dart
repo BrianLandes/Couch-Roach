@@ -35,11 +35,26 @@ import '../../services/subtitles/subtitle_service.dart';
 
 /// The landing page: a Continue Watching rail (when there's anything to resume)
 /// over the full library grid. It's the nav root, so it has no back button.
-class LibraryScreen extends ConsumerWidget {
+class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends ConsumerState<LibraryScreen> {
+  // Owned so the always-visible vertical scrollbar (AppScrollBehavior) has a
+  // live controller to attach its thumb to.
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final continueAsync = ref.watch(continueWatchingProvider);
     final itemsAsync = ref.watch(libraryItemsProvider);
     final trending = ref.watch(trendingTvProvider).asData?.value ?? const [];
@@ -66,15 +81,16 @@ class LibraryScreen extends ConsumerWidget {
     return Scaffold(
       body: AmbientBackground(
         child: SafeArea(
-          // The header is pinned as a translucent overlay so the buttons + search
-          // stay reachable at any scroll depth; the tiles scroll up under it.
-          child: Stack(
+          // Header sits above the scroll body (not overlaid) so the always-on
+          // vertical scrollbar spans only the tiles and stays grabbable top to
+          // bottom — it no longer runs up behind the opaque header bar.
+          child: Column(
             children: [
-              CustomScrollView(
-                slivers: [
-                  // Spacer so the first rail starts below the floating header.
-                  const SliverToBoxAdapter(
-                      child: SizedBox(height: _kHeaderHeight)),
+              const _Header(),
+              Expanded(
+                child: CustomScrollView(
+                  controller: _scrollController,
+                  slivers: [
                   if (resumable.isNotEmpty)
                     SliverToBoxAdapter(
                         child: _ContinueWatchingRail(entries: resumable)),
@@ -137,13 +153,8 @@ class LibraryScreen extends ConsumerWidget {
                     SliverToBoxAdapter(
                       child: _ArchiveRail(items: archivePicks),
                     ),
-                ],
-              ),
-              const Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _Header(),
+                  ],
+                ),
               ),
             ],
           ),

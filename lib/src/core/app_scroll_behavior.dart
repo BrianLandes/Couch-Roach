@@ -19,4 +19,27 @@ class AppScrollBehavior extends MaterialScrollBehavior {
         PointerDeviceKind.stylus,
         PointerDeviceKind.invertedStylus,
       };
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    // Keep the main *vertical* page scrollbar always visible (and thus always
+    // grabbable), styled by the app's ScrollbarThemeData. The horizontal tile
+    // rails keep the default auto-hide so they don't clutter the landing page
+    // with a scrollbar under every row. thumbVisibility needs a live
+    // ScrollController, so only force it where one is attached.
+    final vertical = details.direction == AxisDirection.down ||
+        details.direction == AxisDirection.up;
+    if (vertical) {
+      return Scrollbar(
+        controller: details.controller,
+        thumbVisibility: details.controller != null,
+        child: child,
+      );
+    }
+    return super.buildScrollbar(context, child, details);
+  }
 }

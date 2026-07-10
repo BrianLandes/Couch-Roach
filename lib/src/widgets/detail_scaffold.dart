@@ -63,25 +63,23 @@ class _DetailScaffoldState extends State<DetailScaffold> {
     return Scaffold(
       body: AmbientBackground(
         child: SafeArea(
-          child: Stack(
+          // Header sits *above* the scroll body (not overlaid) so the vertical
+          // scrollbar spans only the content and is grabbable top-to-bottom —
+          // it no longer runs up under the bar. The bar is transparent until the
+          // body scrolls, so the ambient background still shows through at rest.
+          child: Column(
             children: [
-              ListView(
-                controller: _controller,
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.screenPadding,
-                  _kDetailHeaderHeight + AppSpacing.sm,
-                  AppSpacing.screenPadding,
-                  AppSpacing.screenPadding,
-                ),
-                children: widget.children,
-              ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _DetailHeader(
-                  title: widget.title,
-                  showTitle: _showTitle,
+              _DetailHeader(title: widget.title, showTitle: _showTitle),
+              Expanded(
+                child: ListView(
+                  controller: _controller,
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.screenPadding,
+                    AppSpacing.sm,
+                    AppSpacing.screenPadding,
+                    AppSpacing.screenPadding,
+                  ),
+                  children: widget.children,
                 ),
               ),
             ],
