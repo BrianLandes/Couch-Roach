@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../../core/media/video_extensions.dart';
 import '../../core/storage/storage_manager.dart';
 import '../../data/repositories/library_repository.dart' show ScannedFile;
+import 'library_path_parse.dart';
 
 /// Walks every configured storage root and turns video files into
 /// [ScannedFile]s using filename-derived titles. TMDB matching happens later
@@ -27,14 +28,6 @@ class MediaScanner {
     '.trash-1000',
     '#recycle',
   };
-
-  // Show.Name.S01E02.1080p... / Show Name - S01E02 / Show.1x02
-  static final _tvPattern = RegExp(
-    r'^(?<title>.+?)[\s._-]+[sS](?<season>\d{1,2})[\s._-]*[eE](?<episode>\d{1,3})',
-  );
-  static final _tvAltPattern = RegExp(
-    r'^(?<title>.+?)[\s._-]+(?<season>\d{1,2})x(?<episode>\d{1,3})',
-  );
 
   /// Walk every enabled root.
   Stream<ScannedFile> scan() async* {
@@ -80,25 +73,17 @@ class MediaScanner {
     return _skipDirNames.contains(name.toLowerCase());
   }
 
+  /// Turn a file path into a [ScannedFile], reading the folder layout as well as
+  /// the filename (see [parseLibraryPath]) so a `Show/Season NN/…` episode
+  /// resolves even when its filename is messy.
   ScannedFile _parse(String filePath) {
-    final name = p.basenameWithoutExtension(filePath);
-    final match = _tvPattern.firstMatch(name) ?? _tvAltPattern.firstMatch(name);
-    if (match != null) {
-      return ScannedFile(
-        filePath: filePath,
-        title: _clean(match.namedGroup('title')!),
-        mediaType: 'tv',
-        season: int.tryParse(match.namedGroup('season')!),
-        episode: int.tryParse(match.namedGroup('episode')!),
-      );
-    }
+    final m = parseLibraryPath(filePath);
     return ScannedFile(
       filePath: filePath,
-      title: _clean(name),
-      mediaType: 'movie',
+      title: m.title,
+      mediaType: m.mediaType,
+      season: m.season,
+      episode: m.episode,
     );
   }
-
-  String _clean(String raw) =>
-      raw.replaceAll(RegExp(r'[._]'), ' ').trim();
 }

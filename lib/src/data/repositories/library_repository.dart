@@ -73,12 +73,15 @@ abstract class LibraryRepository {
   /// All present local files matched to a show (for episode availability).
   Future<List<LibraryItem>> localEpisodes(int tmdbId);
 
-  /// Record a TMDB match: id, canonical name, and poster path.
+  /// Record a TMDB match: id, canonical name, and poster path. [mediaType], when
+  /// given, corrects the row's type — used when a title first parsed as one type
+  /// (e.g. an unmarked episode read as a movie) actually matches the other.
   Future<void> setTmdbMatch({
     required int id,
     required int tmdbId,
     String? name,
     String? posterPath,
+    String? mediaType,
   });
 
   /// Pin/unpin a title as "keep" — a kept title is exempt from auto-cleanup even
@@ -234,12 +237,15 @@ class DriftLibraryRepository implements LibraryRepository {
     required int tmdbId,
     String? name,
     String? posterPath,
+    String? mediaType,
   }) async {
     await (_db.update(_db.libraryItems)..where((t) => t.id.equals(id))).write(
       LibraryItemsCompanion(
         tmdbId: Value(tmdbId),
         tmdbName: Value(name),
         tmdbPosterPath: Value(posterPath),
+        mediaType:
+            mediaType == null ? const Value.absent() : Value(mediaType),
       ),
     );
   }

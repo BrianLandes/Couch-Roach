@@ -5,6 +5,7 @@ import '../../core/logging/error_log_service.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../services/discovery/tmdb_client.dart';
+import 'library_path_parse.dart';
 
 /// Resolves filename-derived library titles to TMDB ids and caches the poster +
 /// canonical name on the row (M2 back-fill). Runs after a scan; only touches
@@ -69,34 +70,70 @@ class LibraryMatchService {
         }
         return;
       }
-      final (title, year) = _splitYear(item.title);
-      if (item.mediaType == 'tv') {
-        final results = await _tmdb.searchTv(title, year: year);
-        if (results.isNotEmpty) {
-          final best = results.first;
-          await _library.setTmdbMatch(
-            id: item.id,
-            tmdbId: best.tmdbId,
-            name: best.name,
-            posterPath: best.posterPath,
-          );
-        }
+      // Try each search query (the stored title, then the show/containing
+      // folder) against the row's own type first, then the other type — so an
+      // unmarked episode that parsed as a "movie" still finds its show. A match
+      // is only taken when it actually validates against the query
+      // (pickBestMatchIndex), which stops a noisy query grabbing the wrong title.
+      final candidates = tmdbSearchCandidates(item.filePath, item.title);
+      final tvFirst = item.mediaType == 'tv';
+      if (tvFirst) {
+        if (await _tryTv(item, candidates)) return;
+        if (await _tryMovie(item, candidates)) return;
       } else {
-        final results = await _tmdb.searchMovies(title, year: year);
-        if (results.isNotEmpty) {
-          final best = results.first;
-          await _library.setTmdbMatch(
-            id: item.id,
-            tmdbId: best.tmdbId,
-            name: best.title,
-            posterPath: best.posterPath,
-          );
-        }
+        if (await _tryMovie(item, candidates)) return;
+        if (await _tryTv(item, candidates)) return;
       }
     } catch (e, st) {
       _log.logError(e,
           stackTrace: st, source: 'LibraryMatchService.match(${item.title})');
     }
+  }
+
+  /// Search TMDB TV for each [candidates] query and record the first confident
+  /// match, correcting the row's `mediaType` to `tv` if it wasn't already.
+  /// Returns true when it matched.
+  Future<bool> _tryTv(LibraryItem item, List<String> candidates) async {
+    for (final candidate in candidates) {
+      final (query, year) = _splitYear(candidate);
+      final results = await _tmdb.searchTv(query, year: year);
+      final idx =
+          pickBestMatchIndex([for (final r in results) r.name], query);
+      if (idx != null) {
+        final best = results[idx];
+        await _library.setTmdbMatch(
+          id: item.id,
+          tmdbId: best.tmdbId,
+          name: best.name,
+          posterPath: best.posterPath,
+          mediaType: item.mediaType == 'tv' ? null : 'tv',
+        );
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Movie counterpart of [_tryTv].
+  Future<bool> _tryMovie(LibraryItem item, List<String> candidates) async {
+    for (final candidate in candidates) {
+      final (query, year) = _splitYear(candidate);
+      final results = await _tmdb.searchMovies(query, year: year);
+      final idx =
+          pickBestMatchIndex([for (final r in results) r.title], query);
+      if (idx != null) {
+        final best = results[idx];
+        await _library.setTmdbMatch(
+          id: item.id,
+          tmdbId: best.tmdbId,
+          name: best.title,
+          posterPath: best.posterPath,
+          mediaType: item.mediaType == 'movie' ? null : 'movie',
+        );
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Splits a trailing 4-digit year off a title ("A Movie 2021" → "A Movie",

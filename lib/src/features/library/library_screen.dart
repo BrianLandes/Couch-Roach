@@ -31,6 +31,7 @@ import 'library_providers.dart';
 import 'library_service.dart';
 import 'library_tile.dart';
 import 'saved_titles_providers.dart';
+import 'unmatched_show_sheet.dart';
 import '../../services/subtitles/subtitle_service.dart';
 
 /// The landing page: a Continue Watching rail (when there's anything to resume)
@@ -288,6 +289,15 @@ List<Widget> _librarySlivers(
                       autofocus: autofocus,
                       onPressed: () =>
                           openShowDetail(context, tmdbId: tmdbId, name: name),
+                    ),
+                  UnmatchedShowEntry(:final name, :final items) =>
+                    ShowLibraryTile(
+                      name: name,
+                      posterPath: null,
+                      episodeCount: items.length,
+                      autofocus: autofocus,
+                      onPressed: () =>
+                          showUnmatchedShowSheet(context, name, items),
                     ),
                 };
               },

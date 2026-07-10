@@ -70,6 +70,41 @@ void main() {
     expect(entries.whereType<ShowEntry>(), isEmpty);
   });
 
+  test('folds 2+ unmatched episodes of one folder into an UnmatchedShowEntry',
+      () async {
+    await add(
+        mediaType: 'tv',
+        title: 'Dark',
+        filePath: '/tv/Dark/Season 1/01.mkv',
+        season: 1,
+        episode: 1);
+    await add(
+        mediaType: 'tv',
+        title: 'Dark',
+        filePath: '/tv/Dark/Season 1/02.mkv',
+        season: 1,
+        episode: 2);
+
+    final entries = await grouped();
+    final unmatched = entries.whereType<UnmatchedShowEntry>().single;
+    expect(unmatched.name, 'Dark');
+    expect(unmatched.episodeCount, 2);
+    expect(entries.whereType<ItemEntry>(), isEmpty);
+  });
+
+  test('a lone unmatched episode stays an ItemEntry (not folded)', () async {
+    await add(
+        mediaType: 'tv',
+        title: 'Solo',
+        filePath: '/tv/Solo/Season 1/01.mkv',
+        season: 1,
+        episode: 1);
+
+    final entries = await grouped();
+    expect(entries.whereType<UnmatchedShowEntry>(), isEmpty);
+    expect(entries.whereType<ItemEntry>(), hasLength(1));
+  });
+
   test('a show slots where its first episode appears (stable order)', () async {
     await add(mediaType: 'movie', title: 'A', tmdbId: 1, filePath: '/1');
     await add(
