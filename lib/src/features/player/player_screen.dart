@@ -28,6 +28,7 @@ import '../../services/subtitles/subtitle_skip_check.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
 import '../acquire/acquire_play.dart';
+import 'audio_selection.dart';
 import 'next_episode.dart';
 import 'next_episode_button.dart';
 import 'player_title.dart';
@@ -110,10 +111,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   final List<StreamSubscription<dynamic>> _subs = [];
   int _lastSavedSec = 0;
-  // We auto-select the best (most-channels) audio track once, on the first
-  // tracks update. After that the user is free to change it from the mpv menu
-  // and we won't override their choice.
+  // We auto-select an audio track once, on the first tracks update (prefer
+  // English, then the widest layout). After that the user is free to change it
+  // from the right-click "Audio" menu and we won't override their choice.
   bool _audioAutoSelected = false;
+  // Audio tracks libmpv exposes and the active one, mirrored from the player
+  // streams so the right-click "Audio" menu lists the real, current options.
+  List<AudioTrack> _audioTracks = const [];
+  AudioTrack _selectedAudio = AudioTrack.auto();
   // Resume target applied on the first position tick — seeking right after
   // open() is dropped because libmpv isn't ready to seek yet.
   Duration? _pendingSeek;
@@ -213,7 +218,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _subs.add(_player.stream.position.listen(_onPosition));
       _subs.add(_player.stream.tracks.listen(_onTracks));
       _subs.add(_player.stream.track.listen((t) {
-        if (mounted) setState(() => _selectedSubtitle = t.subtitle);
+        if (mounted) {
+          setState(() {
+            _selectedSubtitle = t.subtitle;
+            _selectedAudio = t.audio;
+          });
+        }
       }));
       _subs.add(_player.stream.completed.listen((done) {
         if (done) _markCompleted();
@@ -821,52 +831,122 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  // When multiple audio tracks exist, prefer the one with the most channels so
-  // a surround mix (5.1/7.1) wins over a stereo downmix. Runs once per open;
-  // afterwards the user's manual track choice is respected.
+  // Prefer English audio (then the widest layout), auto-selected once per open;
+  // afterwards the user's manual choice from the "Audio" menu is respected.
   void _onTracks(Tracks tracks) {
-    // Keep the right-click subtitle menu in sync with what libmpv exposes
-    // (embedded tracks appear once the container is probed; a loaded sidecar
+    // Keep the right-click menus in sync with what libmpv exposes (embedded
+    // tracks appear once the container is probed; a loaded subtitle sidecar
     // appears after sub-add).
     if (mounted && !listEquals(_subtitleTracks, tracks.subtitle)) {
       setState(() => _subtitleTracks = tracks.subtitle);
     }
+    final audio = _selectableAudio(tracks.audio);
+    if (mounted && !listEquals(_audioTracks, audio)) {
+      setState(() => _audioTracks = audio);
+    }
 
     if (_audioAutoSelected) return;
-    // Respect the user's preference — leave mpv's default audio track as-is.
-    if (!getIt<SettingsService>().preferSurroundAudio) return;
+    if (audio.length < 2) return;
 
-    // Only real, selectable tracks — skip the synthetic "auto"/"no" entries.
-    final selectable = tracks.audio
-        .where((t) => t.id != 'auto' && t.id != 'no')
-        .toList();
-    if (selectable.length < 2) return;
+    final preferSurround = getIt<SettingsService>().preferSurroundAudio;
+    final infos = audio.map(_audioInfo).toList(growable: false);
+    final hasEnglish = infos.any(isEnglishAudio);
 
-    // Channel counts aren't populated until libmpv has probed the streams; wait
-    // for a later update if none of them report a count yet.
-    final anyKnown = selectable.any((t) => _channelCount(t) > 0);
-    if (!anyKnown) return;
+    // With no English track, we only reorder for channel width, which needs the
+    // counts libmpv hasn't probed yet — wait for a later update. (English
+    // selection is language-only, so it doesn't need to wait.)
+    if (!hasEnglish) {
+      if (!preferSurround) {
+        _audioAutoSelected = true; // nothing we're allowed to change
+        return;
+      }
+      if (!infos.any((t) => t.channels > 0)) return;
+    }
 
     _audioAutoSelected = true;
-
-    final best = selectable.reduce((a, b) {
-      final ca = _channelCount(a);
-      final cb = _channelCount(b);
-      if (ca != cb) return ca > cb ? a : b;
-      // Equal channels: keep libmpv's default so we don't reorder needlessly.
-      if (a.isDefault == true && b.isDefault != true) return a;
-      return b.isDefault == true ? b : a;
-    });
-
-    // Nothing to do if the widest track is already what mpv picked by default.
+    final idx = autoAudioTrackIndex(infos, preferSurround: preferSurround);
+    if (idx == null) return;
+    final best = audio[idx];
+    // Nothing to do if it's already what mpv picked by default.
     if (best.id == _player.state.track.audio.id) return;
 
     _player.setAudioTrack(best);
     getIt<ErrorLogService>().info(
-      'Selected surround audio track ${best.id} '
-      '(${_channelCount(best)}ch, ${best.channels ?? best.language ?? '?'})',
+      'Auto-selected audio track ${best.id} (${_audioLabel(best)})',
       source: 'PlayerScreen',
     );
+  }
+
+  // Only real, selectable tracks — skip the synthetic "auto"/"no" entries.
+  List<AudioTrack> _selectableAudio(List<AudioTrack> audio) => audio
+      .where((t) => t.id != 'auto' && t.id != 'no')
+      .toList(growable: false);
+
+  AudioTrackInfo _audioInfo(AudioTrack t) => AudioTrackInfo(
+        language: t.language,
+        title: t.title,
+        channels: _channelCount(t),
+        isDefault: t.isDefault ?? false,
+      );
+
+  /// A readable label for an audio track in the picker — its title or language,
+  /// plus the channel layout ("English · 5.1", "Português · Stereo", "Track 2").
+  String _audioLabel(AudioTrack t) {
+    final title = t.title?.trim();
+    final lang = t.language?.trim();
+    final bits = <String>[];
+    if (title != null && title.isNotEmpty) {
+      bits.add(title);
+      if (lang != null &&
+          lang.isNotEmpty &&
+          !title.toLowerCase().contains(lang.toLowerCase())) {
+        bits.add('(${lang.toUpperCase()})');
+      }
+    } else if (lang != null && lang.isNotEmpty) {
+      bits.add(lang.toUpperCase());
+    } else {
+      bits.add('Track ${t.id}');
+    }
+    final ch = channelLayoutLabel(_channelCount(t));
+    if (ch != null) bits.add('· $ch');
+    return bits.join(' ');
+  }
+
+  /// Entries for the right-click "Audio" submenu: every selectable track, the
+  /// active one check-marked.
+  List<Widget> _audioMenuItems() {
+    if (_audioTracks.isEmpty) {
+      return const [MenuItemButton(child: Text('No audio tracks'))];
+    }
+    return [
+      for (final t in _audioTracks)
+        MenuItemButton(
+          leadingIcon: Icon(
+            t.id == _selectedAudio.id ? Icons.check_rounded : null,
+            size: 18,
+          ),
+          onPressed: () => _selectAudio(t),
+          child: Text(_audioLabel(t)),
+        ),
+    ];
+  }
+
+  /// Switch to [track] and log it. Marks auto-select done so our English
+  /// preference doesn't fight the user's manual choice.
+  Future<void> _selectAudio(AudioTrack track) async {
+    _subtitleMenuController.close();
+    _audioAutoSelected = true;
+    try {
+      await _player.setAudioTrack(track);
+      if (mounted) setState(() => _selectedAudio = track);
+      getIt<ErrorLogService>().info(
+        'User selected audio: ${_audioLabel(track)} (id=${track.id})',
+        source: 'PlayerScreen',
+      );
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.selectAudio');
+    }
   }
 
   // libmpv exposes the channel count on either field depending on the container;
@@ -1198,6 +1278,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           controller: _subtitleMenuController,
                           consumeOutsideTap: true,
                           menuChildren: [
+                            // Only worth showing when there's a real choice.
+                            if (_audioTracks.length >= 2)
+                              SubmenuButton(
+                                leadingIcon: const Icon(
+                                    Icons.multitrack_audio_rounded,
+                                    size: 18),
+                                menuChildren: _audioMenuItems(),
+                                child: const Text('Audio'),
+                              ),
                             SubmenuButton(
                               leadingIcon: const Icon(Icons.subtitles_outlined,
                                   size: 18),
