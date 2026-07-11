@@ -24,6 +24,7 @@ import '../discover/discover_providers.dart';
 import '../discover/discover_tile.dart';
 import '../discover/taste.dart';
 import '../discover/taste_providers.dart';
+import '../settings/storage_providers.dart';
 import '../vpn/vpn_status_chip.dart';
 import '../player/player_screen.dart';
 import 'continue_watching_card.dart';
@@ -66,6 +67,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Widget build(BuildContext context) {
     final continueAsync = ref.watch(continueWatchingProvider);
     final itemsAsync = ref.watch(libraryItemsProvider);
+    // Library roots, so the folder fold skips files sitting loose in a root.
+    final rootPaths = <String>{
+      for (final r in ref.watch(storageRootsProvider).asData?.value ?? const [])
+        r.path,
+    };
     final trending = ref.watch(trendingTvProvider).asData?.value ?? const [];
     final recommended =
         ref.watch(recommendedProvider).asData?.value ?? const [];
@@ -146,7 +152,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                   // The user's own library sits above the generic discovery
                   // rails (TV Shows / Movies).
                   ..._librarySlivers(context, itemsAsync,
-                      autofocusFirst: resumable.isEmpty),
+                      autofocusFirst: resumable.isEmpty,
+                      rootPaths: rootPaths),
                   if (trending.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _DiscoverRail(
@@ -230,6 +237,7 @@ List<Widget> _librarySlivers(
   BuildContext context,
   AsyncValue<List<LibraryItem>> itemsAsync, {
   required bool autofocusFirst,
+  Set<String> rootPaths = const {},
 }) {
   // The library now sits above the discovery rails, so its non-data states use
   // compact adapters (not SliverFillRemaining, which would shove those rails off
@@ -265,7 +273,7 @@ List<Widget> _librarySlivers(
       }
       // Split the library into its own TV and movie rails (shows/unmatched
       // groups are TV; a loose movie file is a movie).
-      final entries = groupLibraryItems(items);
+      final entries = groupLibraryItems(items, rootPaths: rootPaths);
       final tv = [for (final e in entries) if (_isTvEntry(e)) e];
       final movies = [for (final e in entries) if (!_isTvEntry(e)) e];
       return [

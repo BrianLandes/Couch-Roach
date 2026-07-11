@@ -30,8 +30,9 @@ void main() {
             episode: Value(episode),
           ));
 
-  Future<List<LibraryEntry>> grouped() async =>
-      groupLibraryItems(await db.select(db.libraryItems).get());
+  Future<List<LibraryEntry>> grouped({Set<String> rootPaths = const {}}) async =>
+      groupLibraryItems(await db.select(db.libraryItems).get(),
+          rootPaths: rootPaths);
 
   test("collapses a matched show's episodes into one ShowEntry", () async {
     await add(
@@ -90,6 +91,58 @@ void main() {
     expect(unmatched.name, 'Dark');
     expect(unmatched.episodeCount, 2);
     expect(entries.whereType<ItemEntry>(), isEmpty);
+  });
+
+  test('folds 2+ unmatched *movie*-parsed files of one folder (foreign title)',
+      () async {
+    // An obscure/foreign show the parser couldn't tell was TV (no SxxExx, no
+    // season folder) — its files parse as movies but share a folder, so the
+    // last-resort fold still groups them.
+    await add(
+        mediaType: 'movie',
+        title: 'Estranha 01',
+        filePath: '/media/Serie Estranha/01.mkv');
+    await add(
+        mediaType: 'movie',
+        title: 'Estranha 02',
+        filePath: '/media/Serie Estranha/02.mkv');
+
+    final entries = await grouped();
+    final unmatched = entries.whereType<UnmatchedShowEntry>().single;
+    expect(unmatched.name, 'Serie Estranha');
+    expect(unmatched.episodeCount, 2);
+    expect(entries.whereType<ItemEntry>(), isEmpty);
+  });
+
+  test('does not fold unmatched files sitting loose in a library root',
+      () async {
+    // Two unrelated films dumped directly in a root share the root folder, but
+    // that isn't a show folder — they must stay separate tiles.
+    await add(mediaType: 'movie', title: 'Film A', filePath: '/media/a.mkv');
+    await add(mediaType: 'movie', title: 'Film B', filePath: '/media/b.mkv');
+
+    final entries = await grouped(rootPaths: {'/media'});
+    expect(entries.whereType<UnmatchedShowEntry>(), isEmpty);
+    expect(entries.whereType<ItemEntry>(), hasLength(2));
+  });
+
+  test('a matched movie is never swept into a folder fold', () async {
+    // A real, TMDB-matched film shares a folder with an unmatched clip — the
+    // matched one keeps its own tile (and detail page); only the unmatched
+    // sibling would fold, and a lone file doesn't.
+    await add(
+        mediaType: 'movie',
+        title: 'Fight Club',
+        tmdbId: 550,
+        filePath: '/media/Fight Club/movie.mkv');
+    await add(
+        mediaType: 'movie',
+        title: 'extra',
+        filePath: '/media/Fight Club/extra.mkv');
+
+    final entries = await grouped();
+    expect(entries.whereType<ItemEntry>(), hasLength(2));
+    expect(entries.whereType<UnmatchedShowEntry>(), isEmpty);
   });
 
   test('a lone unmatched episode stays an ItemEntry (not folded)', () async {

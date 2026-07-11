@@ -74,12 +74,24 @@ String cleanShowName(String raw) {
 /// sits in a "Season NN" folder. Meaningful for TV; for a flat movie folder it
 /// returns the containing folder (a weak candidate the matcher's validator
 /// filters out if it doesn't actually match).
-String showFolderName(String filePath) {
-  final parent = p.basename(p.dirname(filePath));
-  if (isSeasonFolder(parent)) {
-    return cleanShowName(p.basename(p.dirname(p.dirname(filePath))));
-  }
-  return cleanShowName(parent);
+String showFolderName(String filePath) =>
+    cleanShowName(p.basename(showFolderPath(filePath)));
+
+/// The full path of [filePath]'s show folder — its parent, or the grandparent
+/// when it sits in a "Season NN" folder. This is the directory that identifies
+/// "the folder these files live in together"; [showFolderName] is its basename.
+String showFolderPath(String filePath) {
+  final dir = p.dirname(filePath);
+  if (isSeasonFolder(p.basename(dir))) return p.dirname(dir);
+  return dir;
+}
+
+/// True when [filePath] sits loose directly in a library root (its show folder
+/// *is* one of [rootPaths]) — so it has no real show folder to group by, and a
+/// flat pile of files in a root shouldn't be folded into one bogus group.
+bool isLooseInRoot(String filePath, Set<String> rootPaths) {
+  final folder = showFolderPath(filePath);
+  return rootPaths.any((r) => p.equals(r, folder));
 }
 
 /// Parse a file's full [filePath] into a [ParsedMedia]. Precedence:
