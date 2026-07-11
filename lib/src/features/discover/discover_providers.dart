@@ -50,6 +50,16 @@ final localTitleProvider =
   return items.isEmpty ? null : items.first;
 });
 
+/// Full TMDB details for a **movie**, as a [DiscoverTile] (overview + rating +
+/// year). Used to enrich a matched library movie — whose row only cached id,
+/// name and poster — with the same profile the discovery page shows. Null while
+/// loading or on a miss.
+final movieTileProvider =
+    FutureProvider.family<DiscoverTile?, int>((ref, tmdbId) async {
+  final m = await getIt<DiscoveryClient>().movieDetails(tmdbId);
+  return m == null ? null : DiscoverTile.fromMovie(m);
+});
+
 /// The YouTube trailer URL for a title, or null when there's no usable preview.
 /// Keyed by (tmdbId, isTv). Cheap (one show-level call) — drives whether the
 /// Trailer button is shown at all; the full list is loaded lazily by
