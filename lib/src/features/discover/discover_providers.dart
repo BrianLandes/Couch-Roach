@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/db/database.dart';
 import '../../data/repositories/library_repository.dart';
+import '../../data/repositories/saved_titles_repository.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../data/tmdb/season.dart';
 import '../../data/tmdb/tmdb_video.dart';
@@ -17,21 +18,11 @@ final trendingTvProvider = FutureProvider<List<TvShowSummary>>(
   (ref) => getIt<DiscoveryClient>().trendingTv(),
 );
 
-/// TMDB genre id for Documentary (movies).
-const _documentaryGenre = 99;
-
 /// Popular movies this week — the "Popular Movies" rail.
 final trendingMoviesProvider = FutureProvider<List<DiscoverTile>>((ref) async =>
     (await getIt<DiscoveryClient>().trendingMovies())
         .map(DiscoverTile.fromMovie)
         .toList());
-
-/// Documentary films — the "Documentaries" rail.
-final documentaryMoviesProvider =
-    FutureProvider<List<DiscoverTile>>((ref) async =>
-        (await getIt<DiscoveryClient>().discoverMovies(genreId: _documentaryGenre))
-            .map(DiscoverTile.fromMovie)
-            .toList());
 
 /// TMDB search across TV + movies for [query], interleaved so the top hit of
 /// each type surfaces early. Empty for a blank query.
@@ -107,16 +98,47 @@ final trailerOptionsProvider =
 /// "Recommended For You" — TMDB recommendations seeded by the shows you've
 /// watched most recently, concatenated + deduped (no personalization algorithm;
 /// that's a deferred fork). Empty until you've watched some matched shows.
-final recommendedProvider = FutureProvider<List<TvShowSummary>>((ref) async {
-  final ids = await getIt<WatchHistoryRepository>().recentlyWatchedTmdbIds(limit: 3);
-  if (ids.isEmpty) return const [];
+final recommendedProvider = FutureProvider<List<DiscoverTile>>((ref) async {
+  // Seed from what the user clearly likes: recent watches, then favorites, then
+  // want-to-watch — each typed so we can pull TV *and* movie recommendations.
+  final seeds = <({int tmdbId, String mediaType})>[];
+  final seedIds = <int>{};
+  void addSeed(int id, String type) {
+    if (seedIds.add(id)) seeds.add((tmdbId: id, mediaType: type));
+  }
 
+  for (final w in await getIt<WatchHistoryRepository>().watchSignals(limit: 4)) {
+    addSeed(w.tmdbId, w.mediaType);
+  }
+  final saved = getIt<SavedTitlesRepository>();
+  for (final f in (await saved.watchFavorites().first).take(3)) {
+    addSeed(f.tmdbId, f.mediaType);
+  }
+  for (final w in (await saved.watchWantToWatch().first).take(2)) {
+    addSeed(w.tmdbId, w.mediaType);
+  }
+  if (seeds.isEmpty) return const [];
+
+  final owned = {
+    for (final i in await getIt<LibraryRepository>().getAll())
+      if (i.tmdbId != null) i.tmdbId!,
+  };
   final tmdb = getIt<DiscoveryClient>();
-  final seen = <int>{...ids};
-  final out = <TvShowSummary>[];
-  for (final id in ids) {
-    for (final rec in await tmdb.recommendedTv(id)) {
-      if (seen.add(rec.tmdbId)) out.add(rec);
+  final out = <DiscoverTile>[];
+  final emitted = <int>{...seedIds}; // never recommend the seeds themselves
+  for (final s in seeds.take(6)) {
+    if (s.mediaType == 'tv') {
+      for (final rec in await tmdb.recommendedTv(s.tmdbId)) {
+        if (!owned.contains(rec.tmdbId) && emitted.add(rec.tmdbId)) {
+          out.add(DiscoverTile.fromTv(rec));
+        }
+      }
+    } else {
+      for (final rec in await tmdb.recommendedMovies(s.tmdbId)) {
+        if (!owned.contains(rec.tmdbId) && emitted.add(rec.tmdbId)) {
+          out.add(DiscoverTile.fromMovie(rec));
+        }
+      }
     }
   }
   return out;

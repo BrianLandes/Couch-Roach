@@ -22,6 +22,8 @@ import '../discover/discover_nav.dart';
 import '../discover/discover_poster_card.dart';
 import '../discover/discover_providers.dart';
 import '../discover/discover_tile.dart';
+import '../discover/taste.dart';
+import '../discover/taste_providers.dart';
 import '../vpn/vpn_status_chip.dart';
 import '../player/player_screen.dart';
 import 'continue_watching_card.dart';
@@ -54,6 +56,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     super.dispose();
   }
 
+  /// Hide a personalized genre row (persisted) and refresh the row list.
+  Future<void> _hideGenre(String key) async {
+    await getIt<SettingsService>().hideGenre(key);
+    ref.invalidate(personalGenreRowsProvider);
+  }
+
   @override
   Widget build(BuildContext context) {
     final continueAsync = ref.watch(continueWatchingProvider);
@@ -63,8 +71,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         ref.watch(recommendedProvider).asData?.value ?? const [];
     final popularMovies =
         ref.watch(trendingMoviesProvider).asData?.value ?? const [];
-    final documentaries =
-        ref.watch(documentaryMoviesProvider).asData?.value ?? const [];
+    // Personalized "Because you watch …" genre rows (empty when off / no signal).
+    final personalGenres =
+        ref.watch(personalGenreRowsProvider).asData?.value ??
+            const <GenreScore>[];
     // Internet Archive is opt-in (default off); only fetch/show its rail when on.
     final iaEnabled = ref.watch(internetArchiveEnabledProvider);
     final archivePicks = iaEnabled
@@ -122,11 +132,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                     SliverToBoxAdapter(
                       child: _DiscoverRail(
                         label: 'Recommended For You',
-                        tiles: recommended.map(DiscoverTile.fromTv).toList(),
+                        tiles: recommended,
+                      ),
+                    ),
+                  // Personalized genre rows, inferred from what you watch/save.
+                  for (final g in personalGenres)
+                    SliverToBoxAdapter(
+                      child: _PersonalGenreRail(
+                        genre: g,
+                        onHide: () => _hideGenre(g.key),
                       ),
                     ),
                   // The user's own library sits above the generic discovery
-                  // rails (TV Shows / Movies / Documentaries).
+                  // rails (TV Shows / Movies).
                   ..._librarySlivers(context, itemsAsync,
                       autofocusFirst: resumable.isEmpty),
                   if (trending.isNotEmpty)
@@ -141,13 +159,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                       child: _DiscoverRail(
                         label: 'Movies',
                         tiles: popularMovies,
-                      ),
-                    ),
-                  if (documentaries.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: _DiscoverRail(
-                        label: 'Documentaries',
-                        tiles: documentaries,
                       ),
                     ),
                   if (archivePicks.isNotEmpty)
@@ -474,6 +485,7 @@ class _DiscoverRail extends StatelessWidget {
     required this.label,
     required this.tiles,
     this.limit = 10,
+    this.onHide,
   });
   final String label;
   final List<DiscoverTile> tiles;
@@ -482,6 +494,9 @@ class _DiscoverRail extends StatelessWidget {
   /// truncated the way the algorithmic discovery rails are).
   final int? limit;
 
+  /// When set, a small "hide" button sits by the label (personalized rows).
+  final VoidCallback? onHide;
+
   @override
   Widget build(BuildContext context) {
     final lim = limit;
@@ -489,7 +504,21 @@ class _DiscoverRail extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel(label),
+        if (onHide == null)
+          _SectionLabel(label)
+        else
+          Row(
+            children: [
+              Expanded(child: _SectionLabel(label)),
+              IconButton(
+                onPressed: onHide,
+                icon: const Icon(Icons.close_rounded, size: 18),
+                color: AppColors.textTertiary,
+                tooltip: 'Hide this row',
+              ),
+              const SizedBox(width: AppSpacing.sm),
+            ],
+          ),
         SizedBox(
           height: 240,
           child: ListView.separated(
@@ -508,6 +537,30 @@ class _DiscoverRail extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A personalized "Because you watch <genre>" rail. Watches its own genre-tiles
+/// provider so each row loads independently; renders nothing until it has tiles.
+class _PersonalGenreRail extends ConsumerWidget {
+  const _PersonalGenreRail({required this.genre, required this.onHide});
+  final GenreScore genre;
+  final VoidCallback onHide;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tiles = ref
+            .watch(genreTilesProvider(
+                (mediaType: genre.mediaType, genreId: genre.genreId)))
+            .asData
+            ?.value ??
+        const <DiscoverTile>[];
+    if (tiles.isEmpty) return const SizedBox.shrink();
+    return _DiscoverRail(
+      label: 'Because you watch ${genre.name}',
+      tiles: tiles,
+      onHide: onHide,
     );
   }
 }

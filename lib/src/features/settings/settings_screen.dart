@@ -16,6 +16,7 @@ import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/status_pill.dart';
 import '../acquire/jackett_providers.dart';
+import '../discover/taste_providers.dart';
 import 'storage_providers.dart';
 
 /// The one place to manage the app: library folders (add with an OS folder
@@ -158,6 +159,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 value: _settings.requireVpn,
                 onChanged: (v) => _set(_settings.setRequireVpn(v)),
               ),
+
+              // ── Home screen ───────────────────────────────────────────────
+              const SizedBox(height: AppSpacing.xl),
+              _SectionLabel('Home screen', text: text),
+              _ToggleRow(
+                title: 'Personalized categories',
+                subtitle:
+                    'Show "Because you watch …" genre rows on the landing '
+                    'page, learned from your watch history and saved titles.',
+                value: _settings.personalizedCategories,
+                onChanged: (v) => _setPersonalizedCategories(v),
+              ),
+              if (_settings.personalizedCategories &&
+                  _settings.hiddenGenres.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _clearHiddenGenres,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: Text(
+                        'Show ${_settings.hiddenGenres.length} hidden '
+                        'row${_settings.hiddenGenres.length == 1 ? '' : 's'} '
+                        'again',
+                      ),
+                    ),
+                  ),
+                ),
 
               // ── Sources ───────────────────────────────────────────────────
               const SizedBox(height: AppSpacing.xl),
@@ -303,6 +333,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// Await a setter, then rebuild so the toggle/value reflects the new state.
   Future<void> _set(Future<void> op) async {
     await op;
+    if (mounted) setState(() {});
+  }
+
+  /// Toggle personalized rows, then invalidate the landing-page provider so it
+  /// recomputes (or drops the rows) on the next visit.
+  Future<void> _setPersonalizedCategories(bool v) async {
+    await _settings.setPersonalizedCategories(v);
+    ref.invalidate(personalGenreRowsProvider);
+    if (mounted) setState(() {});
+  }
+
+  /// Un-hide every dismissed genre row and refresh the landing page.
+  Future<void> _clearHiddenGenres() async {
+    await _settings.clearHiddenGenres();
+    ref.invalidate(personalGenreRowsProvider);
     if (mounted) setState(() {});
   }
 }

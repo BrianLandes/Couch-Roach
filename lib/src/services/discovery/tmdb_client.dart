@@ -33,8 +33,18 @@ abstract class DiscoveryClient {
   /// by popularity — the source for the category rails.
   Future<List<MovieSummary>> discoverMovies({int? genreId});
 
+  /// Discover TV, optionally within a genre — the TV counterpart of
+  /// [discoverMovies] for the personalized category rails.
+  Future<List<TvShowSummary>> discoverTv({int? genreId});
+
   /// Recommendations for a show — the "similar to what you watched" feed.
   Future<List<TvShowSummary>> recommendedTv(int tmdbId);
+
+  /// Recommendations for a movie (the movie counterpart of [recommendedTv]).
+  Future<List<MovieSummary>> recommendedMovies(int tmdbId);
+
+  /// A title's genres ({id, name}) from its details — the taste-inference input.
+  Future<List<Genre>> titleGenres(int tmdbId, {required bool isTv});
 
   /// Videos (trailers/teasers) for a title — the preview source.
   Future<List<TmdbVideo>> videos({required int tmdbId, required bool isTv});
@@ -165,8 +175,33 @@ class TmdbClient implements DiscoveryClient {
       );
 
   @override
+  Future<List<TvShowSummary>> discoverTv({int? genreId}) async => _results(
+        await _get('/discover/tv', {
+          'sort_by': 'popularity.desc',
+          'vote_count.gte': '50',
+          if (genreId != null) 'with_genres': '$genreId',
+        }),
+        TvShowSummary.fromJson,
+      );
+
+  @override
   Future<List<TvShowSummary>> recommendedTv(int tmdbId) async =>
       _results(await _get('/tv/$tmdbId/recommendations'), TvShowSummary.fromJson);
+
+  @override
+  Future<List<MovieSummary>> recommendedMovies(int tmdbId) async => _results(
+        await _get('/movie/$tmdbId/recommendations'), MovieSummary.fromJson);
+
+  @override
+  Future<List<Genre>> titleGenres(int tmdbId, {required bool isTv}) async {
+    final json = await _get('/${isTv ? 'tv' : 'movie'}/$tmdbId');
+    final list = json?['genres'] as List<dynamic>?;
+    if (list == null) return const [];
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map(Genre.fromJson)
+        .toList(growable: false);
+  }
 
   @override
   Future<List<TmdbVideo>> videos({

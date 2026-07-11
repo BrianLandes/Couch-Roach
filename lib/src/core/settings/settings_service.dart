@@ -28,6 +28,8 @@ class SettingsService extends ChangeNotifier {
   static const _kHardwareVideo = 'hardwareVideoAcceleration';
   static const _kLowPowerVideo = 'lowPowerVideo';
   static const _kInternetArchive = 'internetArchiveEnabled';
+  static const _kPersonalizedCategories = 'personalizedCategories';
+  static const _kHiddenGenres = 'hiddenGenres';
 
   Future<void> load() async {
     final rows = await _db.select(_db.settings).get();
@@ -80,6 +82,16 @@ class SettingsService extends ChangeNotifier {
   /// Jackett indexers; kept as an opt-in for public-domain browsing.
   bool get internetArchiveEnabled => _boolOr(_kInternetArchive, false);
 
+  /// Show personalized "Because you watch …" genre rows on the landing page,
+  /// inferred from watch history + saved titles. On by default.
+  bool get personalizedCategories => _boolOr(_kPersonalizedCategories, true);
+
+  /// Genre-row keys ("tv:10765") the user has hidden from the landing page.
+  Set<String> get hiddenGenres {
+    final raw = _cache[_kHiddenGenres] ?? '';
+    return raw.split(',').where((s) => s.isNotEmpty).toSet();
+  }
+
   // ── setters ─────────────────────────────────────────────────────────────────
 
   Future<void> setAutoDownloadSubtitles(bool v) => _setBool(_kAutoSubs, v);
@@ -96,6 +108,17 @@ class SettingsService extends ChangeNotifier {
   Future<void> setLowPowerVideo(bool v) => _setBool(_kLowPowerVideo, v);
   Future<void> setInternetArchiveEnabled(bool v) =>
       _setBool(_kInternetArchive, v);
+  Future<void> setPersonalizedCategories(bool v) =>
+      _setBool(_kPersonalizedCategories, v);
+
+  /// Hide a genre row (persist its key); the landing page drops it.
+  Future<void> hideGenre(String key) {
+    final next = {...hiddenGenres, key};
+    return _setString(_kHiddenGenres, next.join(','));
+  }
+
+  /// Un-hide every genre row (a "reset" for the personalized rows).
+  Future<void> clearHiddenGenres() => _setString(_kHiddenGenres, '');
 
   // ── internals ───────────────────────────────────────────────────────────────
 

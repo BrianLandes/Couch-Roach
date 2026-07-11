@@ -62,6 +62,20 @@ class WatchedShow {
   final String? posterPath;
 }
 
+/// A distinct watched title for taste inference.
+class WatchSignal {
+  const WatchSignal({
+    required this.tmdbId,
+    required this.mediaType,
+    required this.lastWatchedAt,
+    required this.completed,
+  });
+  final int tmdbId;
+  final String mediaType;
+  final DateTime lastWatchedAt;
+  final bool completed;
+}
+
 abstract class WatchHistoryRepository {
   Future<WatchHistoryData?> forItem(int libraryItemId);
 
@@ -97,6 +111,11 @@ abstract class WatchHistoryRepository {
   /// Distinct TMDB ids of recently-watched, matched shows (newest first) — the
   /// seed for the "Recommended For You" rail.
   Future<List<int>> recentlyWatchedTmdbIds({int limit});
+
+  /// Distinct watched titles (one row per tmdbId+mediaType), most-recent first,
+  /// with when it was last watched and whether it's finished — the raw input for
+  /// taste inference.
+  Future<List<WatchSignal>> watchSignals({int limit});
 
   /// Present, non-kept library items whose watch is `completed` and whose last
   /// watch was before [before] — the auto-cleanup reaper's delete candidates.
@@ -266,6 +285,41 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
       }
     }
     return ids;
+  }
+
+  @override
+  Future<List<WatchSignal>> watchSignals({int limit = 30}) async {
+    final query = _db.select(_db.watchHistory).join([
+      innerJoin(
+        _db.libraryItems,
+        _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
+      ),
+    ])
+      ..where(_db.libraryItems.tmdbId.isNotNull())
+      ..orderBy([
+        OrderingTerm(
+          expression: _db.watchHistory.lastWatchedAt,
+          mode: OrderingMode.desc,
+        ),
+      ]);
+
+    final out = <WatchSignal>[];
+    final seen = <String>{};
+    for (final row in await query.get()) {
+      final item = row.readTable(_db.libraryItems);
+      final wh = row.readTable(_db.watchHistory);
+      final id = item.tmdbId;
+      if (id == null) continue;
+      if (!seen.add('$id:${item.mediaType}')) continue; // one row per title
+      out.add(WatchSignal(
+        tmdbId: id,
+        mediaType: item.mediaType,
+        lastWatchedAt: wh.lastWatchedAt,
+        completed: wh.completed,
+      ));
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
   @override
