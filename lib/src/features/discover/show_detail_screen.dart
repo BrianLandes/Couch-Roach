@@ -101,6 +101,15 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
               icon: const Icon(Icons.movie_outlined),
               label: const Text('Trailers'),
             ),
+          // Download whole seasons — shares the row rather than sitting on its
+          // own line above the episode list.
+          if (seasons.isNotEmpty && selected != null)
+            _DownloadAllButton(
+              tmdbId: details.tmdbId,
+              showName: details.name,
+              selectedSeason: selected,
+              seasonNumbers: [for (final s in seasons) s.seasonNumber],
+            ),
         ],
       ),
       const SizedBox(height: AppSpacing.xl),
@@ -109,13 +118,6 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
           seasons: seasons,
           selected: selected,
           onSelect: (n) => setState(() => _season = n),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        _DownloadAllButton(
-          tmdbId: details.tmdbId,
-          showName: details.name,
-          selectedSeason: selected,
-          seasonNumbers: [for (final s in seasons) s.seasonNumber],
         ),
         const SizedBox(height: AppSpacing.md),
         _EpisodeList(
@@ -278,13 +280,10 @@ class _DownloadAllButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: OutlinedButton.icon(
-        onPressed: () => _run(context),
-        icon: const Icon(Icons.download_rounded),
-        label: const Text('Download…'),
-      ),
+    return OutlinedButton.icon(
+      onPressed: () => _run(context),
+      icon: const Icon(Icons.download_rounded),
+      label: const Text('Download…'),
     );
   }
 }
