@@ -129,10 +129,24 @@ class _NextEpisodePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final showBar = progress != null || indeterminate;
-    final action = FilledButton.icon(
+    // Styled to sit over video like the player's own controls: white outline +
+    // text on a dark scrim fill, small type, tight padding — not the app's
+    // primary filled button.
+    final action = OutlinedButton.icon(
       onPressed: onPressed,
-      icon: Icon(icon),
+      icon: Icon(icon, size: 18),
       label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        backgroundColor: AppColors.scrim,
+        side: const BorderSide(color: Colors.white70),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadii.rSm),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+        minimumSize: const Size(0, 0),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        textStyle: Theme.of(context).textTheme.labelMedium,
+      ),
     );
     return IntrinsicWidth(
       child: Column(

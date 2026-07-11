@@ -252,61 +252,101 @@ List<Widget> _librarySlivers(
           ),
         ];
       }
+      // Split the library into its own TV and movie rails (shows/unmatched
+      // groups are TV; a loose movie file is a movie).
+      final entries = groupLibraryItems(items);
+      final tv = [for (final e in entries) if (_isTvEntry(e)) e];
+      final movies = [for (final e in entries) if (!_isTvEntry(e)) e];
       return [
-        const SliverToBoxAdapter(child: _SectionLabel('Library')),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.screenPadding,
-            AppSpacing.sm,
-            AppSpacing.screenPadding,
-            AppSpacing.screenPadding,
+        if (tv.isNotEmpty)
+          SliverToBoxAdapter(
+            child: _LibraryRail(
+              label: 'My TV Shows',
+              entries: tv,
+              autofocusFirst: autofocusFirst,
+            ),
           ),
-          sliver: Builder(builder: (context) {
-            // Collapse each matched TV show's episodes into a single tile.
-            final entries = groupLibraryItems(items);
-            return SliverGrid.builder(
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 200,
-                childAspectRatio: 2 / 3,
-                crossAxisSpacing: AppSpacing.lg,
-                mainAxisSpacing: AppSpacing.lg,
-              ),
-              itemCount: entries.length,
-              itemBuilder: (context, i) {
-                final entry = entries[i];
-                final autofocus = autofocusFirst && i == 0;
-                return switch (entry) {
-                  ItemEntry(:final item) => LibraryTile(
-                      item: item,
-                      autofocus: autofocus,
-                      onPressed: () =>
-                          context.push(Routes.libraryDetail, extra: item),
-                    ),
-                  ShowEntry(:final tmdbId, :final name) => ShowLibraryTile(
-                      name: name,
-                      posterPath: entry.posterPath,
-                      episodeCount: entry.episodeCount,
-                      autofocus: autofocus,
-                      onPressed: () =>
-                          openShowDetail(context, tmdbId: tmdbId, name: name),
-                    ),
-                  UnmatchedShowEntry(:final name, :final items) =>
-                    ShowLibraryTile(
-                      name: name,
-                      posterPath: null,
-                      episodeCount: items.length,
-                      autofocus: autofocus,
-                      onPressed: () =>
-                          showUnmatchedShowSheet(context, name, items),
-                    ),
-                };
-              },
-            );
-          }),
-        ),
+        if (movies.isNotEmpty)
+          SliverToBoxAdapter(
+            child: _LibraryRail(
+              label: 'My Movies',
+              entries: movies,
+              autofocusFirst: autofocusFirst && tv.isEmpty,
+            ),
+          ),
       ];
     },
   );
+}
+
+bool _isTvEntry(LibraryEntry e) => switch (e) {
+      ShowEntry() => true,
+      UnmatchedShowEntry() => true,
+      ItemEntry(:final item) => item.mediaType == 'tv',
+    };
+
+/// One library tile for a grouped [entry].
+Widget _libraryTile(BuildContext context, LibraryEntry entry,
+    {bool autofocus = false}) {
+  return switch (entry) {
+    ItemEntry(:final item) => LibraryTile(
+        item: item,
+        autofocus: autofocus,
+        onPressed: () => context.push(Routes.libraryDetail, extra: item),
+      ),
+    ShowEntry(:final tmdbId, :final name) => ShowLibraryTile(
+        name: name,
+        posterPath: entry.posterPath,
+        episodeCount: entry.episodeCount,
+        autofocus: autofocus,
+        onPressed: () => openShowDetail(context, tmdbId: tmdbId, name: name),
+      ),
+    UnmatchedShowEntry(:final name, :final items) => ShowLibraryTile(
+        name: name,
+        posterPath: null,
+        episodeCount: items.length,
+        autofocus: autofocus,
+        onPressed: () => showUnmatchedShowSheet(context, name, items),
+      ),
+  };
+}
+
+/// A horizontal rail of library tiles (TV or movies), matching the discovery
+/// rails' dimensions so the landing page reads as one consistent set of rows.
+class _LibraryRail extends StatelessWidget {
+  const _LibraryRail({
+    required this.label,
+    required this.entries,
+    this.autofocusFirst = false,
+  });
+  final String label;
+  final List<LibraryEntry> entries;
+  final bool autofocusFirst;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionLabel(label),
+        SizedBox(
+          height: 240,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.screenPadding),
+            itemCount: entries.length,
+            separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.lg),
+            itemBuilder: (context, i) => SizedBox(
+              width: 150,
+              child: _libraryTile(context, entries[i],
+                  autofocus: autofocusFirst && i == 0),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// Height of the pinned single-row landing header. The scroll view reserves

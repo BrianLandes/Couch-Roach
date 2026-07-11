@@ -35,16 +35,16 @@ class MovieDetailScreen extends ConsumerWidget {
       children: [
         _Hero(tile: tile),
         const SizedBox(height: AppSpacing.lg),
-        // Resume the in-progress movie, if any, above the play/acquire row.
-        ResumeButton(tmdbId: tile.tmdbId),
-        // Play/Acquire + Trailers + Favorite + Want-to-watch share one wrapping
-        // row (the save toggles live in SaveTitleButtons).
+        // Resume + Play/Acquire + Trailers + Favorite + Want-to-watch share one
+        // wrapping row (the save toggles live in SaveTitleButtons).
         SaveTitleButtons(
           tmdbId: tile.tmdbId,
           mediaType: 'movie',
           name: tile.title,
           posterPath: tile.posterPath,
           leading: [
+            // Resume the in-progress movie, if any (special accent color).
+            ResumeButton(tmdbId: tile.tmdbId),
             if (local != null)
               FilledButton.icon(
                 autofocus: true,

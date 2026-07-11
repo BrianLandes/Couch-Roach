@@ -7,7 +7,6 @@ import '../data/repositories/watch_history_repository.dart';
 import '../features/library/library_providers.dart';
 import '../features/player/player_screen.dart';
 import '../router/app_router.dart';
-import '../theme/theme.dart';
 
 /// A "Resume" button for a detail page. When the show (by [tmdbId]) or a single
 /// title (by [libraryItemId]) has an in-progress video in Continue Watching, it
@@ -42,20 +41,19 @@ class ResumeButton extends ConsumerWidget {
     if (entry == null) return const SizedBox.shrink();
     final item = entry.item;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
-      child: FilledButton.icon(
-        onPressed: () => context.push(
-          Routes.player,
-          extra: PlayerArgs(
-            filePath: item.filePath,
-            title: item.tmdbName ?? item.title,
-            libraryItemId: item.id,
-          ),
+    // A primary filled button (its own accent color) so it stands out among the
+    // outlined actions it shares a row with.
+    return FilledButton.icon(
+      onPressed: () => context.push(
+        Routes.player,
+        extra: PlayerArgs(
+          filePath: item.filePath,
+          title: item.tmdbName ?? item.title,
+          libraryItemId: item.id,
         ),
-        icon: const Icon(Icons.play_arrow_rounded),
-        label: Text(_label(item)),
       ),
+      icon: const Icon(Icons.play_arrow_rounded),
+      label: Text(_label(item)),
     );
   }
 

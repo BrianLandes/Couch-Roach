@@ -50,8 +50,6 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
     return DetailScaffold(
       title: widget.args.name,
       children: [
-        // Resume the most recently watched episode of this show, if any.
-        ResumeButton(tmdbId: widget.args.tmdbId),
         ...detailAsync.when(
           loading: () =>
               const [_CenteredNotice(child: CircularProgressIndicator())],
@@ -90,6 +88,8 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
         name: details.name,
         posterPath: details.posterPath,
         leading: [
+          // Resume the most recently watched episode, if any (special accent).
+          ResumeButton(tmdbId: details.tmdbId),
           if (trailerUrl != null)
             OutlinedButton.icon(
               onPressed: () => showTrailerPicker(
