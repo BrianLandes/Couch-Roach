@@ -441,6 +441,12 @@ class _Header extends StatelessWidget {
               onPressed: scanning
                   ? null
                   : () async {
+                      // A manual rescan also drains the Alexa voice queue — an
+                      // explicit "refresh everything" gesture, so bypass the
+                      // throttle. Independent of the disk scan, so fire it in
+                      // parallel rather than awaiting it.
+                      unawaited(getIt<AlexaInboxService>()
+                          .drain(minGap: Duration.zero));
                       await library.rescan();
                       await getIt<LibraryMatchService>().matchUnmatched();
                       // Kick the quota-aware subtitle queue in the background so

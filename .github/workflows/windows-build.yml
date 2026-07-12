@@ -1,8 +1,15 @@
 name: Windows build
 
-# Manual trigger only — Actions tab → "Windows build" → Run workflow.
-# No push/PR triggers on purpose; this is a build-on-demand pipeline for now.
+# Two triggers:
+#  - push to main → continuous delivery: builds release and publishes a Release
+#    with make_latest, which the launcher auto-installs on the TV.
+#  - manual (Actions tab → "Windows build" → Run workflow) → pick the build mode;
+#    release still publishes, profile/debug just produce an artifact.
+# A push carries no `build_mode` input, so everything below reads env.BUILD_MODE,
+# which defaults to `release` when the input is absent.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       build_mode:
@@ -13,6 +20,12 @@ on:
           - release
           - profile
           - debug
+
+# Coalesce rapid pushes to main: a newer commit cancels an in-flight build so
+# the launcher's "latest" always tracks the newest green commit, not a race.
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   FLUTTER_VERSION: "3.44.5"
@@ -26,6 +39,11 @@ jobs:
     # only needs a read-only PAT to *download*).
     permissions:
       contents: write
+
+    # Single source of truth for the build mode. A workflow_dispatch supplies
+    # `build_mode`; a push has no inputs, so fall back to `release`.
+    env:
+      BUILD_MODE: ${{ inputs.build_mode || 'release' }}
 
     steps:
       - name: Checkout
@@ -47,14 +65,17 @@ jobs:
       # dart_define.json is git-crypt-encrypted in the repo, so CI can't read it.
       # Reconstruct it from repository secrets instead of unlocking git-crypt.
       # Add these under Settings → Secrets and variables → Actions:
-      #   TMDB_API_KEY, OPENSUBTITLES_API_KEY
+      #   TMDB_API_KEY, OPENSUBTITLES_API_KEY, ALEXA_INBOX_TOKEN
+      # (ALEXA_INBOX_BASE_URL isn't needed — AppConfig defaults it to the public
+      # Worker URL; add it here only to point at a different endpoint.)
       - name: Write dart_define.json from secrets
         shell: bash
         run: |
           cat > dart_define.json <<EOF
           {
             "TMDB_API_KEY": "${{ secrets.TMDB_API_KEY }}",
-            "OPENSUBTITLES_API_KEY": "${{ secrets.OPENSUBTITLES_API_KEY }}"
+            "OPENSUBTITLES_API_KEY": "${{ secrets.OPENSUBTITLES_API_KEY }}",
+            "ALEXA_INBOX_TOKEN": "${{ secrets.ALEXA_INBOX_TOKEN }}"
           }
           EOF
 
@@ -63,8 +84,8 @@ jobs:
       # "Launcher & sidecars" workflow, and the launcher provisions them at
       # runtime. This keeps the app build fast (no 100MB ffmpeg download, no
       # installer extraction).
-      - name: Build Windows (${{ inputs.build_mode }})
-        run: flutter build windows --${{ inputs.build_mode }} --dart-define-from-file=dart_define.json
+      - name: Build Windows (${{ env.BUILD_MODE }})
+        run: flutter build windows --${{ env.BUILD_MODE }} --dart-define-from-file=dart_define.json
 
       # The .exe won't run on its own — it needs the sibling DLLs and data\
       # folder. Drop a manifest.json the launcher reads to compare builds, then
@@ -73,7 +94,7 @@ jobs:
       - name: Package build output
         shell: bash
         run: |
-          OUT_DIR="build/windows/x64/runner/${{ inputs.build_mode == 'release' && 'Release' || inputs.build_mode == 'profile' && 'Profile' || 'Debug' }}"
+          OUT_DIR="build/windows/x64/runner/${{ env.BUILD_MODE == 'release' && 'Release' || env.BUILD_MODE == 'profile' && 'Profile' || 'Debug' }}"
           VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
           echo "OUT_DIR=$OUT_DIR" >> "$GITHUB_ENV"
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -87,7 +108,7 @@ jobs:
           {
             "build": ${{ github.run_number }},
             "version": "$VERSION",
-            "mode": "${{ inputs.build_mode }}",
+            "mode": "${{ env.BUILD_MODE }}",
             "commit": "${{ github.sha }}",
             "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
@@ -96,14 +117,14 @@ jobs:
       - name: Zip the runnable bundle
         shell: pwsh
         run: |
-          $zip = "couch-roach-windows-${{ inputs.build_mode }}-build${{ github.run_number }}.zip"
+          $zip = "couch-roach-windows-${{ env.BUILD_MODE }}-build${{ github.run_number }}.zip"
           Compress-Archive -Path "$env:OUT_DIR/*" -DestinationPath $zip -Force
           "ZIP_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: couch-roach-windows-${{ inputs.build_mode }}
+          name: couch-roach-windows-${{ env.BUILD_MODE }}
           path: ${{ env.ZIP_PATH }}
           if-no-files-found: error
 
@@ -114,7 +135,7 @@ jobs:
       # (Sidecars are published separately — see the "Launcher & sidecars"
       # workflow — so they're not rebuilt on every app build.)
       - name: Publish Release
-        if: ${{ inputs.build_mode == 'release' }}
+        if: ${{ env.BUILD_MODE == 'release' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}

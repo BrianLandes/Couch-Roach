@@ -33,6 +33,10 @@ class AlexaInboxService {
   bool _busy = false;
   DateTime? _lastDrain;
 
+  /// Guards the "drain disabled" diagnostic so it's logged once per process
+  /// rather than on every startup + landing-page trigger.
+  bool _loggedDisabled = false;
+
   /// Drain the queue: fetch pending titles, resolve + save each, then ack the
   /// ones that succeeded. Fire-and-forget — call at startup and on landing-page
   /// re-entry. No-ops if the inbox isn't configured, a drain is already running,
@@ -41,28 +45,54 @@ class AlexaInboxService {
   /// blips are swallowed (and logged) so the empty-queue common case stays
   /// silent and cheap.
   Future<void> drain({Duration minGap = const Duration(seconds: 30)}) async {
+    const src = 'AlexaInboxService.drain';
     // An unconfigured build (no token, or TMDB unavailable to resolve titles)
-    // never talks to the Worker.
-    if (!const AppConfig().hasAlexaInbox || !const AppConfig().hasTmdbKey) return;
+    // never talks to the Worker. This is the #1 reason a release build silently
+    // does nothing — the token must be compiled in via
+    // `--dart-define-from-file=dart_define.json`, which a plain
+    // `flutter build windows` omits — so say so loudly (once per process).
+    const cfg = AppConfig();
+    if (!cfg.hasAlexaInbox || !cfg.hasTmdbKey) {
+      if (!_loggedDisabled) {
+        _loggedDisabled = true;
+        _log.warn(
+          'inbox drain DISABLED: token=${cfg.hasAlexaInbox ? "set" : "MISSING"}, '
+          'tmdbKey=${cfg.hasTmdbKey ? "set" : "MISSING"} — a release build must '
+          'pass --dart-define-from-file=dart_define.json',
+          source: src,
+        );
+      }
+      return;
+    }
     if (_busy) return;
     final last = _lastDrain;
-    if (last != null && DateTime.now().difference(last) < minGap) return;
+    if (last != null && DateTime.now().difference(last) < minGap) {
+      _log.info('inbox drain skipped (throttled, <${minGap.inSeconds}s)',
+          source: src);
+      return;
+    }
     _busy = true;
     try {
       const base = AppConfig.alexaInboxBaseUrl;
       const token = AppConfig.alexaInboxToken;
 
+      // Base URL is safe to log (public endpoint); the token is NOT — never log
+      // it. This line + the status line below localize a VPN/DNS/TLS failure.
+      _log.info('inbox draining $base/pending', source: src);
       final res = await _http
           .get(Uri.parse('$base/pending?token=$token'))
           .timeout(_timeout);
       if (res.statusCode != 200) {
-        _log.warn('Alexa inbox /pending ${res.statusCode}',
-            source: 'AlexaInboxService.drain');
+        // 401 => token mismatch between build and Worker; anything else =>
+        // Worker/routing problem.
+        _log.warn('inbox /pending -> ${res.statusCode} ${res.reasonPhrase}',
+            source: src);
         return;
       }
 
       final items =
           (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+      _log.info('inbox /pending -> 200, ${items.length} queued', source: src);
       if (items.isNotEmpty) {
         final done = <String>[];
         for (final item in items) {
@@ -80,20 +110,24 @@ class AlexaInboxService {
         }
 
         if (done.isNotEmpty) {
-          await _http
+          final ack = await _http
               .post(
                 Uri.parse('$base/ack?token=$token'),
                 headers: const {'content-type': 'application/json'},
                 body: jsonEncode({'ids': done}),
               )
               .timeout(_timeout);
+          _log.info('inbox acked ${done.length}/${items.length} -> '
+              '${ack.statusCode}', source: src);
         }
       }
       // Only stamp on a completed cycle, so a network hiccup lets the next
       // trigger retry immediately rather than being throttled out.
       _lastDrain = DateTime.now();
     } catch (e, st) {
-      _log.logError(e, stackTrace: st, source: 'AlexaInboxService.drain');
+      // A SocketException / TimeoutException here on the Windows box points at
+      // the VPN (DNS for the custom domain, or blocked/split-tunnelled egress).
+      _log.logError(e, stackTrace: st, source: src);
     } finally {
       _busy = false;
     }
