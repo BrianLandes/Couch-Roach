@@ -14,6 +14,7 @@ import 'src/core/window/window_service.dart';
 import 'src/features/library/library_match_service.dart';
 import 'src/features/library/library_service.dart';
 import 'src/injection.dart';
+import 'src/services/alexa/alexa_inbox_service.dart';
 import 'src/services/acquisition/jackett_process.dart';
 import 'src/services/acquisition/qbittorrent_process.dart';
 import 'src/services/cleanup/completed_torrent_reaper.dart';
@@ -120,6 +121,11 @@ void main() {
         const Duration(hours: 6),
         (_) => getIt<WatchedReaper>().sweep(),
       );
+
+      // Drain any titles queued by voice via Alexa while the app was closed.
+      // Independent of the local scan (it resolves against TMDB, not disk);
+      // drain() self-guards when the inbox isn't configured and swallows blips.
+      unawaited(getIt<AlexaInboxService>().drain());
 
       // Clear finished torrents from the client (keeping their files) so it
       // doesn't accumulate completed torrents seeding forever. isAlive() guards

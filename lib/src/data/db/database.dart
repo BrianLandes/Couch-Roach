@@ -118,6 +118,12 @@ class SavedTitles extends Table {
   DateTimeColumn get favoritedAt => dateTime().nullable()();
   DateTimeColumn get wantToWatchAt => dateTime().nullable()();
 
+  /// How this entry got here when it wasn't a direct in-app action — e.g.
+  /// 'alexa' for a title queued by voice (see the Alexa inbox drain). Null for
+  /// the normal case (the user favorited/watchlisted it themselves).
+  /// Informational: powers a "recently added via Alexa" surface later.
+  TextColumn get source => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {tmdbId, mediaType};
 }
@@ -149,7 +155,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -169,6 +175,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 6) {
             await m.createTable(savedTitles);
+          }
+          if (from < 7) {
+            await m.addColumn(savedTitles, savedTitles.source);
           }
         },
         beforeOpen: (details) async {

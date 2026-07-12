@@ -45,6 +45,8 @@ import 'package:couch_roach/src/services/acquisition/qbittorrent_daemon.dart'
     as _i791;
 import 'package:couch_roach/src/services/acquisition/qbittorrent_process.dart'
     as _i312;
+import 'package:couch_roach/src/services/alexa/alexa_inbox_service.dart'
+    as _i680;
 import 'package:couch_roach/src/services/cleanup/completed_torrent_reaper.dart'
     as _i717;
 import 'package:couch_roach/src/services/cleanup/watched_reaper.dart' as _i380;
@@ -149,6 +151,12 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i877.LibraryRepository>(),
           gh<_i657.ErrorLogService>(),
           gh<_i486.SettingsService>(),
+        ));
+    gh.lazySingleton<_i680.AlexaInboxService>(() => _i680.AlexaInboxService(
+          gh<_i519.Client>(),
+          gh<_i819.DiscoveryClient>(),
+          gh<_i574.SavedTitlesRepository>(),
+          gh<_i657.ErrorLogService>(),
         ));
     gh.lazySingleton<_i754.SubtitleService>(
         () => _i295.OpenSubtitlesSubtitleService(

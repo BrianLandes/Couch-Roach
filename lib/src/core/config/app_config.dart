@@ -15,6 +15,21 @@ class AppConfig {
   static const String tmdbApiKey =
       String.fromEnvironment('TMDB_API_KEY');
 
+  /// Cloudflare Worker that queues titles spoken to the Alexa skill. The base
+  /// URL is the public endpoint (not a secret) so it has a default; the token
+  /// is the shared secret and must come from `--dart-define` (never hardcoded).
+  static const String alexaInboxBaseUrl = String.fromEnvironment(
+    'ALEXA_INBOX_BASE_URL',
+    defaultValue: 'https://alexa.couchroach.professionalbadguys.com',
+  );
+
+  static const String alexaInboxToken =
+      String.fromEnvironment('ALEXA_INBOX_TOKEN');
+
   bool get hasTmdbKey => tmdbApiKey.isNotEmpty;
   bool get hasOpenSubtitlesKey => openSubtitlesApiKey.isNotEmpty;
+
+  /// True only when the inbox token is configured — the drain no-ops otherwise
+  /// (an unconfigured build never polls the Worker).
+  bool get hasAlexaInbox => alexaInboxToken.isNotEmpty;
 }

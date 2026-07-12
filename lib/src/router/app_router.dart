@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/dev/style_showcase_page.dart';
@@ -49,7 +50,13 @@ abstract class Routes {
   static const styleShowcase = '/style';
 }
 
+/// Observes route pushes/pops so screens can react to becoming visible again.
+/// The landing page subscribes as a [RouteAware] to drain the Alexa inbox when
+/// the user navigates back to it (see `LibraryScreen`).
+final routeObserver = RouteObserver<PageRoute<dynamic>>();
+
 final appRouter = GoRouter(
+  observers: [routeObserver],
   routes: [
     GoRoute(
       path: Routes.home,

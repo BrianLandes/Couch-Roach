@@ -6,12 +6,14 @@ import 'package:couch_roach/src/core/settings/settings_service.dart';
 import 'package:couch_roach/src/core/storage/storage_manager.dart';
 import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/data/repositories/library_repository.dart';
+import 'package:couch_roach/src/data/repositories/saved_titles_repository.dart';
 import 'package:couch_roach/src/data/repositories/storage_repository.dart';
 import 'package:couch_roach/src/data/repositories/watch_history_repository.dart';
 import 'package:couch_roach/src/features/discover/show_detail_screen.dart';
 import 'package:couch_roach/src/features/library/library_service.dart';
 import 'package:couch_roach/src/features/library/media_scanner.dart';
 import 'package:couch_roach/src/injection.dart';
+import 'package:couch_roach/src/services/alexa/alexa_inbox_service.dart';
 import 'package:couch_roach/src/services/discovery/tmdb_client.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -43,7 +45,17 @@ void main() {
       ..registerLazySingleton<DiscoveryClient>(
           () => TmdbClient(getIt<http.Client>(), getIt<ErrorLogService>()))
       ..registerLazySingleton<LibraryService>(
-          () => LibraryService(getIt(), getIt(), getIt(), getIt()));
+          () => LibraryService(getIt(), getIt(), getIt(), getIt()))
+      ..registerLazySingleton<SavedTitlesRepository>(
+          () => DriftSavedTitlesRepository(getIt<AppDatabase>()))
+      // The landing page drains the Alexa inbox on entry; drain() no-ops here
+      // (no --dart-define token under `flutter test`), so it never hits HTTP.
+      ..registerLazySingleton<AlexaInboxService>(() => AlexaInboxService(
+            getIt<http.Client>(),
+            getIt<DiscoveryClient>(),
+            getIt<SavedTitlesRepository>(),
+            getIt<ErrorLogService>(),
+          ));
   });
   tearDown(() => getIt.reset());
 

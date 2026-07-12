@@ -24,6 +24,7 @@ import '../discover/discover_providers.dart';
 import '../discover/discover_tile.dart';
 import '../discover/taste.dart';
 import '../discover/taste_providers.dart';
+import '../../services/alexa/alexa_inbox_service.dart';
 import '../settings/storage_providers.dart';
 import '../vpn/vpn_status_chip.dart';
 import '../player/player_screen.dart';
@@ -46,13 +47,41 @@ class LibraryScreen extends ConsumerStatefulWidget {
   ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends ConsumerState<LibraryScreen> {
+class _LibraryScreenState extends ConsumerState<LibraryScreen> with RouteAware {
   // Owned so the always-visible vertical scrollbar (AppScrollBehavior) has a
   // live controller to attach its thumb to.
   final _scrollController = ScrollController();
 
   @override
+  void initState() {
+    super.initState();
+    // First entry: drain anything queued by voice (throttled, so it harmlessly
+    // coalesces with the startup drain in main()).
+    _drainInbox();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) routeObserver.subscribe(this, route);
+  }
+
+  /// Fired when a screen pushed on top of the landing page is popped and this
+  /// page becomes visible again — the second Alexa drain trigger.
+  @override
+  void didPopNext() => _drainInbox();
+
+  /// Drain the Alexa inbox, fire-and-forget. Self-throttled and silent; a
+  /// failure is logged, never surfaced (a queued title just waits for the next
+  /// trigger).
+  void _drainInbox() {
+    unawaited(getIt<AlexaInboxService>().drain());
+  }
+
+  @override
   void dispose() {
+    routeObserver.unsubscribe(this);
     _scrollController.dispose();
     super.dispose();
   }

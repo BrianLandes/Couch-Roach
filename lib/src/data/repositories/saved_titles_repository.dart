@@ -32,13 +32,16 @@ abstract class SavedTitlesRepository {
     required bool value,
   });
 
-  /// Add or remove [tmdbId]/[mediaType] from Want-to-watch.
+  /// Add or remove [tmdbId]/[mediaType] from Want-to-watch. [source] records a
+  /// non-user origin (e.g. 'alexa') on insert; it's only applied when adding and
+  /// only fills a still-empty source, so a manual save never loses its tag.
   Future<void> setWantToWatch({
     required int tmdbId,
     required String mediaType,
     required String name,
     String? posterPath,
     required bool value,
+    String? source,
   });
 }
 
@@ -104,6 +107,7 @@ class DriftSavedTitlesRepository implements SavedTitlesRepository {
     required String name,
     String? posterPath,
     required bool value,
+    String? source,
   }) {
     return _apply(
       tmdbId: tmdbId,
@@ -111,6 +115,7 @@ class DriftSavedTitlesRepository implements SavedTitlesRepository {
       name: name,
       posterPath: posterPath,
       want: value,
+      source: source,
     );
   }
 
@@ -125,6 +130,7 @@ class DriftSavedTitlesRepository implements SavedTitlesRepository {
     String? posterPath,
     bool? favorite,
     bool? want,
+    String? source,
   }) async {
     final existing = await (_db.select(_db.savedTitles)
           ..where((t) => t.tmdbId.equals(tmdbId) & t.mediaType.equals(mediaType)))
@@ -135,6 +141,10 @@ class DriftSavedTitlesRepository implements SavedTitlesRepository {
     var wantAt = existing?.wantToWatchAt;
     if (favorite != null) favoritedAt = favorite ? (favoritedAt ?? now) : null;
     if (want != null) wantAt = want ? (wantAt ?? now) : null;
+    // Origin is first-write-wins: a brand-new row takes [source]; an existing
+    // row keeps whatever it had (even null), so neither a manual re-save nor a
+    // later Alexa re-add relabels a title that was already on a list.
+    final resolvedSource = existing != null ? existing.source : source;
 
     if (favoritedAt == null && wantAt == null) {
       await (_db.delete(_db.savedTitles)
@@ -152,6 +162,7 @@ class DriftSavedTitlesRepository implements SavedTitlesRepository {
             posterPath: Value(posterPath),
             favoritedAt: Value(favoritedAt),
             wantToWatchAt: Value(wantAt),
+            source: Value(resolvedSource),
           ),
         );
   }
