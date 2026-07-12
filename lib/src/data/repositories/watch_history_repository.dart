@@ -180,6 +180,9 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
 
   @override
   Stream<List<ContinueWatchingEntry>> watchContinueWatching({int limit = 20}) {
+    // No SQL limit: we collapse multiple in-progress episodes of the same show
+    // to one entry (below) and only then take `limit`, so limiting in SQL first
+    // could starve other shows. The in-progress set is small on a home box.
     final query = _db.select(_db.watchHistory).join([
       innerJoin(
         _db.libraryItems,
@@ -194,19 +197,33 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
           expression: _db.watchHistory.lastWatchedAt,
           mode: OrderingMode.desc,
         ),
-      ])
-      ..limit(limit);
+      ]);
 
     return query.watch().map((rows) {
-      return rows.map((row) {
+      final entries = <ContinueWatchingEntry>[];
+      // Show identity for collapsing episodes: the matched TMDB id when present,
+      // else the clean show name (the scanner title before any "— S01E01 …" the
+      // acquire flow appends). Movies never collapse — each is its own title.
+      final seenShows = <String>{};
+      for (final row in rows) {
         final wh = row.readTable(_db.watchHistory);
         final item = row.readTable(_db.libraryItems);
-        return ContinueWatchingEntry(
+        if (item.mediaType == 'tv') {
+          final key = item.tmdbId != null
+              ? 'tv:${item.tmdbId}'
+              : 'tv:${item.title.split(' — ').first.trim().toLowerCase()}';
+          // Rows are newest-watched first, so the first survivor per show is the
+          // most recently watched episode — the only one we keep.
+          if (!seenShows.add(key)) continue;
+        }
+        entries.add(ContinueWatchingEntry(
           item: item,
           resumePositionSec: wh.resumePositionSec,
           durationSec: wh.durationSec,
-        );
-      }).toList();
+        ));
+        if (entries.length >= limit) break;
+      }
+      return entries;
     });
   }
 

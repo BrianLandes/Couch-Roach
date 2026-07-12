@@ -1,6 +1,7 @@
 import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/data/repositories/library_repository.dart';
 import 'package:couch_roach/src/data/repositories/watch_history_repository.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -105,6 +106,68 @@ void main() {
     // No record() call — nothing to dismiss.
     await history.dismissFromContinueWatching(id);
     expect(await history.forItem(id), isNull);
+  });
+
+  // Seed a TV episode row and return its library id.
+  Future<int> seedEpisode(String path,
+      {int? tmdbId,
+      required int season,
+      required int episode,
+      String title = 'Show'}) async {
+    await library.upsert(ScannedFile(
+      filePath: path,
+      title: title,
+      mediaType: 'tv',
+      season: season,
+      episode: episode,
+      tmdbId: tmdbId,
+    ));
+    return (await library.findByPath(path))!.id;
+  }
+
+  // Force a deterministic last-watched time (record() stamps now() at second
+  // resolution, so fast successive records can't be ordered otherwise).
+  Future<void> setWatchedAt(int itemId, DateTime when) =>
+      (db.update(db.watchHistory)
+            ..where((w) => w.libraryItemId.equals(itemId)))
+          .write(WatchHistoryCompanion(lastWatchedAt: Value(when)));
+
+  test('continue watching keeps only the most-recent episode per show',
+      () async {
+    final e1 = await seedEpisode('/tv/s1e1.mkv', tmdbId: 100, season: 1, episode: 1);
+    final e2 = await seedEpisode('/tv/s1e2.mkv', tmdbId: 100, season: 1, episode: 2);
+    final movie = await seedItem('/m/film.mkv');
+
+    for (final id in [e1, e2, movie]) {
+      await history.record(
+          libraryItemId: id, position: const Duration(seconds: 120));
+    }
+    // e2 is the most recently watched episode of show 100.
+    await setWatchedAt(e1, DateTime(2026, 1, 1));
+    await setWatchedAt(e2, DateTime(2026, 1, 2));
+    await setWatchedAt(movie, DateTime(2026, 1, 3));
+
+    final rail = await history.watchContinueWatching().first;
+    // Movie (newest) + the single surviving episode of show 100 — e1 collapsed.
+    expect(rail.map((e) => e.item.id), [movie, e2]);
+  });
+
+  test('continue watching does not collapse distinct shows or movies', () async {
+    final showA = await seedEpisode('/tv/a.mkv', tmdbId: 100, season: 1, episode: 1);
+    final showB = await seedEpisode('/tv/b.mkv', tmdbId: 200, season: 1, episode: 1);
+    // Unmatched episodes of two different shows (grouped by clean title).
+    final unX = await seedEpisode('/tv/x.mkv', season: 1, episode: 1, title: 'X');
+    final unY = await seedEpisode('/tv/y.mkv', season: 1, episode: 1, title: 'Y');
+    final movie = await seedItem('/m/film.mkv');
+
+    for (final id in [showA, showB, unX, unY, movie]) {
+      await history.record(
+          libraryItemId: id, position: const Duration(seconds: 90));
+    }
+
+    final rail = await history.watchContinueWatching().first;
+    // Nothing shares a show identity, so all five survive.
+    expect(rail.map((e) => e.item.id).toSet(), {showA, showB, unX, unY, movie});
   });
 
   test('watchReapCandidates lists completed, present, unpinned items only',

@@ -1268,7 +1268,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// toggle instead (see the outer GestureDetector in [build]) — so there's no
   /// competing fullscreen system.
   MaterialDesktopVideoControlsThemeData _controlsTheme() {
-    return const MaterialDesktopVideoControlsThemeData(
+    return MaterialDesktopVideoControlsThemeData(
       // Single click on the video toggles play/pause (media_kit guards the
       // bottom seek-bar region so clicking the scrubber doesn't pause).
       playAndPauseOnTap: true,
@@ -1281,15 +1281,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // `updateShouldNotify` (it notifies only when the theme is *identical*), so
       // a title set after the first frame — once the library row and episode name
       // load — would never repaint through its topButtonBar.
-      topButtonBar: [],
+      topButtonBar: const [],
       bottomButtonBar: [
-        MaterialDesktopPlayOrPauseButton(),
-        MaterialDesktopVolumeButton(),
-        MaterialDesktopPositionIndicator(),
-        Spacer(),
-        FullscreenToggleButton(color: Colors.white, iconSize: 28),
+        // Jump back 10s — the common "what did they just say?" rewind.
+        MaterialDesktopCustomButton(
+          icon: const Icon(Icons.replay_10_rounded),
+          onPressed: _skipBack10,
+        ),
+        const MaterialDesktopPlayOrPauseButton(),
+        const MaterialDesktopVolumeButton(),
+        const MaterialDesktopPositionIndicator(),
+        const Spacer(),
+        const FullscreenToggleButton(color: Colors.white, iconSize: 28),
       ],
     );
+  }
+
+  /// Seek 10 seconds earlier (clamped at the start), for the bottom-bar rewind
+  /// button. Best-effort — a failure is logged, never fatal to playback.
+  void _skipBack10() {
+    final target = _player.state.position - const Duration(seconds: 10);
+    final clamped = target < Duration.zero ? Duration.zero : target;
+    unawaited(_player.seek(clamped).catchError((Object e, StackTrace st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.skipBack10');
+    }));
   }
 
   @override

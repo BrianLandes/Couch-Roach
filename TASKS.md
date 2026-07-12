@@ -47,17 +47,9 @@ _Queued and ready to pick up._
 
 - [ ] Add the app icon to the Windows launcher.
 
-### Dedupe Continue Watching by show · `p4`
-
-- [ ] If there is more than one video for Continue Watching from the same show, only show the most recent one.
-
 ### Disable "Download next" when the next episode hasn't aired · `p4`
 
 - [ ] The Download-next button should know whether the next episode has aired, and be disabled with a message if it hasn't aired yet.
-
-### "Go back 10 seconds" button on the player · `p4`
-
-- [ ] Add a skip-back-10s button to the player controls.
 
 ### Hydrate Alexa-queued titles with their TMDB id for the details page · `p3`
 
@@ -109,3 +101,11 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Dedupe Continue Watching by show · `p4`
+
+- [x] `watchContinueWatching` now collapses multiple in-progress episodes of the same show to the most-recently-watched one. Show identity is the matched TMDB id (else the clean show title); movies never collapse. The SQL limit moved into Dart (dedupe-then-take) so a binge-heavy show can't starve other titles off the rail. Covered by two repo tests.
+
+### "Go back 10 seconds" button on the player · `p4`
+
+- [x] Added a `replay_10` button to the player's bottom control bar (`MaterialDesktopCustomButton` → `_skipBack10`), seeking −10s clamped at the start. Fades with the rest of the controls.
