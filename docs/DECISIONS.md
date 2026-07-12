@@ -24,10 +24,11 @@ patterns (see `CLAUDE.md`):
   injectable_generator can't use yet). Resolved: drift 2.31.0, injectable_generator
   2.12.1, json_serializable 6.14.0. Built on Flutter 3.44.5 / Dart 3.12.2.
 
-## Todoist
-Dev tasks live in the **Couch Roach** Todoist project (board view), id
-`6h3xW6q4HRmCPC3p`, sections Backlog/To Do/In Progress/Done. Full workflow +
-section ids in `CLAUDE.md`.
+## Task tracking
+Dev tasks live in **`TASKS.md`** at the project root — a plain Markdown board
+(sections In Progress / To Do / Backlog / Done), checked into git and the source
+of truth for dev work. Full workflow in `CLAUDE.md`. (Previously tracked in
+Todoist; migrated to the in-repo file so tasks travel with the branch.)
 
 ## Resolved §9 forks
 | Fork | Decision |

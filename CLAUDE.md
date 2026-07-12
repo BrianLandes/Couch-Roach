@@ -32,82 +32,69 @@ The core stack is wired up and **must be used** for the concerns below:
 
 The app is built in milestones (M1 local player → M2 discovery → M3 subtitles →
 M4 acquisition; see HANDOFF §7). Sections describing not-yet-built pieces say so inline.
-The task-tracking and coding-style guidelines are adapted from a sibling Flutter project
-so both codebases stay consistent.
+Dev work is tracked in **[TASKS.md](TASKS.md)** at the project root (see Task tracking).
+The coding-style guidelines are adapted from a sibling Flutter project so both codebases
+stay consistent.
 
 ---
 
-## Todoist task tracking
+## Task tracking
 
-Dev tasks for this repo are tracked in **Todoist** via the `todoist` MCP server. Keep the
-task list current from the repo: push new work, pull active items, and flip status as work
-progresses.
+Dev tasks for this repo live in **[TASKS.md](TASKS.md)** at the project root — a plain
+Markdown board, checked into git. It is the **source of truth** for what's queued, in
+flight, and done. Read it first when resuming work, and keep it current from the repo:
+add new work, and move tasks between sections as their status changes. There is **no**
+external tracker (no Todoist, no Jira) — everything lives in the file so it travels with
+the branch and shows up in diffs.
 
-### Where tasks live
+### Structure
 
-- **Project:** `Couch Roach` — project id `6h3xW6q4HRmCPC3p` (board view).
-- Push repo tasks to this project, **not** the Inbox.
-- Account: Brian Landes (userId `59594567`), timezone `America/Denver`, Todoist Free plan.
+`TASKS.md` has four `##` sections, in order of flow:
 
-### Status model — board sections
+| Section         | Meaning                                             |
+| --------------- | --------------------------------------------------- |
+| **In Progress** | Actively being worked (aim for one at a time)       |
+| **To Do**       | Queued and ready to pick up                         |
+| **Backlog**     | Captured but not yet queued for current work        |
+| **Done**        | Recently finished, kept only as a short-lived record |
 
-Status is tracked by which **board section (column)** a task sits in — not by a label. The
-project (board view) has four columns:
+Each task is a `###` heading ending with a priority tag (`· p1` highest … `· p4` default,
+plus an optional `· due YYYY-MM-DD`), followed by a `- [ ]` checkbox line and any detail
+(decisions, design notes, follow-ups) underneath.
 
-| Section     | Section id         | Meaning                                       |
-| ----------- | ------------------ | --------------------------------------------- |
-| Backlog     | `6h3xW7cG9m3H5gpp` | Captured but not yet queued for current work  |
-| To Do       | `6h3xW7cfqWhC3RXp` | Queued and ready to pick up                   |
-| In Progress | `6h3xW7XMw8hqX42p` | Actively being worked (aim for one at a time) |
-| Done        | `6h3xW7XvRM3V29gp` | Finished work — move here, *then* complete    |
+### Lifecycle
 
-**Finishing a task is two steps, in this order:** move it to the **Done** section
-(`update-tasks` with `sectionId: "6h3xW7XvRM3V29gp"`), *then* `complete-tasks` it. Section
-membership survives completion, so completed tasks stay grouped under Done in the
-completed-tasks view. **Order matters** — a task cannot be re-sectioned after it's completed
-(you'd have to `uncomplete-tasks` → move → re-complete).
+- **Add a task** → write a new `###` entry under **To Do** (or **Backlog** if it isn't
+  queued yet). Give it a priority tag and enough detail to pick up cold.
+- **Start work** → move the entry up to **In Progress**; aim for one at a time.
+- **Advance / reprioritize** → move the entry between sections, or edit its priority tag.
+- **Finish** → tick the checkbox and move the entry to **Done**; prune old **Done** entries
+  freely, since git history is the real archive. Deleting a finished task outright is fine.
 
-### Lifecycle → tools
+### Conventions
 
-- **Push a new task** → `add-tasks` with `projectId: "6h3xW6q4HRmCPC3p"` and a `sectionId`
-  (usually To Do `6h3xW7cfqWhC3RXp`, or Backlog `6h3xW7cG9m3H5gpp` if not yet queued).
-  Set `priority` (`p1` highest … `p4` default), `dueString`, and `description` as needed.
-- **Move between columns** → `update-tasks` with the new `sectionId`.
-- **Start work** → move the task to In Progress (`sectionId: "6h3xW7XMw8hqX42p"`); aim for
-  one in-progress task at a time.
-- **Pull "what I'm working on"** → `find-tasks` with `sectionId: "6h3xW7XMw8hqX42p"`.
-- **List all open repo tasks** → `find-tasks` with `projectId: "6h3xW6q4HRmCPC3p"`.
-- **List finished tasks** → `find-completed-tasks` (optionally `sectionId: "6h3xW7XvRM3V29gp"`).
-- **Mark done** → first move to Done (`update-tasks` `sectionId: "6h3xW7XvRM3V29gp"`), *then*
-  `complete-tasks`. Always in that order — section can't be changed after completion.
-
-### Conventions & gotchas
-
-- Priorities are **strings** (`p1`–`p4`); integers are rejected. `p1` is highest, `p4` default.
-- To **reschedule** an existing task's due date, use `reschedule-tasks`, not `update-tasks`
-  (update replaces the whole due string and destroys recurrence).
-- `find-tasks` requires at least one filter (text, project, section, label, or filter string).
-- The Todoist MCP tools are deferred — load their schemas with `ToolSearch`
-  (`select:mcp__Todoist__<name>`) before calling them.
+- Priorities are `p1`–`p4` (`p1` highest, `p4` default), written as a `· pN` suffix on the
+  task's `###` heading.
+- Keep detail that's load-bearing (schema decisions, design constraints, caveats,
+  follow-ups) and drop the rest — the file should stay skimmable.
+- Editing `TASKS.md` is a normal file edit (Read/Edit/Write) — no MCP tools, no ids.
 
 ---
 
-## Working Through a Todoist Task
+## Working Through a Task
 
-Use the Todoist MCP tools to read and analyze a task before touching any code. Follow these
+Read and analyze the task in [TASKS.md](TASKS.md) before touching any code. Follow these
 steps in order.
 
 ### 1. Read the task
 
-Fetch the task (`find-tasks`, or `fetch-object` by id) and read its `content` and
-`description`. Read any discussion with `find-comments`. Note requirements, explicit
-decisions, and open questions.
+Find the task's `###` entry in `TASKS.md` and read its checkbox line and detail. Note
+requirements, explicit decisions, and open questions.
 
 ### 2. Move it to In Progress
 
-Move the task to the **In Progress** column via `update-tasks`
-(`sectionId: "6h3xW7XMw8hqX42p"`) so the board reflects what you're actively working on.
-Aim for only one task in In Progress at a time.
+Move the entry up to the **In Progress** section of `TASKS.md` so the file reflects what
+you're actively working on. Aim for only one task in In Progress at a time.
 
 ### 3. Audit existing code
 
@@ -150,12 +137,12 @@ Work bottom-up so each layer compiles before the next depends on it:
 
 Mark each layer done before moving to the next.
 
-### 7. Comment and complete
+### 7. Record and complete
 
-After implementation **and after the user has approved it**, post a brief summary comment on
-the task with `add-comments` (what was implemented, deviations and why, follow-up gaps). Then
-finish it: move the task to the **Done** section (`sectionId: "6h3xW7XvRM3V29gp"`) and
-`complete-tasks` it, in that order.
+After implementation **and after the user has approved it**, capture a brief summary in the
+task's detail (what was implemented, deviations and why, follow-up gaps) — this is the
+record that survives into the commit. Then finish it: tick the checkbox and move the entry
+to the **Done** section of `TASKS.md`, pruning it (or leaving a one-line trace) as fits.
 
 ---
 
