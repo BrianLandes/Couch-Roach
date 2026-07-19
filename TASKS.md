@@ -102,6 +102,14 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 
 _Finished work worth a short record; prune freely — git history is the archive._
 
+### Keep a TV show (like keeping a movie) · `p3`
+
+- [x] Show-level "Keep" toggle on the show detail page (shown once you own any episode), pinning the whole show against auto-cleanup — the TV counterpart to a movie's per-file Keep. Reuses the existing `keep` column: `LibraryRepository.setShowKeep(tmdbId, keep)` bulk-sets it on every episode of the show, so the reaper's existing `keep=false` filter exempts them with no schema change. "Kept" = all downloaded episodes pinned; uses the app's push-pin icon (as in the Settings cleanup queue). Repo test covers scoping to one show. Limitation: episodes downloaded *after* pinning start unpinned (re-toggle to include them).
+
+### Player overlay stranded after a show ends · `p2`
+
+- [x] The back button + Next Episode overlay only revealed on mouse hover/move and idle-hid after 3s regardless of play state, so on a remote-driven TV they became unrecoverable at the end of a show (media_kit's own controls still showed). Now reveals on any activity (pointer down + a top-level `Focus` treating any key as activity, returning `ignored`) and stays up while paused/ended.
+
 ### Dedupe Continue Watching by show · `p4`
 
 - [x] `watchContinueWatching` now collapses multiple in-progress episodes of the same show to the most-recently-watched one. Show identity is the matched TMDB id (else the clean show title); movies never collapse. The SQL limit moved into Dart (dedupe-then-take) so a binge-heavy show can't starve other titles off the rail. Covered by two repo tests.

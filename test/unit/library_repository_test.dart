@@ -96,6 +96,30 @@ void main() {
     expect(await repo.localEpisodes(42), hasLength(1));
   });
 
+  test('setShowKeep pins/unpins every episode of one show only', () async {
+    ScannedFile ep(String path, int tmdbId, int s, int e) => ScannedFile(
+          filePath: path,
+          title: 'Show $tmdbId',
+          mediaType: 'tv',
+          season: s,
+          episode: e,
+          tmdbId: tmdbId,
+          tmdbName: 'Show $tmdbId',
+        );
+    await repo.upsertAll([
+      ep('/tv/a.S01E01.mkv', 7, 1, 1),
+      ep('/tv/a.S01E02.mkv', 7, 1, 2),
+      ep('/tv/b.S01E01.mkv', 9, 1, 1), // a different show — must stay untouched
+    ]);
+
+    await repo.setShowKeep(7, true);
+    expect((await repo.localEpisodes(7)).every((e) => e.keep), isTrue);
+    expect((await repo.localEpisodes(9)).every((e) => e.keep), isFalse);
+
+    await repo.setShowKeep(7, false);
+    expect((await repo.localEpisodes(7)).any((e) => e.keep), isFalse);
+  });
+
   test('a plain scan never clobbers an existing TMDB match', () async {
     // First, an acquire stamps the match.
     await repo.upsert(const ScannedFile(

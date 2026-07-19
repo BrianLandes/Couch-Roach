@@ -4,9 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/db/database.dart';
+import '../../data/repositories/library_repository.dart';
 import '../../data/tmdb/season.dart';
 import '../../data/tmdb/tmdb_images.dart';
 import '../../data/tmdb/tv_show_details.dart';
+import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
 import '../../widgets/detail_scaffold.dart';
@@ -41,6 +43,13 @@ class ShowDetailScreen extends ConsumerStatefulWidget {
 
 class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
   int? _season;
+
+  /// Pin/unpin every downloaded episode of this show as "keep", then refresh the
+  /// local-episode view so the button flips between Keep/Kept.
+  Future<void> _toggleShowKeep(int tmdbId, bool keep) async {
+    await getIt<LibraryRepository>().setShowKeep(tmdbId, keep);
+    ref.invalidate(localEpisodesProvider(tmdbId));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -77,11 +86,19 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
         _season ?? (seasons.isNotEmpty ? seasons.first.seasonNumber : null);
     final trailerUrl =
         ref.watch(trailerUrlProvider((details.tmdbId, true))).asData?.value;
+    // Own any episodes of this show? If so, offer a show-level "Keep" that pins
+    // every episode against auto-cleanup — the TV counterpart to a movie's Keep.
+    // "Kept" reflects that all downloaded episodes are currently pinned.
+    final local =
+        ref.watch(localEpisodesProvider(details.tmdbId)).asData?.value ??
+            const <(int, int), LibraryItem>{};
+    final owned = local.isNotEmpty;
+    final kept = owned && local.values.every((e) => e.keep);
 
     return [
       _Hero(details: details),
       const SizedBox(height: AppSpacing.md),
-      // Trailers + Favorite + Want-to-watch share one wrapping row.
+      // Trailers + Keep + Favorite + Want-to-watch share one wrapping row.
       SaveTitleButtons(
         tmdbId: details.tmdbId,
         mediaType: 'tv',
@@ -100,6 +117,15 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
               ),
               icon: const Icon(Icons.movie_outlined),
               label: const Text('Trailers'),
+            ),
+          // Pin the whole show so auto-cleanup never reaps its episodes after a
+          // watch (uses the app's "pin" icon, as in the Settings cleanup queue).
+          if (owned)
+            OutlinedButton.icon(
+              onPressed: () => _toggleShowKeep(details.tmdbId, !kept),
+              icon: Icon(
+                  kept ? Icons.push_pin_rounded : Icons.push_pin_outlined),
+              label: Text(kept ? 'Kept' : 'Keep'),
             ),
           // Download whole seasons — shares the row rather than sitting on its
           // own line above the episode list.
