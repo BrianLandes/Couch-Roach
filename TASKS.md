@@ -104,7 +104,7 @@ _Finished work worth a short record; prune freely — git history is the archive
 
 ### Keep a TV show (like keeping a movie) · `p3`
 
-- [x] Show-level "Keep" toggle on the show detail page (shown once you own any episode), pinning the whole show against auto-cleanup — the TV counterpart to a movie's per-file Keep. Reuses the existing `keep` column: `LibraryRepository.setShowKeep(tmdbId, keep)` bulk-sets it on every episode of the show, so the reaper's existing `keep=false` filter exempts them with no schema change. "Kept" = all downloaded episodes pinned; uses the app's push-pin icon (as in the Settings cleanup queue). Repo test covers scoping to one show. Limitation: episodes downloaded *after* pinning start unpinned (re-toggle to include them).
+- [x] Show-level "Keep" toggle on the show detail page (shown once you own any episode), pinning the whole show against auto-cleanup — the TV counterpart to a movie's per-file Keep. The pin is a per-show fact on `SavedTitles.keptAt` (schemaVersion 7→8 + migration), set via `SavedTitlesRepository.setKeep`; the reaper queries (`reapable` / `watchReapCandidates`) left-join SavedTitles and exempt any episode whose show has `keptAt` set — so **episodes downloaded after pinning are spared too**, not just the ones present when you pinned. Live off the `savedTitleProvider` stream; push-pin icon (as in the Settings cleanup queue). A keep-only row (no favorite/watchlist) is created/removed cleanly. Tests: SavedTitles keep coexistence/cleanup, and a reaper test proving a kept show spares a *later-added* episode. Per-file `LibraryItems.keep` still pins individual movies / loose files.
 
 ### Player overlay stranded after a show ends · `p2`
 

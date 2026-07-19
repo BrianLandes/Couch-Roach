@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/db/database.dart';
-import '../../data/repositories/library_repository.dart';
+import '../../data/repositories/saved_titles_repository.dart';
 import '../../data/tmdb/season.dart';
 import '../../data/tmdb/tmdb_images.dart';
 import '../../data/tmdb/tv_show_details.dart';
@@ -16,6 +16,7 @@ import '../../widgets/resume_button.dart';
 import '../../widgets/poster_art.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../library/save_title_buttons.dart';
+import '../library/saved_titles_providers.dart';
 import '../acquire/acquire_button.dart';
 import '../acquire/acquire_play.dart';
 import '../player/player_screen.dart';
@@ -44,11 +45,17 @@ class ShowDetailScreen extends ConsumerStatefulWidget {
 class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
   int? _season;
 
-  /// Pin/unpin every downloaded episode of this show as "keep", then refresh the
-  /// local-episode view so the button flips between Keep/Kept.
-  Future<void> _toggleShowKeep(int tmdbId, bool keep) async {
-    await getIt<LibraryRepository>().setShowKeep(tmdbId, keep);
-    ref.invalidate(localEpisodesProvider(tmdbId));
+  /// Pin/unpin this whole show as "keep" (SavedTitles, per-show) so auto-cleanup
+  /// spares its episodes — current *and* any downloaded later. The live
+  /// savedTitleProvider stream flips the button between Keep/Kept.
+  Future<void> _toggleShowKeep(TvShowDetails details, bool keep) async {
+    await getIt<SavedTitlesRepository>().setKeep(
+      tmdbId: details.tmdbId,
+      mediaType: 'tv',
+      name: details.name,
+      posterPath: details.posterPath,
+      value: keep,
+    );
   }
 
   @override
@@ -87,13 +94,20 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
     final trailerUrl =
         ref.watch(trailerUrlProvider((details.tmdbId, true))).asData?.value;
     // Own any episodes of this show? If so, offer a show-level "Keep" that pins
-    // every episode against auto-cleanup — the TV counterpart to a movie's Keep.
-    // "Kept" reflects that all downloaded episodes are currently pinned.
+    // the whole show against auto-cleanup — the TV counterpart to a movie's
+    // Keep. The pin lives on SavedTitles (per-show), so it also spares episodes
+    // downloaded after pinning; "Kept" reflects that show-level flag.
     final local =
         ref.watch(localEpisodesProvider(details.tmdbId)).asData?.value ??
             const <(int, int), LibraryItem>{};
     final owned = local.isNotEmpty;
-    final kept = owned && local.values.every((e) => e.keep);
+    final kept = ref
+            .watch(savedTitleProvider(
+                (tmdbId: details.tmdbId, mediaType: 'tv')))
+            .asData
+            ?.value
+            ?.keptAt !=
+        null;
 
     return [
       _Hero(details: details),
@@ -122,7 +136,7 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
           // watch (uses the app's "pin" icon, as in the Settings cleanup queue).
           if (owned)
             OutlinedButton.icon(
-              onPressed: () => _toggleShowKeep(details.tmdbId, !kept),
+              onPressed: () => _toggleShowKeep(details, !kept),
               icon: Icon(
                   kept ? Icons.push_pin_rounded : Icons.push_pin_outlined),
               label: Text(kept ? 'Kept' : 'Keep'),

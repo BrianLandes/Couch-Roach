@@ -346,10 +346,20 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         _db.libraryItems,
         _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
       ),
+      // A matched title may be pinned "keep" at the show level (SavedTitles):
+      // exempt its files — including episodes acquired after pinning — since
+      // this flag is per-show, not per-episode. Unmatched rows never match the
+      // join (null tmdbId) and reap normally.
+      leftOuterJoin(
+        _db.savedTitles,
+        _db.savedTitles.tmdbId.equalsExp(_db.libraryItems.tmdbId) &
+            _db.savedTitles.mediaType.equalsExp(_db.libraryItems.mediaType),
+      ),
     ])
       ..where(_db.watchHistory.completed.equals(true) &
           _db.watchHistory.lastWatchedAt.isSmallerThanValue(before) &
           _db.libraryItems.keep.equals(false) &
+          _db.savedTitles.keptAt.isNull() &
           _db.libraryItems.missing.equals(false));
     final rows = await query.get();
     return rows.map((r) => r.readTable(_db.libraryItems)).toList();
@@ -362,9 +372,16 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         _db.libraryItems,
         _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
       ),
+      // Same show-level "keep" exemption as reapable (see there).
+      leftOuterJoin(
+        _db.savedTitles,
+        _db.savedTitles.tmdbId.equalsExp(_db.libraryItems.tmdbId) &
+            _db.savedTitles.mediaType.equalsExp(_db.libraryItems.mediaType),
+      ),
     ])
       ..where(_db.watchHistory.completed.equals(true) &
           _db.libraryItems.keep.equals(false) &
+          _db.savedTitles.keptAt.isNull() &
           _db.libraryItems.missing.equals(false))
       // Oldest watch first: the one nearest (or furthest past) the grace cutoff.
       ..orderBy([

@@ -4,6 +4,7 @@ import 'package:couch_roach/src/core/logging/error_log_service.dart';
 import 'package:couch_roach/src/core/settings/settings_service.dart';
 import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/data/repositories/library_repository.dart';
+import 'package:couch_roach/src/data/repositories/saved_titles_repository.dart';
 import 'package:couch_roach/src/data/repositories/watch_history_repository.dart';
 import 'package:couch_roach/src/services/cleanup/watched_reaper.dart';
 import 'package:drift/drift.dart' show Value;
@@ -148,5 +149,49 @@ void main() {
     expect((await library.findByPath(p.join(tmp.path, 'a.mkv')))!.keep, isTrue);
     await library.setKeep(id, false);
     expect((await library.findByPath(p.join(tmp.path, 'a.mkv')))!.keep, isFalse);
+  });
+
+  test('a show-level keep spares its episodes — including ones added later',
+      () async {
+    final saved = DriftSavedTitlesRepository(db);
+
+    Future<int> addEpisode(String name, int season, int episode) async {
+      final path = p.join(tmp.path, name);
+      File(path).writeAsStringSync('video');
+      await library.upsert(ScannedFile(
+        filePath: path,
+        title: 'Kept Show',
+        mediaType: 'tv',
+        season: season,
+        episode: episode,
+        tmdbId: 555,
+        tmdbName: 'Kept Show',
+      ));
+      return (await library.findByPath(path))!.id;
+    }
+
+    // Two watched, past-grace episodes — reapable on their own.
+    final e1 = await addEpisode('kept.S01E01.mkv', 1, 1);
+    final e2 = await addEpisode('kept.S01E02.mkv', 1, 2);
+    await watched(e1, completed: true, daysAgo: 30);
+    await watched(e2, completed: true, daysAgo: 30);
+
+    // Pin the whole show (per-show, on SavedTitles).
+    await saved.setKeep(
+        tmdbId: 555, mediaType: 'tv', name: 'Kept Show', value: true);
+
+    // A *future* episode acquired after pinning — must also be spared.
+    final e3 = await addEpisode('kept.S01E03.mkv', 1, 3);
+    await watched(e3, completed: true, daysAgo: 30);
+
+    expect(await (await reaper()).sweep(), isEmpty);
+    for (final n in ['kept.S01E01.mkv', 'kept.S01E02.mkv', 'kept.S01E03.mkv']) {
+      expect(File(p.join(tmp.path, n)).existsSync(), isTrue, reason: n);
+    }
+
+    // Un-pinning lets them reap again.
+    await saved.setKeep(
+        tmdbId: 555, mediaType: 'tv', name: 'Kept Show', value: false);
+    expect((await (await reaper()).sweep()).length, 3);
   });
 }

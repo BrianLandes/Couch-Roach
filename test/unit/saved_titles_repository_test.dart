@@ -64,6 +64,32 @@ void main() {
     expect(saved.wantToWatchAt, isNull);
   });
 
+  test('setKeep flips keptAt without touching the lists, and cleans up',
+      () async {
+    // Keep-only row: not on Favorites/Want-to-watch, but keptAt is set.
+    await repo.setKeep(tmdbId: 8, mediaType: 'tv', name: 'Kept', value: true);
+    final saved = await repo.watchTitle(tmdbId: 8, mediaType: 'tv').first;
+    expect(saved!.keptAt, isNotNull);
+    expect(saved.favoritedAt, isNull);
+    expect(saved.wantToWatchAt, isNull);
+    expect(await repo.watchFavorites().first, isEmpty);
+    expect(await repo.watchWantToWatch().first, isEmpty);
+
+    // Un-keeping the keep-only row removes it entirely (no tombstone).
+    await repo.setKeep(tmdbId: 8, mediaType: 'tv', name: 'Kept', value: false);
+    expect(await repo.watchTitle(tmdbId: 8, mediaType: 'tv').first, isNull);
+  });
+
+  test('keep coexists with a list flag on the same row', () async {
+    await repo.setFavorite(tmdbId: 4, mediaType: 'tv', name: 'A', value: true);
+    await repo.setKeep(tmdbId: 4, mediaType: 'tv', name: 'A', value: true);
+    // Un-keeping leaves the favorite intact (row survives).
+    await repo.setKeep(tmdbId: 4, mediaType: 'tv', name: 'A', value: false);
+    final saved = await repo.watchTitle(tmdbId: 4, mediaType: 'tv').first;
+    expect(saved!.favoritedAt, isNotNull);
+    expect(saved.keptAt, isNull);
+  });
+
   test('re-favoriting keeps the original timestamp (stable ordering)', () async {
     await repo.setFavorite(tmdbId: 3, mediaType: 'tv', name: 'A', value: true);
     final first = (await repo.watchTitle(tmdbId: 3, mediaType: 'tv').first)!

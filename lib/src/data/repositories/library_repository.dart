@@ -84,15 +84,11 @@ abstract class LibraryRepository {
     String? mediaType,
   });
 
-  /// Pin/unpin a title as "keep" — a kept title is exempt from auto-cleanup even
-  /// after a full watch (see DECISIONS: auto-cleanup).
+  /// Pin/unpin a single title (a movie / loose file) as "keep" — exempt from
+  /// auto-cleanup even after a full watch (see DECISIONS: auto-cleanup). A whole
+  /// matched *show* is pinned instead via `SavedTitlesRepository.setKeep`, which
+  /// is per-show (tmdbId) so it also covers episodes acquired after pinning.
   Future<void> setKeep(int id, bool keep);
-
-  /// Pin/unpin a whole matched **show** as "keep" — applies [keep] to every
-  /// episode of [tmdbId] at once, the show-level counterpart to [setKeep] (a
-  /// show is a set of episode rows, not one file). A kept show's episodes are
-  /// exempt from auto-cleanup after a watch, just like a kept movie.
-  Future<void> setShowKeep(int tmdbId, bool keep);
 
   /// Flag a single row `missing` (its file was reaped/deleted), keeping the row
   /// and its watch history. The single-row counterpart to [markMissingUnder].
@@ -259,13 +255,6 @@ class DriftLibraryRepository implements LibraryRepository {
   @override
   Future<void> setKeep(int id, bool keep) async {
     await (_db.update(_db.libraryItems)..where((t) => t.id.equals(id)))
-        .write(LibraryItemsCompanion(keep: Value(keep)));
-  }
-
-  @override
-  Future<void> setShowKeep(int tmdbId, bool keep) async {
-    await (_db.update(_db.libraryItems)
-          ..where((t) => t.tmdbId.equals(tmdbId) & t.mediaType.equals('tv')))
         .write(LibraryItemsCompanion(keep: Value(keep)));
   }
 

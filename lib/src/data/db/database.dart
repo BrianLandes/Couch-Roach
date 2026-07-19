@@ -98,12 +98,12 @@ class Settings extends Table {
   Set<Column> get primaryKey => {key};
 }
 
-/// User-curated lists of TMDB titles (shows/movies), independent of whether the
-/// title is in the local library — you can favorite or watchlist something you
-/// don't own yet. A title can be in either or both lists; a non-null timestamp
-/// means it's in that list and doubles as the newest-first sort key. The row is
-/// removed once both are null. Keyed by TMDB id + media type (movie and tv ids
-/// are separate namespaces).
+/// User-curated per-title state for TMDB titles (shows/movies), independent of
+/// whether the title is in the local library — you can favorite or watchlist
+/// something you don't own yet. A title can be in any combination of lists; each
+/// non-null timestamp means it's in that list and doubles as the newest-first
+/// sort key. The row is removed once every timestamp is null. Keyed by TMDB id +
+/// media type (movie and tv ids are separate namespaces).
 class SavedTitles extends Table {
   IntColumn get tmdbId => integer()();
 
@@ -117,6 +117,13 @@ class SavedTitles extends Table {
 
   DateTimeColumn get favoritedAt => dateTime().nullable()();
   DateTimeColumn get wantToWatchAt => dateTime().nullable()();
+
+  /// Set means the user pinned this whole title "keep": its library files are
+  /// exempt from auto-cleanup after a watch — including episodes downloaded
+  /// *after* it was pinned, since the reaper checks this show-level flag rather
+  /// than each episode row. The show-level counterpart to `LibraryItems.keep`
+  /// (which still pins an individual movie / loose file).
+  DateTimeColumn get keptAt => dateTime().nullable()();
 
   /// How this entry got here when it wasn't a direct in-app action — e.g.
   /// 'alexa' for a title queued by voice (see the Alexa inbox drain). Null for
@@ -155,7 +162,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -178,6 +185,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 7) {
             await m.addColumn(savedTitles, savedTitles.source);
+          }
+          if (from < 8) {
+            await m.addColumn(savedTitles, savedTitles.keptAt);
           }
         },
         beforeOpen: (details) async {
