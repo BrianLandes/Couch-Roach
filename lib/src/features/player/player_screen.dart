@@ -157,6 +157,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _controlsHideTimer;
   static const _controlsHideDelay = Duration(seconds: 3);
   static const _controlsFade = Duration(milliseconds: 150);
+  // Mirrors mpv's play state. While paused/ended we keep the overlay up (as
+  // media_kit does with its own controls) instead of idle-hiding it — otherwise
+  // the back/next buttons vanish at the end of a show and a remote (which emits
+  // key events, not pointer moves) has no way to bring them back.
+  bool _isPlaying = true;
 
   bool get _isTvEpisode =>
       _currentItem?.mediaType == 'tv' &&
@@ -230,6 +235,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _subs.add(_player.stream.completed.listen((done) {
         if (done) _markCompleted();
       }));
+      // Track play state so the overlay stays up while paused/ended.
+      _subs.add(_player.stream.playing.listen(_onPlayingChanged));
 
       // Enrich the top-bar title with the episode's TMDB name for a local TV
       // episode ("Show — S01E03 · Episode Name"). Best-effort.
@@ -1066,16 +1073,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (context.canPop()) context.pop();
   }
 
-  /// Pointer activity — reveal the overlay (Next Episode button) and restart the
-  /// idle countdown that hides it again, mirroring the media_kit controls.
+  /// Any user activity — pointer *or* keyboard/remote — reveals the overlay
+  /// (back button + Next Episode) and restarts the idle countdown that hides it,
+  /// mirroring the media_kit controls. The idle-hide only arms while playing;
+  /// paused/ended keeps it up so it can't get stranded off-screen.
   void _revealControls() {
     _controlsHideTimer?.cancel();
-    _controlsHideTimer = Timer(_controlsHideDelay, _hideControls);
+    if (_isPlaying) {
+      _controlsHideTimer = Timer(_controlsHideDelay, _hideControls);
+    }
     if (!_controlsVisible) setState(() => _controlsVisible = true);
   }
 
   void _hideControls() {
     if (mounted && _controlsVisible) setState(() => _controlsVisible = false);
+  }
+
+  /// React to play/pause: while paused or ended keep the overlay up (and cancel
+  /// any pending hide) so the back/next buttons stay reachable; on resume, fall
+  /// back to the normal reveal-then-idle-hide behavior.
+  void _onPlayingChanged(bool playing) {
+    _isPlaying = playing;
+    if (!playing) {
+      _controlsHideTimer?.cancel();
+      if (mounted && !_controlsVisible) setState(() => _controlsVisible = true);
+    } else {
+      _revealControls();
+    }
   }
 
   /// Toggle OS-window fullscreen via window_manager — the same path as the F11
@@ -1312,8 +1336,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
+      // Any key (a TV remote's D-pad/Enter included) counts as activity and
+      // reveals the overlay — without this the back/next buttons only respond to
+      // mouse movement, so a remote user can't bring them back. Ignored so the
+      // key still reaches whatever it was meant for.
+      body: Focus(
+        autofocus: true,
+        onKeyEvent: (_, __) {
+          _revealControls();
+          return KeyEventResult.ignored;
+        },
+        child: Stack(
+          children: [
           Positioned.fill(
             child: _error != null
                 ? _PlaybackError(
@@ -1430,6 +1464,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 behavior: HitTestBehavior.translucent,
                 onPointerHover: (_) => _revealControls(),
                 onPointerMove: (_) => _revealControls(),
+                onPointerDown: (_) => _revealControls(),
                 child: const SizedBox.expand(),
               ),
             ),
@@ -1538,6 +1573,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             ),
         ],
+        ),
       ),
     );
   }
