@@ -1313,6 +1313,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           onPressed: _skipBack10,
         ),
         const MaterialDesktopPlayOrPauseButton(),
+        // Jump forward 10s — the counterpart to the rewind, sat right after Play.
+        MaterialDesktopCustomButton(
+          icon: const Icon(Icons.forward_10_rounded),
+          onPressed: _skipForward10,
+        ),
         const MaterialDesktopVolumeButton(),
         const MaterialDesktopPositionIndicator(),
         const Spacer(),
@@ -1329,6 +1334,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     unawaited(_player.seek(clamped).catchError((Object e, StackTrace st) {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'PlayerScreen.skipBack10');
+    }));
+  }
+
+  /// Seek 10 seconds later (clamped at the duration), for the bottom-bar
+  /// fast-forward button. Best-effort — a failure is logged, never fatal.
+  void _skipForward10() {
+    final duration = _player.state.duration;
+    var target = _player.state.position + const Duration(seconds: 10);
+    if (duration > Duration.zero && target > duration) target = duration;
+    unawaited(_player.seek(target).catchError((Object e, StackTrace st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.skipForward10');
     }));
   }
 
