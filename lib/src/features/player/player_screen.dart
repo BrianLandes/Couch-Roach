@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:media_kit/media_kit.dart';
 // Hide media_kit's own `toggleFullscreen` — we drive fullscreen through
@@ -194,7 +195,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    // Observe keys globally (not via a focus node) so a remote/keyboard reveals
+    // the overlay without stealing focus or key handling from the media_kit
+    // controls (Space / media-key play-pause, arrow-seek).
+    HardwareKeyboard.instance.addHandler(_onHardwareKey);
     _open();
+  }
+
+  /// Any physical key press counts as activity and reveals the overlay. Returns
+  /// false so the event is never consumed — it still reaches the player controls
+  /// (this is an observer, not a handler).
+  bool _onHardwareKey(KeyEvent event) {
+    if (mounted && (event is KeyDownEvent || event is KeyRepeatEvent)) {
+      _revealControls();
+    }
+    return false;
   }
 
   Future<void> _open() async {
@@ -1058,6 +1073,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onHardwareKey);
     _persistFinal();
     _controlsHideTimer?.cancel();
     // Best-effort: remove the trailer's downloaded caption sidecar.
@@ -1353,18 +1369,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      // Any key (a TV remote's D-pad/Enter included) counts as activity and
-      // reveals the overlay — without this the back/next buttons only respond to
-      // mouse movement, so a remote user can't bring them back. Ignored so the
-      // key still reaches whatever it was meant for.
-      body: Focus(
-        autofocus: true,
-        onKeyEvent: (_, __) {
-          _revealControls();
-          return KeyEventResult.ignored;
-        },
-        child: Stack(
-          children: [
+      body: Stack(
+        children: [
           Positioned.fill(
             child: _error != null
                 ? _PlaybackError(
@@ -1481,7 +1487,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 behavior: HitTestBehavior.translucent,
                 onPointerHover: (_) => _revealControls(),
                 onPointerMove: (_) => _revealControls(),
-                onPointerDown: (_) => _revealControls(),
                 child: const SizedBox.expand(),
               ),
             ),
@@ -1590,7 +1595,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             ),
         ],
-        ),
       ),
     );
   }
