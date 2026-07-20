@@ -1,0 +1,42 @@
+# Runs the Flutter test suite on every push to main and on pull requests. The
+# suite is pure-Dart/drift (in-memory NativeDatabase) with no network or API
+# keys, so it runs on cheap Linux runners — no Windows toolchain or
+# dart_define.json needed. This is the green gate the build workflows assume.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Coalesce rapid pushes: a newer commit cancels an in-flight test run.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.44.5"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Generated files (*.g.dart, injection.config.dart) are committed, so no
+      # build_runner step is needed for a normal run.
+      - name: Run tests
+        run: flutter test

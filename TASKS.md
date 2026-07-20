@@ -79,13 +79,6 @@ Design notes:
 - Skip episodes already local; if a pack only partially covers what's missing, decide: take the pack anyway (simplest) vs. top up the gaps per-episode. Note the choice.
 - Fallback: no acceptable pack → current per-episode behavior. Keep the season/all scope dialog as-is.
 
-### Add a CI workflow that runs the test suite · `p2`
-
-- [ ] There's **no test workflow today** — `.github/workflows/` has only `windows-build.yml` and `launcher-build.yml`, and neither runs `flutter test`. Add a `test.yml` next to them that runs the full suite on push + PR, so regressions are caught before a build.
-- Triggers: `push: [main]` and `pull_request` (and `workflow_dispatch` for manual runs). Steps mirror the build workflows' setup: checkout → `subosito/flutter-action` pinned to `FLUTTER_VERSION` (3.44.5) → `flutter pub get` → `flutter test`. Generated files (`*.g.dart`, `injection.config.dart`) are committed, so no `build_runner` step is needed for a normal run (optionally add a codegen-drift check later).
-- Runs on GitHub-hosted **`ubuntu-latest`**: the suite is pure-Dart/drift (in-memory `NativeDatabase`) and passes headless, so no Windows toolchain is needed for tests — Linux is cheaper/faster. The occasional first-run `libsqlite3` fetch flake is environmental; a retry handles it.
-- Reasonable to keep `concurrency` cancel-in-progress like the build workflow. Once green, this is the gate the build workflows can assume.
-
 ### Add the Couch Roach icon to the launcher · `p4`
 
 - [ ] Add the app icon to the Windows launcher.
@@ -144,6 +137,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Add a CI workflow that runs the test suite · `p2`
+
+- [x] `.github/workflows/test.yml` runs `flutter test` on push-to-main, PRs, and manual dispatch, on `ubuntu-latest` (suite is pure-Dart/drift — no Windows toolchain or dart_define.json needed). Mirrors the build workflows' Flutter setup (subosito/flutter-action @ 3.44.5, cache); concurrency cancel-in-progress. Free now that the repo is public. Green gate the build workflows assume.
 
 ### Keep a TV show (like keeping a movie) · `p3`
 
