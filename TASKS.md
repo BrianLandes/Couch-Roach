@@ -43,6 +43,42 @@ Follow-up (not done): requires `ALEXA_INBOX_TOKEN` in `dart_define.json` before 
 
 _Queued and ready to pick up._
 
+### Manually delete downloaded shows / seasons / episodes / movies · `p2`
+
+- [ ] A way to remove downloaded content that isn't going to be auto-reaped (unwatched, kept, or otherwise not eligible). Needed at three granularities:
+  - **Movie** — delete this movie's file. Button on `LibraryDetailScreen` (alongside Play/Keep).
+  - **Show** — delete *all* the show's episodes, or just *one season's*. Button on `ShowDetailScreen` mirroring the existing `_DownloadAllButton` scope dialog ("This season" / "All seasons").
+  - **Episode** — delete a single episode. Affordance on each local episode row (`_EpisodeRow`/`_Availability` where the Play button shows).
+
+Design notes:
+- Deletion must remove the **video file + its `.en.srt`/`.eng.srt`/`.english.srt` sidecars** on disk *and* the library row(s). The reaper already has this file-delete logic privately (`DriftWatchedReaper._deleteFileAndSidecars`) — **extract it into a shared helper** (a small `MediaFileDeleter`/`CleanupService`, or a method on `StorageManager`) so the reaper and manual delete share one path. Row removal: `LibraryRepository.removeByPath` already hard-deletes the row and cascades `watch_history` ("forget this title entirely") — that's the right call for an explicit user delete (vs. the reaper's `markMissing`, which keeps the row+history). Confirm the decision: an explicit delete probably *should* drop watch history too.
+- **Confirm before deleting** (10-foot destructive action → a confirmation dialog; honor the "look at the target before deleting" rule). Show what's about to go (title + file count).
+- Multi-file/multi-season deletes go through the same helper per file; report count deleted via snackbar. Skips/handles already-missing rows gracefully.
+- A kept show/movie can be deleted (explicit user action overrides the keep pin); clear the `keptAt`/`keep` flag as part of removal so no stale pin lingers.
+
+### Stop matching a longer title that merely contains the target ("Descendants" → "Descendants Wicked Wonderland") · `p2`
+
+- [ ] The resolver picks the wrong release when the target name is a substring of a different title. Two root causes in `jackett_resolver.dart` + `filename_media_info.dart`:
+  - The **movie path does no title verification at all** (`_resolve`'s movie branch just drops sign-language/excluded/tiny rows and ranks by seeds — it never calls `titleMatches`). A search for "Descendants" happily takes "Descendants Wicked Wonderland" if it out-seeds.
+  - `FilenameMediaInfo.titleMatches` is **containment-based** (`normalizeTitle(release).contains(normalizeTitle(query))`), so even where it *is* applied (TV), a longer title that contains the target still passes.
+
+Fix (a pure, heavily-tested function — matches the codebase's parse-then-compare style):
+- Isolate the release's **title segment**: strip noise from the release name — everything from the first "boundary token" onward (year `(19|20)\d\d`, resolution `720p/1080p/2160p`, `SxxExx`/season marker, source/codec/group tags like `WEB-DL/x264/BluRay/HEVC/AAC`, release-group suffix). `FilenameMediaInfo.parse` already extracts a `.title`; lean on / extend it so the leading title is clean.
+- Then require the normalized title segment to **equal** the normalized target (the user's rule: contains the target AND nothing *but* the target), allowing a trailing **year** as the only permitted extra (movies), and optionally a small edit-distance tolerance for punctuation/`&`-vs-`and`. "Descendants" ✓, "Descendants Wicked Wonderland" ✗, "Descendants 2015" ✓.
+- Apply it to **both** paths: add the check to the movie branch, and tighten the TV `titleMatches` (or add a stricter `titleIsExactly`) used by `verifiedEpisodeResults` / `seasonPackResults`. Keep `titleMatches` (loose) only where a loose "names the same show" check is still wanted, if anywhere.
+- Guard against over-tightening: TMDB's canonical name can differ from release naming (articles, `:` subtitles, `&`/`and`, year-in-title). Test with real-world messy names; when unsure, prefer rejecting the ambiguous longer title over grabbing it (a miss retries; a wrong download wastes the slot).
+
+### Prefer whole season / show packs for the bulk "Download" button · `p3`
+
+- [ ] The show detail "Download…" button (all seasons / one season) currently queues an **individual torrent per episode** (`downloadSeason` / `downloadAllSeasons` in `acquire_play.dart` → `prefetchEpisode` per episode). For a bulk download it's better to **first try a whole season-pack or show-pack torrent**, falling back to per-episode only when no acceptable pack is found. This flips our usual per-episode fetch paradigm — which must **stay unchanged** for the inline per-episode Download buttons and the next-episode prefetch.
+
+Design notes:
+- **Season-pack machinery already exists** and is used today only as the single-episode *fallback*: `jackett_resolver.dart` has `seasonPackResults(...)` + `FilenameMediaInfo.seasonPackNumber(...)`, and `_resolve` already queries a season-only pack when no single-episode source verifies (then extracts the one episode). Reuse this from the bulk button (grab the pack, keep *all* its episodes) rather than reinventing it. **Show pack** (all seasons — "complete" / "S01-S0N") is the genuinely new piece: add a `showPackResults` + a "complete series" query shape.
+- Stays content-agnostic through `AcquisitionResolver` — just different **query shapes**, no new indexers: season pack → "Show Name S01" / "Season 1" (no episode marker); show pack → "Show Name complete" / "Season 1-N".
+- After grabbing the pack (one torrent → a folder of episodes), the **existing scan + match + folder-fold** hydrates the episodes into library rows and the play flow — no per-episode acquisition needed. Verify the download lands under a managed root so the scanner picks it up.
+- Skip episodes already local; if a pack only partially covers what's missing, decide: take the pack anyway (simplest) vs. top up the gaps per-episode. Note the choice.
+- Fallback: no acceptable pack → current per-episode behavior. Keep the season/all scope dialog as-is.
+
 ### Add the Couch Roach icon to the launcher · `p4`
 
 - [ ] Add the app icon to the Windows launcher.
