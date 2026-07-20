@@ -43,6 +43,15 @@ Follow-up (not done): requires `ALEXA_INBOX_TOKEN` in `dart_define.json` before 
 
 _Queued and ready to pick up._
 
+### Restore app auto-updates via a private release channel (keyed builds off the public repo) · `p1`
+
+- [ ] **Context:** the repo went public, but the Windows exe has `TMDB_API_KEY` / `OPENSUBTITLES_API_KEY` / `ALEXA_INBOX_TOKEN` baked in via `--dart-define` (recoverable from the binary). Public GitHub Releases are world-downloadable, so publishing is currently **disabled** (`windows-build.yml`: push trigger + Publish Release step off — the stopgap). This task restores auto-updates without exposing keyed builds.
+- **Out-of-band first:** rotate all three keys (they're compromised); delete the old public releases (build-21…35) in the GitHub UI — the MCP server can't delete releases.
+- **Option A — private "dist" repo (recommended, least work):** the launcher was *originally built for private releases* (`launcher/lib/updater.dart` already downloads via a read-only `githubToken`). Create a private `couch-roach-dist` repo; have `windows-build.yml` publish the build there (a PAT secret with write to the dist repo) instead of the public repo, and **remove the public `upload-artifact`** of the keyed zip so nothing keyed stays on the public repo. Point the launcher's `repo` at the dist repo. Keeps free public CI; minimal launcher change.
+- **Option B — Cloudflare R2:** CI uploads the zip + `manifest.json` to a **private** R2 bucket (S3-compatible creds as GH secrets); the launcher fetches them from R2 via a credential or a Worker-signed URL (you already run a Worker). Decouples from GitHub; more launcher rework + access-control plumbing.
+- **Option C — keyless (ideal, most work):** proxy TMDB/OpenSubtitles through the Worker so the exe ships with no third-party keys; then public releases are safe again. Doesn't protect the Alexa token unless that's also removed/rescoped.
+- Whichever path: re-enable the build trigger + publish step once the target is private/keyless, and confirm the launcher updates end-to-end.
+
 ### Manually delete downloaded shows / seasons / episodes / movies · `p2`
 
 - [ ] A way to remove downloaded content that isn't going to be auto-reaped (unwatched, kept, or otherwise not eligible). Needed at three granularities:
