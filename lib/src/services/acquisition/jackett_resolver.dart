@@ -99,17 +99,18 @@ class JackettResolver implements AcquisitionResolver {
         return null;
       }
 
-      // Movie / unscoped search: rank by seed health, still dropping ASL/BSL cuts
-      // and any source already tried for this title.
+      // Movie / unscoped search: keep only releases whose title actually names
+      // this movie (a strict match — not mere containment — so "Descendants"
+      // never grabs "Descendants Wicked Wonderland"), then rank by seed health.
       final results = await _query(config, meta, season, episode);
-      final pool = results.where((r) {
-        if (excludeSign && FilenameMediaInfo.looksLikeSignLanguage(r.title)) {
-          return false;
-        }
-        return !exclude.contains(r.downloadUrl);
-      }).toList();
+      final pool = verifiedMovieResults(results, meta,
+          excludeSignLanguage: excludeSign, excludeUrls: exclude);
       final best = pickBestTorznabResult(pool, preferAudioLanguage: preferLang);
-      if (best == null) return null;
+      if (best == null) {
+        _log.info('no title-verified source for movie "${meta.title}"',
+            source: 'JackettResolver');
+        return null;
+      }
       return TorrentHandle(
           magnetOrUrl: best.downloadUrl, displayName: best.title);
     } catch (e, st) {
@@ -283,6 +284,30 @@ List<TorznabResult> verifiedEpisodeResults(
     if (!FilenameMediaInfo.titleMatches(r.title, meta.title)) return false;
     final parsed = FilenameMediaInfo.parse(r.title);
     return parsed.season == season && parsed.episode == episode;
+  }).toList();
+}
+
+/// Keep only [results] that verify as the requested **movie** [meta]: the title
+/// must strictly name the same film (not merely contain it, so "Descendants"
+/// never grabs "Descendants Wicked Wonderland" — see
+/// [FilenameMediaInfo.titleMatchesStrict]). Sign-language cuts dropped when
+/// [excludeSignLanguage]; already-tried sources dropped when their URL is in
+/// [excludeUrls]; implausibly tiny files dropped. Order preserved (rank with
+/// [pickBestTorznabResult]). Pure + tested.
+List<TorznabResult> verifiedMovieResults(
+  List<TorznabResult> results,
+  ShowMeta meta, {
+  bool excludeSignLanguage = true,
+  Set<String> excludeUrls = const {},
+}) {
+  return results.where((r) {
+    if (excludeSignLanguage &&
+        FilenameMediaInfo.looksLikeSignLanguage(r.title)) {
+      return false;
+    }
+    if (excludeUrls.contains(r.downloadUrl)) return false;
+    if (r.sizeBytes > 0 && r.sizeBytes < _minEpisodeBytes) return false;
+    return FilenameMediaInfo.titleMatchesStrict(r.title, meta.title);
   }).toList();
 }
 

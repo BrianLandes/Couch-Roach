@@ -19,7 +19,7 @@ const _feed = '''<?xml version="1.0" encoding="UTF-8"?>
 <rss version="1.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
   <channel>
     <item>
-      <title>Some.Movie.2020</title>
+      <title>X.2020.1080p</title>
       <link>magnet:?xt=urn:btih:ABC</link>
       <torznab:attr name="magneturl" value="magnet:?xt=urn:btih:ABC"/>
       <torznab:attr name="seeders" value="100"/>

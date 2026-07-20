@@ -60,10 +60,57 @@ class FilenameMediaInfo {
   /// Whether [release] plausibly names the same show as [query] — the release's
   /// normalized text contains the query's (a release carries extra year/quality
   /// tokens the query doesn't). Empty query never matches. Pure + tested.
+  ///
+  /// Loose by design (containment), which is right for TV, where a release
+  /// legitimately appends region/qualifier words the canonical name lacks
+  /// ("The Office" → "The Office US"). For movies use [titleMatchesStrict], which
+  /// rejects a *longer* title that merely contains the target.
   static bool titleMatches(String release, String query) {
     final q = normalizeTitle(query);
     return q.isNotEmpty && normalizeTitle(release).contains(q);
   }
+
+  /// Whether [release] names the **same movie** as [query] — stricter than
+  /// [titleMatches]. The release's parsed title (year/quality already stripped by
+  /// [parse]) must **equal** the query's, so a longer title that only *contains*
+  /// the target is rejected: a search for "Descendants" must not pick up
+  /// "Descendants Wicked Wonderland". When both sides carry a year they must
+  /// agree (guards remakes — "Blade Runner" 1982 vs 2049). Sequels written as
+  /// roman numerals still match their digit form ("Frozen II" ↔ "Frozen 2") and
+  /// `&` matches "and". A query that parses to an empty title (it was nothing but
+  /// a year, e.g. "2012") can't be compared this way and falls back to the loose
+  /// [titleMatches]. Pure + tested.
+  static bool titleMatchesStrict(String release, String query) {
+    final qp = parse(query);
+    final q = _titleTokens(qp.title);
+    if (q.isEmpty) return titleMatches(release, query);
+    final rp = parse(release);
+    final r = _titleTokens(rp.title);
+    if (r.length != q.length) return false;
+    for (var i = 0; i < q.length; i++) {
+      if (r[i] != q[i]) return false;
+    }
+    // Both name a year → they must be the same film (not a same-named remake).
+    if (qp.year != null && rp.year != null && qp.year != rp.year) return false;
+    return true;
+  }
+
+  // A title split into comparable tokens: lowercased alphanumeric words, `&`
+  // folded to "and", and unambiguous roman-numeral sequels folded to digits
+  // (ii→2 … ix→9). The single letters i/v/x are deliberately left alone — they
+  // are common title words ("I Am Legend", "V for Vendetta", "Malcolm X").
+  static List<String> _titleTokens(String title) {
+    final t = title.toLowerCase().replaceAll('&', ' and ');
+    return [
+      for (final w in t.split(RegExp(r'[^a-z0-9]+')))
+        if (w.isNotEmpty) _romanSequels[w] ?? w,
+    ];
+  }
+
+  static const _romanSequels = <String, String>{
+    'ii': '2', 'iii': '3', 'iv': '4', 'vi': '6',
+    'vii': '7', 'viii': '8', 'ix': '9',
+  };
 
   /// The season number of a **whole-season pack** named by [filename], or null
   /// when it names a single episode (has an `SxxExx`/`NxM` marker) or carries no

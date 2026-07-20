@@ -100,6 +100,38 @@ void main() {
     });
   });
 
+  group('titleMatchesStrict', () {
+    bool m(String release, String query) =>
+        FilenameMediaInfo.titleMatchesStrict(release, query);
+
+    test('accepts the exact movie, with year/quality noise stripped', () {
+      expect(m('Descendants.2015.1080p.WEB-DL.x264', 'Descendants'), isTrue);
+      expect(m('Descendants 2015 BluRay', 'Descendants'), isTrue);
+    });
+
+    test('rejects a longer title that merely contains the target', () {
+      expect(m('Descendants.Wicked.Wonderland.2024.1080p', 'Descendants'),
+          isFalse);
+      // Extra *leading* word is a different film too.
+      expect(m('The.Descendants.2011.1080p', 'Descendants'), isFalse);
+    });
+
+    test('matches a year-in-title film symmetrically', () {
+      expect(m('Blade.Runner.2049.2017.2160p', 'Blade Runner 2049'), isTrue);
+      // A same-named earlier film is rejected by the year check.
+      expect(m('Blade.Runner.1982.1080p', 'Blade Runner 2049'), isFalse);
+    });
+
+    test('reconciles roman-numeral sequels with digits, and & with and', () {
+      expect(m('Frozen.2.2019.1080p', 'Frozen II'), isTrue);
+      expect(m('Fast.and.Furious.2009', 'Fast & Furious'), isTrue);
+    });
+
+    test('a year-only title (empty parsed title) falls back to loose match', () {
+      expect(m('2012.2009.1080p.BluRay', '2012'), isTrue);
+    });
+  });
+
   group('seasonPackNumber', () {
     test('reads S01 / Season 1 / Series 1 as a pack', () {
       expect(FilenameMediaInfo.seasonPackNumber('Game.of.Thrones.S01.1080p'), 1);

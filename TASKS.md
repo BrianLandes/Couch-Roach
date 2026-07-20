@@ -65,18 +65,6 @@ Design notes:
 - Multi-file/multi-season deletes go through the same helper per file; report count deleted via snackbar. Skips/handles already-missing rows gracefully.
 - A kept show/movie can be deleted (explicit user action overrides the keep pin); clear the `keptAt`/`keep` flag as part of removal so no stale pin lingers.
 
-### Stop matching a longer title that merely contains the target ("Descendants" → "Descendants Wicked Wonderland") · `p2`
-
-- [ ] The resolver picks the wrong release when the target name is a substring of a different title. Two root causes in `jackett_resolver.dart` + `filename_media_info.dart`:
-  - The **movie path does no title verification at all** (`_resolve`'s movie branch just drops sign-language/excluded/tiny rows and ranks by seeds — it never calls `titleMatches`). A search for "Descendants" happily takes "Descendants Wicked Wonderland" if it out-seeds.
-  - `FilenameMediaInfo.titleMatches` is **containment-based** (`normalizeTitle(release).contains(normalizeTitle(query))`), so even where it *is* applied (TV), a longer title that contains the target still passes.
-
-Fix (a pure, heavily-tested function — matches the codebase's parse-then-compare style):
-- Isolate the release's **title segment**: strip noise from the release name — everything from the first "boundary token" onward (year `(19|20)\d\d`, resolution `720p/1080p/2160p`, `SxxExx`/season marker, source/codec/group tags like `WEB-DL/x264/BluRay/HEVC/AAC`, release-group suffix). `FilenameMediaInfo.parse` already extracts a `.title`; lean on / extend it so the leading title is clean.
-- Then require the normalized title segment to **equal** the normalized target (the user's rule: contains the target AND nothing *but* the target), allowing a trailing **year** as the only permitted extra (movies), and optionally a small edit-distance tolerance for punctuation/`&`-vs-`and`. "Descendants" ✓, "Descendants Wicked Wonderland" ✗, "Descendants 2015" ✓.
-- Apply it to **both** paths: add the check to the movie branch, and tighten the TV `titleMatches` (or add a stricter `titleIsExactly`) used by `verifiedEpisodeResults` / `seasonPackResults`. Keep `titleMatches` (loose) only where a loose "names the same show" check is still wanted, if anywhere.
-- Guard against over-tightening: TMDB's canonical name can differ from release naming (articles, `:` subtitles, `&`/`and`, year-in-title). Test with real-world messy names; when unsure, prefer rejecting the ambiguous longer title over grabbing it (a miss retries; a wrong download wastes the slot).
-
 ### Prefer whole season / show packs for the bulk "Download" button · `p3`
 
 - [ ] The show detail "Download…" button (all seasons / one season) currently queues an **individual torrent per episode** (`downloadSeason` / `downloadAllSeasons` in `acquire_play.dart` → `prefetchEpisode` per episode). For a bulk download it's better to **first try a whole season-pack or show-pack torrent**, falling back to per-episode only when no acceptable pack is found. This flips our usual per-episode fetch paradigm — which must **stay unchanged** for the inline per-episode Download buttons and the next-episode prefetch.
@@ -146,6 +134,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Stop matching a longer title that merely contains the target · `p2`
+
+- [x] The movie resolver path did **no** title verification (ranked by seeds only), so a search for "Descendants" could grab "Descendants Wicked Wonderland"; the TV path's `titleMatches` was containment-based. Added `FilenameMediaInfo.titleMatchesStrict` — parses both sides (year/quality stripped by the existing `parse`), requires the title *tokens* to be equal (rejecting a longer title with extra words), requires matching years when both name one (remake guard), and reconciles roman-numeral sequels (Frozen II ↔ 2) and `&`↔"and"; a year-only title (e.g. "2012") falls back to the loose match. Applied via a new `verifiedMovieResults` filter in the resolver's movie branch (mirrors `verifiedEpisodeResults`). Left the **TV** path on loose `titleMatches` on purpose — release naming legitimately appends region/qualifier words ("The Office" → "The Office US") that strict would wrongly reject; SxxExx already disambiguates episodes. Tests cover Descendants/The Descendants, Blade Runner 2049 vs 1982, Frozen II/2, Fast & Furious, year-only fallback, plus the movie filter.
 
 ### Add a CI workflow that runs the test suite · `p2`
 

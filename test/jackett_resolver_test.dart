@@ -213,6 +213,38 @@ void main() {
     });
   });
 
+  group('verifiedMovieResults', () {
+    const meta = ShowMeta(title: 'Descendants');
+    TorznabResult r(String title, {int size = 900000000}) => TorznabResult(
+        title: title, downloadUrl: 'magnet:$title', seeders: 10, sizeBytes: size);
+
+    test('keeps the target movie, drops a longer title that contains it', () {
+      final kept = verifiedMovieResults([
+        r('Descendants.2015.1080p.WEB-DL.x264'),
+        r('Descendants.Wicked.Wonderland.2024.1080p'), // different film
+        r('The.Descendants.2011.1080p'), // different film (extra leading word)
+      ], meta);
+      expect(kept.map((e) => e.title), ['Descendants.2015.1080p.WEB-DL.x264']);
+    });
+
+    test('drops sign-language cuts and tiny files', () {
+      expect(
+          verifiedMovieResults([r('Descendants.2015.ASL.1080p')], meta), isEmpty);
+      expect(
+          verifiedMovieResults([r('Descendants.2015.1080p', size: 1024)], meta),
+          isEmpty);
+    });
+
+    test('honors excludeUrls', () {
+      final kept = verifiedMovieResults(
+        [r('Descendants.2015.1080p')],
+        meta,
+        excludeUrls: {'magnet:Descendants.2015.1080p'},
+      );
+      expect(kept, isEmpty);
+    });
+  });
+
   group('resolve — episode tiers', () {
     const meta = ShowMeta(title: 'Game of Thrones');
 
