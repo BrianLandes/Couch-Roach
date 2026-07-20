@@ -38,8 +38,9 @@ they actually change — and the app build no longer rebuilds them at all.
 
 1. **Create a fine-grained GitHub token.** GitHub → Settings → Developer
    settings → Fine-grained tokens: *Repository access* = only
-   `brianlandes/couch-roach`; *Permissions* → **Contents: Read-only**. It's the
-   only secret and it's read-only.
+   `brianlandes/couch-roach-dist` (the **private** repo that holds the built app
+   + sidecars — the public `couch-roach` repo has the source only); *Permissions*
+   → **Contents: Read-only**. It's the only secret and it's read-only.
 
 2. **Save it on the machine that runs Couch Roach** as
    `%LOCALAPPDATA%\CouchRoach\config\launcher.json`:
@@ -50,8 +51,12 @@ they actually change — and the app build no longer rebuilds them at all.
 
    (Optionally add `"repo": "owner/name"` to point at a different source repo.)
 
-3. **Publish a build.** Run the "Windows build" workflow in `release` mode so a
-   GitHub Release exists for the launcher to fetch.
+3. **Publish a build.** The "Windows build" workflow (release mode) publishes the
+   app build to the private `couch-roach-dist` repo, and "Launcher & sidecars"
+   publishes the sidecars there too. Both need a `DIST_REPO_TOKEN` secret on the
+   public `couch-roach` repo — a fine-grained PAT with **Contents: Read and
+   write** on `couch-roach-dist` (this is separate from your machine's read-only
+   token in step 1).
 
 4. **Put the launcher on the machine** and point the desktop/Start shortcut at
    `couch_roach_launcher.exe`. Grab it from the `couch-roach-launcher` artifact

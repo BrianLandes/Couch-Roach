@@ -7,13 +7,13 @@ name: Windows build
 #    release still publishes, profile/debug just produce an artifact.
 # A push carries no `build_mode` input, so everything below reads env.BUILD_MODE,
 # which defaults to `release` when the input is absent.
-# SECURITY STOPGAP (repo is public): the push trigger is disabled so a commit
-# no longer auto-builds and publishes a world-downloadable Release whose exe has
-# the TMDB / OpenSubtitles / Alexa keys baked in via --dart-define. Kept as
-# workflow_dispatch only for deliberate local testing; the Publish Release step
-# below is also disabled. Re-enable both once builds go to a private channel
-# (private "dist" repo or Cloudflare R2) or ship keyless (Worker proxy).
+# The keyed exe (TMDB / OpenSubtitles / Alexa keys baked in via --dart-define)
+# is published to the PRIVATE couch-roach-dist repo, not this public one — so it
+# is never world-downloadable. The public keyed artifact upload was removed for
+# the same reason.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       build_mode:
@@ -38,11 +38,10 @@ jobs:
   build:
     runs-on: windows-latest # VS 2022 + MSVC C++ toolchain preinstalled
 
-    # Needed so the Publish Release step can create tags/releases with the
-    # auto-provided GITHUB_TOKEN (no PAT required to *publish* — the launcher
-    # only needs a read-only PAT to *download*).
+    # This job writes nothing to the public repo — the release goes to
+    # couch-roach-dist via the DIST_REPO_TOKEN PAT — so it only needs read.
     permissions:
-      contents: write
+      contents: read
 
     # Single source of truth for the build mode. A workflow_dispatch supplies
     # `build_mode`; a push has no inputs, so fall back to `release`.
@@ -125,27 +124,25 @@ jobs:
           Compress-Archive -Path "$env:OUT_DIR/*" -DestinationPath $zip -Force
           "ZIP_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: couch-roach-windows-${{ env.BUILD_MODE }}
-          path: ${{ env.ZIP_PATH }}
-          if-no-files-found: error
+      # NO public artifact upload: the zip carries baked-in API keys, and
+      # artifacts on a public repo are world-downloadable. The build is published
+      # only to the private couch-roach-dist repo below.
 
-      # Publish a GitHub Release the launcher polls via /releases/latest. Release
-      # builds only — a profile/debug dispatch never becomes an update the
+      # Publish a GitHub Release to the PRIVATE couch-roach-dist repo, which the
+      # launcher polls via /releases/latest (with the user's read-only PAT).
+      # Release builds only — a profile/debug dispatch never becomes an update the
       # launcher would install. The manifest is attached both inside the zip and
       # as its own asset so the launcher can read it without downloading the zip.
-      # (Sidecars are published separately — see the "Launcher & sidecars"
-      # workflow — so they're not rebuilt on every app build.)
-      # DISABLED (security stopgap): a public GitHub Release is world-downloadable
-      # and the exe carries baked-in API keys. Do not publish keyed builds
-      # publicly. Re-enable (restore `if: ${{ env.BUILD_MODE == 'release' }}`)
-      # only after moving to a private release channel or a keyless build.
+      # Cross-repo publish needs a PAT with Contents:write on couch-roach-dist,
+      # stored as the DIST_REPO_TOKEN secret (the default GITHUB_TOKEN can't reach
+      # another repo). Sidecars publish to the same dist repo — see the
+      # "Launcher & sidecars" workflow.
       - name: Publish Release
-        if: false
+        if: ${{ env.BUILD_MODE == 'release' }}
         uses: softprops/action-gh-release@v2
         with:
+          repository: BrianLandes/couch-roach-dist
+          token: ${{ secrets.DIST_REPO_TOKEN }}
           tag_name: build-${{ github.run_number }}
           name: Couch Roach build ${{ github.run_number }} (v${{ env.APP_VERSION }})
           make_latest: true

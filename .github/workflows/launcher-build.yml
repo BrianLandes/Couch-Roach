@@ -55,12 +55,15 @@ jobs:
           if-no-files-found: error
 
   # Vendor the four sidecars, bundle them, and publish to a dedicated `sidecars`
-  # PRERELEASE. Prerelease so it never becomes releases/latest (which would break
-  # the launcher's app-build detection). The launcher fetches this by tag.
+  # PRERELEASE on the PRIVATE couch-roach-dist repo (same repo the launcher reads
+  # app builds from — it fetches sidecars from the same config.repo). Prerelease
+  # so it never becomes releases/latest (which would break the launcher's
+  # app-build detection). The launcher fetches this by tag with the user's PAT.
   sidecars:
     runs-on: windows-latest
+    # Publishes to another repo via DIST_REPO_TOKEN, not this one.
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -115,17 +118,20 @@ jobs:
           "SIDECARS_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "Sidecars asset: $zip"
 
-      # Clear the previous `sidecars` release + tag first so the release carries
-      # exactly one sidecars-*.zip (no stale assets accumulating across bumps).
+      # Clear the previous `sidecars` release + tag on the dist repo first so the
+      # release carries exactly one sidecars-*.zip (no stale assets accumulating
+      # across bumps).
       - name: Clear previous sidecars release
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release delete sidecars --yes --cleanup-tag || true
+          GH_TOKEN: ${{ secrets.DIST_REPO_TOKEN }}
+        run: gh release delete sidecars --repo BrianLandes/couch-roach-dist --yes --cleanup-tag || true
 
       - name: Publish sidecars prerelease
         uses: softprops/action-gh-release@v2
         with:
+          repository: BrianLandes/couch-roach-dist
+          token: ${{ secrets.DIST_REPO_TOKEN }}
           tag_name: sidecars
           name: Sidecars bundle
           prerelease: true

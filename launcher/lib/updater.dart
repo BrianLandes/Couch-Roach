@@ -5,8 +5,10 @@ import 'package:archive/archive_io.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
-/// The default source repo. Overridable via the config file's `repo` key.
-const _defaultRepo = 'brianlandes/couch-roach';
+/// The default source repo — the **private** distribution repo that holds the
+/// keyed app builds and the sidecars bundle (the public `couch-roach` repo holds
+/// the source only). Overridable via the config file's `repo` key.
+const _defaultRepo = 'brianlandes/couch-roach-dist';
 
 // ── Pure helpers (unit-tested) ──────────────────────────────────────────────
 
@@ -405,7 +407,7 @@ class Updater {
 
   String _noTokenMessage() =>
       'Set up your GitHub access token to enable updates.\n\n'
-      'Create a fine-grained token (Repository access: this repo, '
+      'Create a fine-grained token (Repository access: couch-roach-dist, '
       'Permissions → Contents: Read-only) and save it as:\n\n'
       '${paths.configFile}\n\n'
       'containing:  { "githubToken": "github_pat_..." }';

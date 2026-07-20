@@ -107,7 +107,7 @@ void main() {
     test('reads the token and defaults the repo', () {
       final c = parseConfig(jsonEncode({'githubToken': 'ghp_x'}));
       expect(c.githubToken, 'ghp_x');
-      expect(c.repo, 'brianlandes/couch-roach');
+      expect(c.repo, 'brianlandes/couch-roach-dist');
     });
     test('honors a custom repo', () {
       final c = parseConfig(jsonEncode({'githubToken': 't', 'repo': 'a/b'}));
