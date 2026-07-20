@@ -79,6 +79,19 @@ Design notes:
 - Skip episodes already local; if a pack only partially covers what's missing, decide: take the pack anyway (simplest) vs. top up the gaps per-episode. Note the choice.
 - Fallback: no acceptable pack → current per-episode behavior. Keep the season/all scope dialog as-is.
 
+### Add a CI workflow that runs the test suite · `p2`
+
+- [ ] There's **no test workflow today** — `.github/workflows/` has only `windows-build.yml` and `launcher-build.yml`, and neither runs `flutter test`. Add a `test.yml` next to them that runs the full suite on push + PR, so regressions are caught before a build.
+- Triggers: `push: [main]` and `pull_request` (and `workflow_dispatch` for manual runs). Steps mirror the build workflows' setup: checkout → `subosito/flutter-action` pinned to `FLUTTER_VERSION` (3.44.5) → `flutter pub get` → `flutter test`. Generated files (`*.g.dart`, `injection.config.dart`) are committed, so no `build_runner` step is needed for a normal run (optionally add a codegen-drift check later).
+- Cross-platform note: the suite is pure-Dart/drift (in-memory `NativeDatabase`) and passes headless in the cloud container, so it can run on `ubuntu-latest` (cheaper/faster than Windows) — no Windows toolchain needed for tests. The occasional first-run `libsqlite3` fetch flake is environmental; a retry handles it.
+- Reasonable to keep `concurrency` cancel-in-progress like the build workflow. Once green, this is the gate the build workflows can assume.
+
+### Run the CI pipelines on self-hosted runners (my laptop + desktop) · `p3`
+
+- [ ] Move the existing workflows off GitHub-hosted `windows-latest` onto **self-hosted** runners (my laptop + desktop) to escape GitHub Actions usage limits. Both `windows-build.yml` and `launcher-build.yml` (and the new `test.yml`) currently pin `runs-on: windows-latest`.
+- Setup: register each machine as a self-hosted runner (repo Settings → Actions → Runners) with labels (e.g. `self-hosted`, `windows`, plus a host label). Change `runs-on:` to a label set like `[self-hosted, windows]`. The Windows builds need the toolchain the hosted image gave for free — **VS 2022 + MSVC C++**, Flutter (the workflows install Flutter via `flutter-action`, but confirm it works on self-hosted; may prefer a preinstalled Flutter on the machine), and 7-Zip/NSIS for the sidecar extraction the launcher build relies on. Document required local prereqs.
+- Considerations to capture in the task: runners are **offline when the machines are off** (jobs queue until one's up — fine for a personal setup); keep a hosted fallback or `workflow_dispatch` option if a build is ever urgent; self-hosted runners execute untrusted PR code, so **restrict to this repo / trusted branches** (don't enable for forked-PR triggers). The pure-Dart `test.yml` could stay on `ubuntu-latest` (cheap, no local dep) or move to a self-hosted Linux/Windows runner — either works.
+
 ### Add the Couch Roach icon to the launcher · `p4`
 
 - [ ] Add the app icon to the Windows launcher.
