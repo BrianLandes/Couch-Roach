@@ -278,6 +278,8 @@ maintainer, who shares one set of keys across their own machines by committing
 
 ## License
 
-No license is set yet, so **default copyright applies (all rights reserved)** —
-the code is public to read, but not yet granted for reuse. A license is planned;
-until one lands, open an issue if you'd like to use the code.
+[MIT](LICENSE) © Brian Landes. Do whatever you like with the code, just keep the
+copyright notice. Note this covers **this repository's code only** — the bundled
+sidecars (qBittorrent, yt-dlp, ffmpeg/ffprobe, Jackett, libmpv) carry their own
+upstream licenses, and how you use the acquisition features is on you (see
+[Legal & scope](#legal--scope)).
