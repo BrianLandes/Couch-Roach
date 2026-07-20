@@ -305,17 +305,27 @@ class _DownloadAllButton extends StatelessWidget {
     messenger.showSnackBar(
       const SnackBar(content: Text('Queuing downloads…')),
     );
-    final queued = switch (scope) {
+    final result = switch (scope) {
       _DownloadScope.season => await downloadSeason(
           showName: showName, tmdbId: tmdbId, season: selectedSeason),
       _DownloadScope.all => await downloadAllSeasons(
           showName: showName, tmdbId: tmdbId, seasonNumbers: seasonNumbers),
     };
-    messenger.showSnackBar(SnackBar(
-      content: Text(queued == 0
-          ? 'Nothing new — those episodes are already here or downloading.'
-          : 'Queued $queued episode${queued == 1 ? '' : 's'} to download.'),
-    ));
+    messenger.showSnackBar(SnackBar(content: Text(_downloadMessage(result))));
+  }
+
+  /// Snackbar wording for what actually queued — a pack (one torrent covering
+  /// many episodes) reads differently from N individual episodes.
+  String _downloadMessage(BulkDownloadResult r) {
+    if (r.isEmpty) {
+      return 'Nothing new — those episodes are already here or downloading.';
+    }
+    final parts = [
+      if (r.packs > 0) '${r.packs} pack${r.packs == 1 ? '' : 's'}',
+      if (r.episodes > 0)
+        '${r.episodes} episode${r.episodes == 1 ? '' : 's'}',
+    ];
+    return 'Queued ${parts.join(' + ')} to download.';
   }
 
   @override

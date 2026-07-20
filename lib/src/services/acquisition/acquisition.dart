@@ -41,6 +41,25 @@ abstract class AcquisitionResolver {
     int? episode, {
     Set<String> exclude = const {},
   });
+
+  /// Resolve a **whole-season pack** for [season] of [meta]'s show, or null when
+  /// none verifies. Used by the bulk "Download" flow to prefer one season
+  /// torrent over per-episode ones. Default: no pack support (a resolver that
+  /// only serves single titles, e.g. Internet Archive, inherits this null).
+  Future<TorrentHandle?> resolveSeasonPack(
+    ShowMeta meta,
+    int season, {
+    Set<String> exclude = const {},
+  }) async =>
+      null;
+
+  /// Resolve a **whole-series pack** (all seasons in one torrent) for [meta]'s
+  /// show, or null when none verifies. Default: no pack support.
+  Future<TorrentHandle?> resolveShowPack(
+    ShowMeta meta, {
+    Set<String> exclude = const {},
+  }) async =>
+      null;
 }
 
 /// A stable per-title/episode key, used both as the daemon add's `dedupeKey`

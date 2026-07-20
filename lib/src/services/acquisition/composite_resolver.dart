@@ -60,4 +60,48 @@ class CompositeAcquisitionResolver implements AcquisitionResolver {
     );
     return null;
   }
+
+  @override
+  Future<TorrentHandle?> resolveSeasonPack(
+    ShowMeta meta,
+    int season, {
+    Set<String> exclude = const {},
+  }) =>
+      _firstPackHit(
+        (r) => r.resolveSeasonPack(meta, season, exclude: exclude),
+        '${meta.title} S$season pack',
+      );
+
+  @override
+  Future<TorrentHandle?> resolveShowPack(
+    ShowMeta meta, {
+    Set<String> exclude = const {},
+  }) =>
+      _firstPackHit(
+        (r) => r.resolveShowPack(meta, exclude: exclude),
+        '${meta.title} complete-series pack',
+      );
+
+  /// Fan a pack request across the sub-resolvers, returning the first hit. A
+  /// throwing sub-resolver is logged and skipped (mirrors [resolve]).
+  Future<TorrentHandle?> _firstPackHit(
+    Future<TorrentHandle?> Function(AcquisitionResolver) query,
+    String label,
+  ) async {
+    for (final resolver in _ordered) {
+      try {
+        final hit = await query(resolver);
+        if (hit != null) {
+          _log.info('resolved $label via ${resolver.runtimeType}',
+              source: 'CompositeResolver');
+          return hit;
+        }
+      } catch (e, st) {
+        _log.logError(e,
+            stackTrace: st,
+            source: 'CompositeResolver.${resolver.runtimeType}');
+      }
+    }
+    return null;
+  }
 }

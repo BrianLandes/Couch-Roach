@@ -43,6 +43,14 @@ class FilenameMediaInfo {
     r'\b(?:s|season|series) ?(\d{1,2})\b',
     caseSensitive: false,
   );
+  // A whole-*series* pack: "Complete"/"Full Series"/"All Seasons", or a season
+  // range like "S01-S05" / "Seasons 1-9" / "S1-9".
+  static final _showPack = RegExp(
+    r'\b(complete|full series|all seasons)\b'
+    r'|\bs\d{1,2}\s*-\s*s?\d{1,2}\b'
+    r'|\bseasons?\s*\d{1,2}\s*-\s*\d{1,2}\b',
+    caseSensitive: false,
+  );
   // Release variants shot in / titled for sign language — excluded by default
   // (a different cut than the standard release; CLAUDE settings toggle).
   static final _signLanguage = RegExp(
@@ -122,6 +130,17 @@ class FilenameMediaInfo {
     if (_sxxExx.hasMatch(name) || _altSxE.hasMatch(name)) return null;
     final m = _packSeason.firstMatch(name);
     return m == null ? null : int.parse(m.group(1)!);
+  }
+
+  /// Whether [filename] names a **whole-series pack** (all/most seasons in one
+  /// torrent) — a "Complete Series"/"All Seasons" tag or a season range like
+  /// `S01-S05`. False for a single episode (`SxxExx`) or a single-season pack
+  /// (that's [seasonPackNumber]). Lets the bulk "Download" prefer one series
+  /// torrent over many. Pure + tested.
+  static bool isShowPack(String filename) {
+    final name = filename.replaceAll(RegExp(r'[._]+'), ' ');
+    if (_sxxExx.hasMatch(name) || _altSxE.hasMatch(name)) return false;
+    return _showPack.hasMatch(name);
   }
 
   /// Whether [text] (a release/torrent/subtitle title) is a sign-language cut —

@@ -149,6 +149,35 @@ void main() {
     });
   });
 
+  group('isShowPack', () {
+    test('complete-series / all-seasons markers are show packs', () {
+      expect(FilenameMediaInfo.isShowPack('The.Office.Complete.Series.1080p'),
+          isTrue);
+      expect(FilenameMediaInfo.isShowPack('Breaking Bad - Full Series'), isTrue);
+      expect(FilenameMediaInfo.isShowPack('Lost.All.Seasons.720p'), isTrue);
+    });
+
+    test('a season range is a show pack', () {
+      expect(FilenameMediaInfo.isShowPack('Game.of.Thrones.S01-S08.1080p'),
+          isTrue);
+      expect(FilenameMediaInfo.isShowPack('The.Wire.Seasons.1-5.BluRay'), isTrue);
+      expect(FilenameMediaInfo.isShowPack('Dexter.S01-08'), isTrue);
+    });
+
+    test('a single season or single episode is not a show pack', () {
+      expect(FilenameMediaInfo.isShowPack('Game.of.Thrones.S01.1080p'), isFalse);
+      expect(FilenameMediaInfo.isShowPack('Game of Thrones Season 2'), isFalse);
+      expect(
+          FilenameMediaInfo.isShowPack('Game.of.Thrones.S01E03.1080p'), isFalse);
+      // A single episode tagged "Complete" is still just one episode.
+      expect(FilenameMediaInfo.isShowPack('Show.S01E01.Complete.1080p'), isFalse);
+    });
+
+    test('a movie is not a show pack', () {
+      expect(FilenameMediaInfo.isShowPack('Some.Movie.2020.1080p'), isFalse);
+    });
+  });
+
   group('looksLikeSignLanguage', () {
     test('flags ASL/BSL/sign language cuts', () {
       expect(FilenameMediaInfo.looksLikeSignLanguage('Show.S01E03.ASL.1080p'),

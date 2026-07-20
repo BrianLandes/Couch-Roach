@@ -23,6 +23,8 @@ import 'preparing_dialog.dart';
 /// real release size (the resolver hands back a handle, not a size).
 const int _episodeEstimateBytes = 2 * 1024 * 1024 * 1024; // ~2 GB
 const int _movieEstimateBytes = 5 * 1024 * 1024 * 1024; // ~5 GB
+const int _seasonPackEstimateBytes = 25 * 1024 * 1024 * 1024; // ~25 GB
+const int _showPackEstimateBytes = 120 * 1024 * 1024 * 1024; // ~120 GB
 
 /// Prepare a not-local title for playback through the [AcquisitionResolver] seam
 /// (Internet Archive, then the user's own Jackett indexers). Reattaches to a
@@ -318,39 +320,154 @@ Future<int> downloadEpisodes({
   return queued;
 }
 
-/// "Download all" for one season: fetch its episode list, keep the aired ones,
-/// and queue them. Returns how many were queued.
-Future<int> downloadSeason({
+/// What a bulk "Download" actually queued — a single pack torrent covers many
+/// episodes, so the UI can say "a pack" vs "N episodes" accurately.
+class BulkDownloadResult {
+  const BulkDownloadResult({this.packs = 0, this.episodes = 0});
+
+  /// Whole season/series pack torrents queued (each covers many episodes).
+  final int packs;
+
+  /// Individual episode torrents queued (the per-episode fallback).
+  final int episodes;
+
+  bool get isEmpty => packs == 0 && episodes == 0;
+}
+
+/// "Download all" for one season, **pack-first**: try a whole-season pack (one
+/// torrent), and only when none is found fall back to queuing the missing
+/// episodes individually.
+Future<BulkDownloadResult> downloadSeason({
   required String showName,
   required int tmdbId,
   required int season,
 }) async {
   final details = await getIt<DiscoveryClient>().seasonDetails(tmdbId, season);
-  final eps = airedEpisodeNumbers(details?.episodes ?? const [], DateTime.now());
-  return downloadEpisodes(
-    showName: showName,
-    tmdbId: tmdbId,
-    episodes: [for (final e in eps) (season, e)],
-  );
+  final aired = airedEpisodeNumbers(details?.episodes ?? const [], DateTime.now());
+  return _acquireSeason(
+      showName: showName, tmdbId: tmdbId, season: season, aired: aired);
 }
 
-/// "Download all" across every season in [seasonNumbers]. Returns the total
-/// queued.
-Future<int> downloadAllSeasons({
+/// "Download all" across every season, **pack-first**: try one whole-series
+/// pack; if none, fall through to each season (pack-first, else per-episode).
+Future<BulkDownloadResult> downloadAllSeasons({
   required String showName,
   required int tmdbId,
   required List<int> seasonNumbers,
 }) async {
-  final all = <(int, int)>[];
+  final now = DateTime.now();
+  final aired = <int, List<int>>{};
   for (final season in seasonNumbers) {
     final details = await getIt<DiscoveryClient>().seasonDetails(tmdbId, season);
-    for (final e
-        in airedEpisodeNumbers(details?.episodes ?? const [], DateTime.now())) {
-      all.add((season, e));
+    aired[season] = airedEpisodeNumbers(details?.episodes ?? const [], now);
+  }
+  final local = await _localEpisodes(tmdbId);
+  final anyMissing = aired.entries
+      .any((e) => e.value.any((ep) => !local.contains((e.key, ep))));
+  if (!anyMissing) return const BulkDownloadResult();
+
+  // Whole-series pack first — one torrent for everything.
+  final meta = ShowMeta(title: showName, tmdbId: tmdbId, mediaType: 'tv');
+  final showKey = acquisitionDedupeKey(tmdbId: tmdbId, title: showName);
+  final packed = await _tryPack(
+    dedupeKey: showKey,
+    request: AcquireRequest(title: showName, meta: meta),
+    resolve: (exclude) =>
+        getIt<AcquisitionResolver>().resolveShowPack(meta, exclude: exclude),
+    estimateBytes: _showPackEstimateBytes,
+    label: 'complete-series pack of "$showName"',
+  );
+  if (packed) return const BulkDownloadResult(packs: 1);
+
+  // No series pack → each season (pack-first, else per-episode).
+  var packs = 0, episodes = 0;
+  for (final season in seasonNumbers) {
+    final r = await _acquireSeason(
+        showName: showName, tmdbId: tmdbId, season: season, aired: aired[season]!);
+    packs += r.packs;
+    episodes += r.episodes;
+  }
+  return BulkDownloadResult(packs: packs, episodes: episodes);
+}
+
+/// Pack-first acquisition for one season: try a season pack, else queue the
+/// still-missing episodes one by one.
+Future<BulkDownloadResult> _acquireSeason({
+  required String showName,
+  required int tmdbId,
+  required int season,
+  required List<int> aired,
+}) async {
+  final local = await _localEpisodes(tmdbId);
+  final missing = [for (final e in aired) if (!local.contains((season, e))) e];
+  if (missing.isEmpty) return const BulkDownloadResult();
+
+  final meta = ShowMeta(title: showName, tmdbId: tmdbId, mediaType: 'tv');
+  final seasonKey =
+      acquisitionDedupeKey(tmdbId: tmdbId, title: showName, season: season);
+  final packed = await _tryPack(
+    dedupeKey: seasonKey,
+    request: AcquireRequest(title: showName, meta: meta, season: season),
+    resolve: (exclude) => getIt<AcquisitionResolver>()
+        .resolveSeasonPack(meta, season, exclude: exclude),
+    estimateBytes: _seasonPackEstimateBytes,
+    label: 'season $season pack of "$showName"',
+  );
+  if (packed) return const BulkDownloadResult(packs: 1);
+
+  final n = await downloadEpisodes(
+      showName: showName,
+      tmdbId: tmdbId,
+      episodes: [for (final e in missing) (season, e)]);
+  return BulkDownloadResult(episodes: n);
+}
+
+/// Resolve + queue a pack, keyed by [dedupeKey]. Returns true when a pack is now
+/// downloading (already-running counts), false when none was found (so the
+/// caller falls back to per-episode). Honors the VPN gate and skips a source
+/// already tried this session. Fire-and-forget — never waits/plays.
+Future<bool> _tryPack({
+  required String dedupeKey,
+  required AcquireRequest request,
+  required Future<TorrentHandle?> Function(Set<String>) resolve,
+  required int estimateBytes,
+  required String label,
+}) async {
+  final log = getIt<ErrorLogService>();
+  final daemon = getIt<TorrentDaemon>();
+  // Already downloading this pack → the episodes it holds are covered.
+  if (await daemon.taskForDedupeKey(dedupeKey) != null) return true;
+
+  if (getIt<SettingsService>().requireVpn) {
+    final state = await getIt<VpnService>().ensureConnected();
+    if (!state.isConnected) {
+      log.info('pack skipped ($label): VPN required but not connected',
+          source: 'AcquirePack');
+      return false;
     }
   }
-  return downloadEpisodes(showName: showName, tmdbId: tmdbId, episodes: all);
+
+  final session = getIt<AcquisitionSession>();
+  session.recordRequest(dedupeKey, request);
+  final handle = await resolve(session.triedFor(dedupeKey));
+  if (handle == null) {
+    log.info('no $label — falling back to episodes', source: 'AcquirePack');
+    return false;
+  }
+  session.markTried(dedupeKey, handle.magnetOrUrl);
+  final savePath =
+      await getIt<StorageManager>().chooseTarget(estimatedBytes: estimateBytes);
+  if (savePath == null) return false;
+  await daemon.add(handle, savePath: savePath, dedupeKey: dedupeKey);
+  log.info('queued $label: ${handle.displayName}', source: 'AcquirePack');
+  return true;
 }
+
+/// The (season, episode) pairs already in the library for [tmdbId].
+Future<Set<(int, int)>> _localEpisodes(int tmdbId) async => {
+      for (final e in await getIt<LibraryRepository>().localEpisodes(tmdbId))
+        if (e.season != null && e.episode != null) (e.season!, e.episode!),
+    };
 
 /// Open the blocking "preparing" dialog for a title and play it the moment it's
 /// ready to stream. Reattaches to the in-progress download (see

@@ -20,7 +20,10 @@ import 'acquisition.dart';
 /// Both are composed behind the [AcquisitionResolver] seam by
 /// [CompositeAcquisitionResolver] — this registers as itself, not the seam.
 @LazySingleton()
-class InternetArchiveResolver implements AcquisitionResolver {
+// `extends` (not `implements`) so it inherits the null pack-resolver defaults —
+// the Internet Archive serves single public-domain titles, not TV season/series
+// packs.
+class InternetArchiveResolver extends AcquisitionResolver {
   InternetArchiveResolver(this._http, this._log);
 
   final http.Client _http;

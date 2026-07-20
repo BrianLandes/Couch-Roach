@@ -213,6 +213,103 @@ void main() {
     });
   });
 
+  group('showPackResults', () {
+    const meta = ShowMeta(title: 'Game of Thrones');
+    TorznabResult r(String title) =>
+        TorznabResult(title: title, downloadUrl: 'magnet:$title', seeders: 10);
+
+    test('keeps whole-series packs for the right show only', () {
+      final kept = showPackResults([
+        r('Game.of.Thrones.Complete.Series.1080p'),
+        r('Game.of.Thrones.S01-S08.1080p'),
+        r('Game.of.Thrones.S01.1080p'), // single season, not a series pack
+        r('Game.of.Thrones.S01E05.1080p'), // single episode
+        r('House.of.the.Dragon.Complete.Series'), // wrong show
+      ], meta);
+      expect(kept.map((e) => e.title), [
+        'Game.of.Thrones.Complete.Series.1080p',
+        'Game.of.Thrones.S01-S08.1080p',
+      ]);
+    });
+  });
+
+  group('buildTorznabUri show pack', () {
+    test('showPack: TV search with no season scope', () {
+      final uri = buildTorznabUri(
+          _config, const ShowMeta(title: 'The Show'), null, null,
+          showPack: true);
+      final q = uri.queryParameters;
+      expect(q['t'], 'tvsearch');
+      expect(q['cat'], '5000');
+      expect(q['q'], 'The Show');
+      expect(q.containsKey('season'), isFalse);
+      expect(q.containsKey('ep'), isFalse);
+    });
+  });
+
+  group('resolveSeasonPack / resolveShowPack', () {
+    const meta = ShowMeta(title: 'Game of Thrones');
+    String feed(List<String> titles) => '''<?xml version="1.0"?>
+<rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel>
+${titles.map((t) => '<item><title>$t</title>'
+            '<torznab:attr name="magneturl" value="magnet:$t"/>'
+            '<torznab:attr name="seeders" value="50"/>'
+            '<size>5000000000</size></item>').join('\n')}
+</channel></rss>''';
+
+    test('resolveSeasonPack returns a verified season pack', () async {
+      final r = JackettResolver(
+        MockClient((_) async => http.Response(
+            feed(['Game.of.Thrones.S01.1080p', 'Game.of.Thrones.S01E01.1080p']),
+            200)),
+        ErrorLogService(),
+        await _settings(),
+      )..configure(_config);
+
+      final handle = await r.resolveSeasonPack(meta, 1);
+      expect(handle, isNotNull);
+      expect(handle!.displayName, 'Game.of.Thrones.S01.1080p');
+      expect(handle.seasonPack, isTrue);
+    });
+
+    test('resolveShowPack returns a verified series pack', () async {
+      final r = JackettResolver(
+        MockClient((req) async {
+          // A show-pack query is TV (cat 5000) with no season scope.
+          expect(req.url.queryParameters['cat'], '5000');
+          expect(req.url.queryParameters.containsKey('season'), isFalse);
+          return http.Response(
+              feed(['Game.of.Thrones.Complete.Series.1080p']), 200);
+        }),
+        ErrorLogService(),
+        await _settings(),
+      )..configure(_config);
+
+      final handle = await r.resolveShowPack(meta);
+      expect(handle, isNotNull);
+      expect(handle!.displayName, 'Game.of.Thrones.Complete.Series.1080p');
+    });
+
+    test('both return null when nothing verifies / not configured', () async {
+      final unconfigured = JackettResolver(
+        MockClient((_) async => http.Response(feed(['x']), 200)),
+        ErrorLogService(),
+        await _settings(),
+      );
+      expect(await unconfigured.resolveSeasonPack(meta, 1), isNull);
+      expect(await unconfigured.resolveShowPack(meta), isNull);
+
+      final noPack = JackettResolver(
+        MockClient((_) async =>
+            http.Response(feed(['Game.of.Thrones.S01E01.1080p']), 200)),
+        ErrorLogService(),
+        await _settings(),
+      )..configure(_config);
+      expect(await noPack.resolveSeasonPack(meta, 1), isNull);
+      expect(await noPack.resolveShowPack(meta), isNull);
+    });
+  });
+
   group('verifiedMovieResults', () {
     const meta = ShowMeta(title: 'Descendants');
     TorznabResult r(String title, {int size = 900000000}) => TorznabResult(

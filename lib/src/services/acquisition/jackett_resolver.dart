@@ -119,10 +119,67 @@ class JackettResolver implements AcquisitionResolver {
     }
   }
 
+  @override
+  Future<TorrentHandle?> resolveSeasonPack(
+    ShowMeta meta,
+    int season, {
+    Set<String> exclude = const {},
+  }) async {
+    final config = _config;
+    if (config == null) return null;
+    try {
+      final results = await _query(config, meta, season, null);
+      final best = pickBestTorznabResult(
+        seasonPackResults(results, meta, season,
+            excludeSignLanguage: _settings.excludeSignLanguage,
+            excludeUrls: exclude),
+        preferAudioLanguage: _settings.preferredAudioLanguage,
+      );
+      if (best == null) return null;
+      return TorrentHandle(
+          magnetOrUrl: best.downloadUrl,
+          displayName: best.title,
+          seasonPack: true);
+    } catch (e, st) {
+      _log.logError(e,
+          stackTrace: st, source: 'JackettResolver.resolveSeasonPack');
+      return null;
+    }
+  }
+
+  @override
+  Future<TorrentHandle?> resolveShowPack(
+    ShowMeta meta, {
+    Set<String> exclude = const {},
+  }) async {
+    final config = _config;
+    if (config == null) return null;
+    try {
+      final results = await _query(config, meta, null, null, showPack: true);
+      final best = pickBestTorznabResult(
+        showPackResults(results, meta,
+            excludeSignLanguage: _settings.excludeSignLanguage,
+            excludeUrls: exclude),
+        preferAudioLanguage: _settings.preferredAudioLanguage,
+      );
+      if (best == null) return null;
+      return TorrentHandle(
+          magnetOrUrl: best.downloadUrl,
+          displayName: best.title,
+          seasonPack: true);
+    } catch (e, st) {
+      _log.logError(e,
+          stackTrace: st, source: 'JackettResolver.resolveShowPack');
+      return null;
+    }
+  }
+
   /// Run one Torznab query and parse it; [] on a non-200 or empty feed.
   Future<List<TorznabResult>> _query(
-      JackettConfig config, ShowMeta meta, int? season, int? episode) async {
-    final res = await _http.get(buildTorznabUri(config, meta, season, episode));
+      JackettConfig config, ShowMeta meta, int? season, int? episode,
+      {bool showPack = false}) async {
+    final res = await _http
+        .get(buildTorznabUri(config, meta, season, episode, showPack: showPack));
     if (res.statusCode != 200) {
       _log.warn('Jackett Torznab HTTP ${res.statusCode}',
           source: 'JackettResolver');
@@ -166,8 +223,11 @@ class TorznabResult {
 /// else a movie `search` (category 2000). Pure + tested. Newznab category
 /// numbers: 2000 = Movies, 5000 = TV.
 Uri buildTorznabUri(
-    JackettConfig config, ShowMeta meta, int? season, int? episode) {
-  final isTv = season != null;
+    JackettConfig config, ShowMeta meta, int? season, int? episode,
+    {bool showPack = false}) {
+  // A show-pack search is TV with no season scope (the whole series in one
+  // query); otherwise TV whenever a season is given, else a movie search.
+  final isTv = showPack || season != null;
   final params = <String, String>{
     'apikey': config.apiKey,
     't': isTv ? 'tvsearch' : 'search',
@@ -332,6 +392,29 @@ List<TorznabResult> seasonPackResults(
     if (excludeUrls.contains(r.downloadUrl)) return false;
     if (!FilenameMediaInfo.titleMatches(r.title, meta.title)) return false;
     return FilenameMediaInfo.seasonPackNumber(r.title) == season;
+  }).toList();
+}
+
+/// Keep only [results] that verify as a **whole-series pack** for [meta]'s show
+/// (right show + a complete-series / season-range marker — see
+/// [FilenameMediaInfo.isShowPack]). Used by the bulk "Download all seasons" flow
+/// to prefer one series torrent over per-season/per-episode ones. Sign-language
+/// cuts dropped when [excludeSignLanguage]; already-tried sources dropped when
+/// their URL is in [excludeUrls]. Order preserved. Pure + tested.
+List<TorznabResult> showPackResults(
+  List<TorznabResult> results,
+  ShowMeta meta, {
+  bool excludeSignLanguage = true,
+  Set<String> excludeUrls = const {},
+}) {
+  return results.where((r) {
+    if (excludeSignLanguage &&
+        FilenameMediaInfo.looksLikeSignLanguage(r.title)) {
+      return false;
+    }
+    if (excludeUrls.contains(r.downloadUrl)) return false;
+    if (!FilenameMediaInfo.titleMatches(r.title, meta.title)) return false;
+    return FilenameMediaInfo.isShowPack(r.title);
   }).toList();
 }
 

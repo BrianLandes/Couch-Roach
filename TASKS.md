@@ -56,17 +56,6 @@ Design notes:
 - Multi-file/multi-season deletes go through the same helper per file; report count deleted via snackbar. Skips/handles already-missing rows gracefully.
 - A kept show/movie can be deleted (explicit user action overrides the keep pin); clear the `keptAt`/`keep` flag as part of removal so no stale pin lingers.
 
-### Prefer whole season / show packs for the bulk "Download" button · `p3`
-
-- [ ] The show detail "Download…" button (all seasons / one season) currently queues an **individual torrent per episode** (`downloadSeason` / `downloadAllSeasons` in `acquire_play.dart` → `prefetchEpisode` per episode). For a bulk download it's better to **first try a whole season-pack or show-pack torrent**, falling back to per-episode only when no acceptable pack is found. This flips our usual per-episode fetch paradigm — which must **stay unchanged** for the inline per-episode Download buttons and the next-episode prefetch.
-
-Design notes:
-- **Season-pack machinery already exists** and is used today only as the single-episode *fallback*: `jackett_resolver.dart` has `seasonPackResults(...)` + `FilenameMediaInfo.seasonPackNumber(...)`, and `_resolve` already queries a season-only pack when no single-episode source verifies (then extracts the one episode). Reuse this from the bulk button (grab the pack, keep *all* its episodes) rather than reinventing it. **Show pack** (all seasons — "complete" / "S01-S0N") is the genuinely new piece: add a `showPackResults` + a "complete series" query shape.
-- Stays content-agnostic through `AcquisitionResolver` — just different **query shapes**, no new indexers: season pack → "Show Name S01" / "Season 1" (no episode marker); show pack → "Show Name complete" / "Season 1-N".
-- After grabbing the pack (one torrent → a folder of episodes), the **existing scan + match + folder-fold** hydrates the episodes into library rows and the play flow — no per-episode acquisition needed. Verify the download lands under a managed root so the scanner picks it up.
-- Skip episodes already local; if a pack only partially covers what's missing, decide: take the pack anyway (simplest) vs. top up the gaps per-episode. Note the choice.
-- Fallback: no acceptable pack → current per-episode behavior. Keep the season/all scope dialog as-is.
-
 ### Add the Couch Roach icon to the launcher · `p4`
 
 - [ ] Add the app icon to the Windows launcher.
@@ -125,6 +114,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Prefer whole season / show packs for the bulk "Download" button · `p3`
+
+- [x] The show detail "Download…" button is now **pack-first**: one season → tries a whole-season pack before per-episode; all seasons → tries a whole-**series** pack, else each season (pack-first, else per-episode). Per-episode paradigm unchanged for inline episode Downloads + next-episode prefetch. New: `FilenameMediaInfo.isShowPack` + `showPackResults` + a `showPack` tvsearch query shape; `AcquisitionResolver.resolveSeasonPack`/`resolveShowPack` (null defaults; Jackett implements; composite fans out; IA switched to `extends` for the defaults). `acquire_play` gained `_tryPack` + `_acquireSeason` and returns a `BulkDownloadResult` (packs vs episodes) the snackbar reports. Skips already-local/already-downloading; a pack keyed per-season (or per-show) so its episodes dedupe. Downloaded pack → existing scan + folder-fold hydrates episodes. Content-agnostic (just new query shapes). Tests: isShowPack, showPackResults, buildTorznabUri showPack, resolveSeasonPack/resolveShowPack. 490 green, analyze clean.
 
 ### Move keyed Windows builds to a private dist repo (Option A) · `p1`
 
