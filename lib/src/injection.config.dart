@@ -49,6 +49,7 @@ import 'package:couch_roach/src/services/alexa/alexa_inbox_service.dart'
     as _i680;
 import 'package:couch_roach/src/services/cleanup/completed_torrent_reaper.dart'
     as _i717;
+import 'package:couch_roach/src/services/cleanup/media_deleter.dart' as _i278;
 import 'package:couch_roach/src/services/cleanup/watched_reaper.dart' as _i380;
 import 'package:couch_roach/src/services/discovery/tmdb_client.dart' as _i819;
 import 'package:couch_roach/src/services/subtitles/movie_hasher.dart' as _i403;
@@ -145,6 +146,10 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i1033.SubtitleClient>(),
           gh<_i657.ErrorLogService>(),
           gh<_i486.SettingsService>(),
+        ));
+    gh.lazySingleton<_i278.MediaDeleter>(() => _i278.MediaDeleter(
+          gh<_i877.LibraryRepository>(),
+          gh<_i657.ErrorLogService>(),
         ));
     gh.lazySingleton<_i380.WatchedReaper>(() => _i380.DriftWatchedReaper(
           gh<_i382.WatchHistoryRepository>(),

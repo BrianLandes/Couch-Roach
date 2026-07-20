@@ -15,6 +15,7 @@ import '../../widgets/detail_scaffold.dart';
 import '../../widgets/resume_button.dart';
 import '../../widgets/poster_art.dart';
 import '../../services/acquisition/acquisition.dart';
+import '../library/delete_actions.dart';
 import '../library/save_title_buttons.dart';
 import '../library/saved_titles_providers.dart';
 import '../acquire/acquire_button.dart';
@@ -149,6 +150,15 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
               showName: details.name,
               selectedSeason: selected,
               seasonNumbers: [for (final s in seasons) s.seasonNumber],
+            ),
+          // Delete downloaded episodes — a season or the whole show.
+          if (owned)
+            _DeleteShowButton(
+              tmdbId: details.tmdbId,
+              showName: details.name,
+              posterPath: details.posterPath,
+              local: local,
+              selectedSeason: selected,
             ),
         ],
       ),
@@ -338,6 +348,93 @@ class _DownloadAllButton extends StatelessWidget {
   }
 }
 
+enum _DeleteScope { season, all }
+
+/// "Delete…" for a downloaded show: asks whether to delete the selected season's
+/// episodes or every downloaded episode, confirms, then removes the files +
+/// rows. A whole-show delete also clears the show-level "keep" pin so it doesn't
+/// silently re-keep a future re-download.
+class _DeleteShowButton extends ConsumerWidget {
+  const _DeleteShowButton({
+    required this.tmdbId,
+    required this.showName,
+    required this.posterPath,
+    required this.local,
+    required this.selectedSeason,
+  });
+
+  final int tmdbId;
+  final String showName;
+  final String? posterPath;
+  final Map<(int, int), LibraryItem> local;
+  final int? selectedSeason;
+
+  Future<void> _run(BuildContext context, WidgetRef ref) async {
+    final scope = await showDialog<_DeleteScope>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete downloads'),
+        content: Text(selectedSeason != null
+            ? 'Delete the downloaded episodes of Season $selectedSeason, or '
+                'every downloaded episode of this show?'
+            : 'Delete every downloaded episode of this show?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          if (selectedSeason != null)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, _DeleteScope.season),
+              child: Text('Season $selectedSeason'),
+            ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(ctx, _DeleteScope.all),
+            child: const Text('All episodes'),
+          ),
+        ],
+      ),
+    );
+    if (scope == null || !context.mounted) return;
+
+    final items = switch (scope) {
+      _DeleteScope.season => [
+          for (final e in local.entries)
+            if (e.key.$1 == selectedSeason) e.value,
+        ],
+      _DeleteScope.all => local.values.toList(),
+    };
+    final what = scope == _DeleteScope.season
+        ? 'Season $selectedSeason of $showName'
+        : 'all of $showName';
+    final removed = await confirmAndDelete(context, what: what, items: items);
+    if (removed == 0) return;
+
+    // A whole-show delete clears the per-show keep pin (no stale pin left to
+    // silently re-keep a future re-download).
+    if (scope == _DeleteScope.all) {
+      await getIt<SavedTitlesRepository>().setKeep(
+          tmdbId: tmdbId,
+          mediaType: 'tv',
+          name: showName,
+          posterPath: posterPath,
+          value: false);
+    }
+    ref.invalidate(localEpisodesProvider(tmdbId));
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return OutlinedButton.icon(
+      onPressed: () => _run(context, ref),
+      style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+      icon: const Icon(Icons.delete_outline_rounded),
+      label: const Text('Delete…'),
+    );
+  }
+}
+
 class _SeasonChips extends StatelessWidget {
   const _SeasonChips({
     required this.seasons,
@@ -504,7 +601,7 @@ class _EpisodeRow extends StatelessWidget {
   }
 }
 
-class _Availability extends StatelessWidget {
+class _Availability extends ConsumerWidget {
   const _Availability({
     required this.tmdbId,
     required this.seasonNumber,
@@ -518,22 +615,59 @@ class _Availability extends StatelessWidget {
   final String showName;
   final LibraryItem? local;
 
+  /// Delete this one downloaded episode (from the Play button's overflow menu),
+  /// then refresh the row so it drops back to a Download control.
+  Future<void> _deleteEpisode(
+      BuildContext context, WidgetRef ref, LibraryItem item) async {
+    final s = seasonNumber.toString().padLeft(2, '0');
+    final e = episode.episodeNumber.toString().padLeft(2, '0');
+    final removed =
+        await confirmAndDelete(context, what: '$showName S${s}E$e', items: [item]);
+    if (removed > 0) ref.invalidate(localEpisodesProvider(tmdbId));
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final item = local;
-    // Already on disk → play it from the library (records watch history).
+    // Already on disk → play it from the library (records watch history), with
+    // an overflow menu to delete it (mirrors the acquire button's "more" menu).
     if (item != null) {
-      return FilledButton.icon(
-        onPressed: () => context.push(
-          Routes.player,
-          extra: PlayerArgs(
-            filePath: item.filePath,
-            title: item.tmdbName ?? item.title,
-            libraryItemId: item.id,
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Flexible(
+            child: FilledButton.icon(
+              onPressed: () => context.push(
+                Routes.player,
+                extra: PlayerArgs(
+                  filePath: item.filePath,
+                  title: item.tmdbName ?? item.title,
+                  libraryItemId: item.id,
+                ),
+              ),
+              icon: const Icon(Icons.play_arrow_rounded),
+              label: const Text('Play'),
+            ),
           ),
-        ),
-        icon: const Icon(Icons.play_arrow_rounded),
-        label: const Text('Play'),
+          const SizedBox(width: AppSpacing.xs),
+          MenuAnchor(
+            menuChildren: [
+              MenuItemButton(
+                leadingIcon:
+                    const Icon(Icons.delete_outline_rounded, size: 18),
+                onPressed: () => _deleteEpisode(context, ref, item),
+                child: const Text('Delete episode'),
+              ),
+            ],
+            builder: (context, controller, _) => IconButton(
+              onPressed: () =>
+                  controller.isOpen ? controller.close() : controller.open(),
+              icon: const Icon(Icons.more_vert_rounded),
+              tooltip: 'More options',
+            ),
+          ),
+        ],
       );
     }
 

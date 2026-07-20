@@ -1,12 +1,10 @@
-import 'dart:io';
-
 import 'package:injectable/injectable.dart';
-import 'package:path/path.dart' as p;
 
 import '../../core/logging/error_log_service.dart';
 import '../../core/settings/settings_service.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../data/repositories/watch_history_repository.dart';
+import 'media_file_delete.dart';
 
 /// Auto-cleanup after watch (DECISIONS: auto-cleanup).
 ///
@@ -37,10 +35,6 @@ class DriftWatchedReaper implements WatchedReaper {
   final ErrorLogService _log;
   final SettingsService _settings;
 
-  /// English sidecars the app itself may have written next to the video. A bare
-  /// `.srt` is deliberately left alone — it may be a user's own subtitle.
-  static const _sidecarSuffixes = ['.en.srt', '.eng.srt', '.english.srt'];
-
   @override
   Future<List<String>> sweep() async {
     if (!_settings.cleanupEnabled) return const [];
@@ -51,7 +45,7 @@ class DriftWatchedReaper implements WatchedReaper {
     final removed = <String>[];
     for (final item in candidates) {
       try {
-        _deleteFileAndSidecars(item.filePath);
+        deleteMediaFileAndSidecars(item.filePath);
         // Flag the row missing (keep the row + its watch history) so the delete
         // survives as "watched, then cleaned up".
         await _library.markMissing(item.id);
@@ -67,17 +61,5 @@ class DriftWatchedReaper implements WatchedReaper {
           source: 'WatchedReaper.sweep');
     }
     return removed;
-  }
-
-  void _deleteFileAndSidecars(String videoPath) {
-    final video = File(videoPath);
-    if (video.existsSync()) video.deleteSync();
-
-    final dir = p.dirname(videoPath);
-    final base = p.basenameWithoutExtension(videoPath);
-    for (final suffix in _sidecarSuffixes) {
-      final sidecar = File(p.join(dir, '$base$suffix'));
-      if (sidecar.existsSync()) sidecar.deleteSync();
-    }
   }
 }

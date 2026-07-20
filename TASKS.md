@@ -43,19 +43,6 @@ Follow-up (not done): requires `ALEXA_INBOX_TOKEN` in `dart_define.json` before 
 
 _Queued and ready to pick up._
 
-### Manually delete downloaded shows / seasons / episodes / movies · `p2`
-
-- [ ] A way to remove downloaded content that isn't going to be auto-reaped (unwatched, kept, or otherwise not eligible). Needed at three granularities:
-  - **Movie** — delete this movie's file. Button on `LibraryDetailScreen` (alongside Play/Keep).
-  - **Show** — delete *all* the show's episodes, or just *one season's*. Button on `ShowDetailScreen` mirroring the existing `_DownloadAllButton` scope dialog ("This season" / "All seasons").
-  - **Episode** — delete a single episode. Affordance on each local episode row (`_EpisodeRow`/`_Availability` where the Play button shows).
-
-Design notes:
-- Deletion must remove the **video file + its `.en.srt`/`.eng.srt`/`.english.srt` sidecars** on disk *and* the library row(s). The reaper already has this file-delete logic privately (`DriftWatchedReaper._deleteFileAndSidecars`) — **extract it into a shared helper** (a small `MediaFileDeleter`/`CleanupService`, or a method on `StorageManager`) so the reaper and manual delete share one path. Row removal: `LibraryRepository.removeByPath` already hard-deletes the row and cascades `watch_history` ("forget this title entirely") — that's the right call for an explicit user delete (vs. the reaper's `markMissing`, which keeps the row+history). Confirm the decision: an explicit delete probably *should* drop watch history too.
-- **Confirm before deleting** (10-foot destructive action → a confirmation dialog; honor the "look at the target before deleting" rule). Show what's about to go (title + file count).
-- Multi-file/multi-season deletes go through the same helper per file; report count deleted via snackbar. Skips/handles already-missing rows gracefully.
-- A kept show/movie can be deleted (explicit user action overrides the keep pin); clear the `keptAt`/`keep` flag as part of removal so no stale pin lingers.
-
 ### Add the Couch Roach icon to the launcher · `p4`
 
 - [ ] Add the app icon to the Windows launcher.
@@ -114,6 +101,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Manually delete downloaded shows / seasons / episodes / movies · `p2`
+
+- [x] Delete controls at three granularities: **movie** (Delete in the LibraryDetail action row; also a "Remove from library" when the file is missing), **show** (a "Delete…" in the show detail action row → scope dialog "Season N" / "All episodes"), and **episode** (in the local Play button's overflow "more" menu, mirroring the acquire button's ellipsis). Shared: extracted the reaper's file-delete into `deleteMediaFileAndSidecars` (both the reaper and manual delete use it); new `MediaDeleter` service (`deleteItem`/`deleteItems`) hard-removes via `removeByPath` (cascades watch history — an explicit delete forgets the title, vs. the reaper's markMissing); `confirmAndDelete` UI helper (destructive dialog + count snackbar). An explicit delete ignores the keep pin; a whole-show delete also clears the show-level `keptAt`. `MediaDeleter` tests (delete + sidecar + row, missing-file, batch, isolation); reaper still green on the shared helper. 494 tests, analyze clean.
 
 ### Prefer whole season / show packs for the bulk "Download" button · `p3`
 

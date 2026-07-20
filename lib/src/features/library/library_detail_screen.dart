@@ -13,6 +13,7 @@ import '../discover/discover_providers.dart';
 import '../discover/show_detail_screen.dart';
 import '../discover/trailer_picker.dart';
 import '../player/player_screen.dart';
+import 'delete_actions.dart';
 
 /// Profile/detail page for a local library title (per the "tiles open a profile
 /// page, not the player" rule). Shows the poster, file info and watch state, and
@@ -54,6 +55,24 @@ class _LibraryDetailScreenState extends ConsumerState<LibraryDetailScreen> {
     await getIt<LibraryRepository>().setKeep(item.id, next);
   }
 
+  /// Delete this title's file (or forget a missing one), then leave the now-gone
+  /// detail page for the library.
+  Future<void> _delete() async {
+    final removed = await confirmAndDelete(
+      context,
+      what: item.tmdbName ?? item.title,
+      items: [item],
+    );
+    if (removed > 0 && mounted) context.pop();
+  }
+
+  Widget get _deleteButton => OutlinedButton.icon(
+        onPressed: _delete,
+        style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+        icon: const Icon(Icons.delete_outline_rounded),
+        label: Text(item.missing ? 'Remove from library' : 'Delete'),
+      );
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
@@ -87,13 +106,15 @@ class _LibraryDetailScreenState extends ConsumerState<LibraryDetailScreen> {
       children: [
         _Hero(item: item, ratingMeta: ratingMeta),
         const SizedBox(height: AppSpacing.lg),
-        if (item.missing)
+        if (item.missing) ...[
           Text(
             "This file isn't on disk right now — its drive may be "
             'disconnected, or it was cleaned up after watching.',
             style: text.bodyMedium?.copyWith(color: AppColors.warning),
-          )
-        else
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Align(alignment: Alignment.centerLeft, child: _deleteButton),
+        ] else
           Wrap(
             spacing: AppSpacing.md,
             runSpacing: AppSpacing.md,
@@ -136,6 +157,7 @@ class _LibraryDetailScreenState extends ConsumerState<LibraryDetailScreen> {
                   icon: const Icon(Icons.grid_view_rounded),
                   label: const Text('View full show'),
                 ),
+              _deleteButton,
             ],
           ),
         if (overview.isNotEmpty) ...[
