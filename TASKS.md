@@ -102,6 +102,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 
 _Finished work worth a short record; prune freely — git history is the archive._
 
+### Continue Watching: advance to the next episode when one finishes · `p2`
+
+- [x] Finishing an episode (played to the end, or backed out during the credits past the 95% "completed" threshold) dropped the show off Continue Watching — and an *older* half-watched episode would resurface in its place, tricking a rewatch. Now the player seeds a near-zero resume on the **next** episode (when it's downloaded — usually so, since we prefetch it) via `WatchHistoryRepository.advanceToNextEpisode`, so the show stays on the rail pointing at the next episode; being most-recent, it also supersedes the older episode in the by-show dedupe. No-op if the next episode already has progress (never clobbers). Repo tests cover both. Residual edge (next episode not downloaded) unchanged — noted, not fixed.
+
 ### Manually delete downloaded shows / seasons / episodes / movies · `p2`
 
 - [x] Delete controls at three granularities: **movie** (Delete in the LibraryDetail action row; also a "Remove from library" when the file is missing), **show** (a "Delete…" in the show detail action row → scope dialog "Season N" / "All episodes"), and **episode** (in the local Play button's overflow "more" menu, mirroring the acquire button's ellipsis). Shared: extracted the reaper's file-delete into `deleteMediaFileAndSidecars` (both the reaper and manual delete use it); new `MediaDeleter` service (`deleteItem`/`deleteItems`) hard-removes via `removeByPath` (cascades watch history — an explicit delete forgets the title, vs. the reaper's markMissing); `confirmAndDelete` UI helper (destructive dialog + count snackbar). An explicit delete ignores the keep pin; a whole-show delete also clears the show-level `keptAt`. `MediaDeleter` tests (delete + sidecar + row, missing-file, batch, isolation); reaper still green on the shared helper. 494 tests, analyze clean.

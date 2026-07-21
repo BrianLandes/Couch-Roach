@@ -152,6 +152,36 @@ void main() {
     expect(rail.map((e) => e.item.id), [movie, e2]);
   });
 
+  test('advanceToNextEpisode keeps the show on the rail at the next episode',
+      () async {
+    final e1 = await seedEpisode('/tv/s1e1.mkv', tmdbId: 100, season: 1, episode: 1);
+    final e2 = await seedEpisode('/tv/s1e2.mkv', tmdbId: 100, season: 1, episode: 2);
+
+    // An older episode was left half-watched (the one that would wrongly
+    // resurface once a later episode is finished + drops off the rail).
+    await history.record(
+        libraryItemId: e1, position: const Duration(seconds: 120));
+    await setWatchedAt(e1, DateTime(2026, 1, 1));
+
+    // Finishing a later episode seeds the next one — which supersedes e1.
+    await history.advanceToNextEpisode(e2);
+
+    final rail = await history.watchContinueWatching().first;
+    expect(rail.map((e) => e.item.id), [e2]);
+    expect(rail.single.resumePositionSec, 1); // near-zero → starts fresh
+  });
+
+  test('advanceToNextEpisode never clobbers an episode already in progress',
+      () async {
+    final e2 = await seedEpisode('/tv/s1e2.mkv', tmdbId: 100, season: 1, episode: 2);
+    await history.record(
+        libraryItemId: e2, position: const Duration(seconds: 500));
+
+    await history.advanceToNextEpisode(e2); // already watched → no-op
+
+    expect((await history.forItem(e2))!.resumePositionSec, 500);
+  });
+
   test('continue watching does not collapse distinct shows or movies', () async {
     final showA = await seedEpisode('/tv/a.mkv', tmdbId: 100, season: 1, episode: 1);
     final showB = await seedEpisode('/tv/b.mkv', tmdbId: 200, season: 1, episode: 1);

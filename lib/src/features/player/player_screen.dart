@@ -1053,6 +1053,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       duration: _player.state.duration,
       completed: true,
     );
+    _advanceContinueWatching();
   }
 
   // Save the final position on exit; count "watched to the end" (>= 95%) as
@@ -1069,6 +1070,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
       duration: dur,
       completed: nearEnd,
     );
+    // Finishing an episode (played to the end, or backed out during the
+    // credits) drops it from Continue Watching — so point the rail at the next
+    // episode instead, keeping the show resumable where you actually are.
+    if (nearEnd) _advanceContinueWatching();
+  }
+
+  /// Keep this show on the Continue Watching rail after finishing an episode:
+  /// seed the next episode (when it's downloaded) so the show stays resumable
+  /// and an older, half-watched episode doesn't resurface in its place.
+  void _advanceContinueWatching() {
+    final next = _nextLocalItem;
+    if (next != null) unawaited(_history.advanceToNextEpisode(next.id));
   }
 
   @override

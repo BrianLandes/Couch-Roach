@@ -105,6 +105,14 @@ abstract class WatchHistoryRepository {
     bool completed = false,
   });
 
+  /// Keep a show in Continue Watching after finishing an episode: seed a
+  /// near-zero resume on the **next** episode ([nextLibraryItemId], when it's
+  /// downloaded) so the show stays on the rail, now pointing at the next episode
+  /// — and, being the most-recently-touched, it supersedes any older in-progress
+  /// episode (which would otherwise resurface and look unwatched). No-op if that
+  /// next episode already has history, so real progress is never clobbered.
+  Future<void> advanceToNextEpisode(int nextLibraryItemId);
+
   /// Rows with progress, most-recently-watched first (Continue Watching feed).
   Stream<List<WatchHistoryData>> watchRecent();
 
@@ -176,6 +184,19 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         ),
       );
     }
+  }
+
+  @override
+  Future<void> advanceToNextEpisode(int nextLibraryItemId) async {
+    // Only seed a fresh next episode — never overwrite one already watched or
+    // in progress. `1s` (not 0) is deliberate: the feed filters on
+    // `resumePositionSec > 0`, and a 1-second resume is indistinguishable from
+    // the start when played.
+    if (await forItem(nextLibraryItemId) != null) return;
+    await record(
+      libraryItemId: nextLibraryItemId,
+      position: const Duration(seconds: 1),
+    );
   }
 
   @override
