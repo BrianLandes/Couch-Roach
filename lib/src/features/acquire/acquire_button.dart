@@ -10,6 +10,7 @@ import '../downloads/downloads_providers.dart';
 import '../player/player_screen.dart';
 import 'acquire_play.dart';
 import 'acquisition_controller.dart';
+import 'source_picker.dart';
 
 /// Inline, non-blocking acquire control for a not-local title: a **Download**
 /// button that kicks off the download in place (no dialog), shows a live
@@ -61,6 +62,7 @@ class AcquireButton extends ConsumerWidget {
     switch (state.phase) {
       case AcquirePhase.preparing:
         return _withRetryMenu(
+          context,
           ref,
           dedupeKey,
           _Preparing(
@@ -79,6 +81,7 @@ class AcquireButton extends ConsumerWidget {
         );
       case AcquirePhase.ready:
         return _withRetryMenu(
+          context,
           ref,
           dedupeKey,
           FilledButton.icon(
@@ -117,10 +120,12 @@ class AcquireButton extends ConsumerWidget {
         );
   }
 
-  /// Wrap the active control ([child]) with a small overflow menu offering "Try
-  /// a different source" — the escape hatch when the current torrent is bad or
-  /// stalled (re-resolves the next-best in place, no navigation).
-  Widget _withRetryMenu(WidgetRef ref, String dedupeKey, Widget child) {
+  /// Wrap the active control ([child]) with a small overflow menu: "Try a
+  /// different source" (blindly re-resolve the next-best in place) and "Choose
+  /// source…" (open the picker to see and pick among all candidates) — the escape
+  /// hatches when the current torrent is bad or stalled.
+  Widget _withRetryMenu(
+      BuildContext context, WidgetRef ref, String dedupeKey, Widget child) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -140,6 +145,31 @@ class AcquireButton extends ConsumerWidget {
                     episode: episode,
                   ),
               child: const Text('Try a different source'),
+            ),
+            MenuItemButton(
+              leadingIcon:
+                  const Icon(Icons.playlist_add_check_rounded, size: 18),
+              onPressed: () async {
+                final chosen = await showSourcePicker(
+                  context,
+                  title: title,
+                  meta: meta,
+                  season: season,
+                  episode: episode,
+                );
+                if (chosen != null) {
+                  ref
+                      .read(acquisitionControllerProvider(dedupeKey).notifier)
+                      .chooseSource(
+                        handle: chosen.handle,
+                        title: title,
+                        meta: meta,
+                        season: season,
+                        episode: episode,
+                      );
+                }
+              },
+              child: const Text('Choose source…'),
             ),
           ],
           builder: (context, controller, _) => IconButton(

@@ -174,6 +174,66 @@ class JackettResolver implements AcquisitionResolver {
     }
   }
 
+  @override
+  Future<List<SourceCandidate>> candidates(
+    ShowMeta meta,
+    int? season,
+    int? episode, {
+    Set<String> exclude = const {},
+  }) async {
+    final config = _config;
+    if (config == null) return const [];
+    final excludeSign = _settings.excludeSignLanguage;
+    try {
+      // Gather verified sources, tagging each as a single episode or a pack.
+      final pack = <String, bool>{}; // downloadUrl → isSeasonPack
+      final results = <TorznabResult>[];
+      if (season != null && episode != null) {
+        final eps = verifiedEpisodeResults(
+            await _query(config, meta, season, episode), meta, season, episode,
+            excludeSignLanguage: excludeSign, excludeUrls: exclude);
+        for (final r in eps) {
+          results.add(r);
+          pack[r.downloadUrl] = false;
+        }
+        final packs = seasonPackResults(
+            await _query(config, meta, season, null), meta, season,
+            excludeSignLanguage: excludeSign, excludeUrls: exclude);
+        for (final r in packs) {
+          results.add(r);
+          pack[r.downloadUrl] = true;
+        }
+      } else {
+        final movies = verifiedMovieResults(
+            await _query(config, meta, season, episode), meta,
+            excludeSignLanguage: excludeSign, excludeUrls: exclude);
+        for (final r in movies) {
+          results.add(r);
+          pack[r.downloadUrl] = false;
+        }
+      }
+
+      // Rank episodes + packs together, then collapse same-content duplicates.
+      final ranked = dedupeTorznabResults(rankedTorznabResults(results,
+          preferAudioLanguage: _settings.preferredAudioLanguage));
+      return [
+        for (final r in ranked)
+          SourceCandidate(
+            handle: TorrentHandle(
+                magnetOrUrl: r.downloadUrl,
+                displayName: r.title,
+                seasonPack: pack[r.downloadUrl] ?? false),
+            title: r.title,
+            sizeBytes: r.sizeBytes,
+            seeders: r.seeders,
+          ),
+      ];
+    } catch (e, st) {
+      _log.logError(e, stackTrace: st, source: 'JackettResolver.candidates');
+      return const [];
+    }
+  }
+
   /// Run one Torznab query and parse it; [] on a non-200 or empty feed.
   Future<List<TorznabResult>> _query(
       JackettConfig config, ShowMeta meta, int? season, int? episode,
@@ -291,19 +351,18 @@ List<TorznabResult> parseTorznabResults(String xmlBody) {
   return results;
 }
 
-/// Rank Torznab hits and return the best, or null when [results] is empty.
-/// When [preferAudioLanguage] is set (a non-empty language the user wants dubbed
-/// audio in), releases whose title tags that language rank first — an explicit
-/// tag over a generic multi/dual-audio marker over neither — before the usual
-/// signals. Otherwise, and to break ties, seed health dominates (the streaming
-/// signal), then the larger file (usually higher quality). Pure + tested.
-TorznabResult? pickBestTorznabResult(
+/// Rank Torznab hits best-first. When [preferAudioLanguage] is set (a non-empty
+/// language the user wants dubbed audio in), releases whose title tags that
+/// language rank first — an explicit tag over a generic multi/dual-audio marker
+/// over neither — before the usual signals. Otherwise, and to break ties, seed
+/// health dominates (the streaming signal), then the larger file (usually higher
+/// quality). Pure + tested.
+List<TorznabResult> rankedTorznabResults(
   List<TorznabResult> results, {
   String? preferAudioLanguage,
 }) {
-  if (results.isEmpty) return null;
   final lang = preferAudioLanguage?.trim() ?? '';
-  final sorted = [...results]..sort((a, b) {
+  return [...results]..sort((a, b) {
       if (lang.isNotEmpty) {
         final sa = FilenameMediaInfo.audioLanguageScore(a.title, lang);
         final sb = FilenameMediaInfo.audioLanguageScore(b.title, lang);
@@ -312,7 +371,40 @@ TorznabResult? pickBestTorznabResult(
       if (a.seeders != b.seeders) return b.seeders.compareTo(a.seeders);
       return b.sizeBytes.compareTo(a.sizeBytes);
     });
-  return sorted.first;
+}
+
+/// The best-ranked hit, or null when [results] is empty. See [rankedTorznabResults].
+TorznabResult? pickBestTorznabResult(
+  List<TorznabResult> results, {
+  String? preferAudioLanguage,
+}) {
+  final ranked =
+      rankedTorznabResults(results, preferAudioLanguage: preferAudioLanguage);
+  return ranked.isEmpty ? null : ranked.first;
+}
+
+/// The BitTorrent infohash in a magnet URL (`…btih:<hash>…`), lowercased — or
+/// null for a `.torrent` URL, whose infohash isn't known until it's fetched.
+/// Pure + tested.
+String? torrentInfohash(String url) {
+  final m = RegExp(r'btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})').firstMatch(url);
+  return m?.group(1)?.toLowerCase();
+}
+
+/// Collapse [results] that point at the **same torrent** — same magnet infohash,
+/// or (for `.torrent` URLs that hide it) same normalized title + size — keeping
+/// the first of each group. Feed a ranked list so the survivor is the best-seeded
+/// listing. Stops "try another source" and the source picker from offering the
+/// same content re-listed by several indexers. Pure + tested.
+List<TorznabResult> dedupeTorznabResults(List<TorznabResult> results) {
+  final seen = <String>{};
+  final out = <TorznabResult>[];
+  for (final r in results) {
+    final key = torrentInfohash(r.downloadUrl) ??
+        '${FilenameMediaInfo.normalizeTitle(r.title)}|${r.sizeBytes}';
+    if (seen.add(key)) out.add(r);
+  }
+  return out;
 }
 
 /// Minimum plausible episode size — drops `.nfo`/sample/fake rows that sometimes

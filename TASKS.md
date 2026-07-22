@@ -102,6 +102,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 
 _Finished work worth a short record; prune freely — git history is the archive._
 
+### "Choose source" picker + dedupe torrent candidates · `p3`
+
+- [x] For a hard-to-find episode, blind "Try another source" felt like flip-flopping between two bad sources. Added **"Choose source…"** to the acquire button's ⋮ menu: a 10-foot picker listing every verified, ranked, deduped candidate — episode releases *and* the season packs that contain it — with size / seeders and a "Season pack" badge; picking one downloads exactly that (`AcquisitionResolver.candidates` → `sourceCandidates` → `controller.chooseSource` → `prepareChosenSource`, sharing the prepare tail via `_finishPrepared`). **Dedupe**: `dedupeTorznabResults` collapses the same torrent re-listed by several indexers (magnet infohash via `torrentInfohash`, else normalized title+size), so both the picker and blind retry offer genuinely distinct content. Extracted `rankedTorznabResults` from `pickBestTorznabResult`. Tests for infohash/dedupe/ranking/candidates. 500 green, analyze clean.
+
 ### Continue Watching: advance to the next episode when one finishes · `p2`
 
 - [x] Finishing an episode (played to the end, or backed out during the credits past the 95% "completed" threshold) dropped the show off Continue Watching — and an *older* half-watched episode would resurface in its place, tricking a rewatch. Now the player seeds a near-zero resume on the **next** episode (when it's downloaded — usually so, since we prefetch it) via `WatchHistoryRepository.advanceToNextEpisode`, so the show stays on the rail pointing at the next episode; being most-recent, it also supersedes the older episode in the by-show dedupe. No-op if the next episode already has progress (never clobbers). Repo tests cover both. Residual edge (next episode not downloaded) unchanged — noted, not fixed.

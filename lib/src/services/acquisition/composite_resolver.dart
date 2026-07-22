@@ -82,6 +82,27 @@ class CompositeAcquisitionResolver implements AcquisitionResolver {
         '${meta.title} complete-series pack',
       );
 
+  @override
+  Future<List<SourceCandidate>> candidates(
+    ShowMeta meta,
+    int? season,
+    int? episode, {
+    Set<String> exclude = const {},
+  }) async {
+    final all = <SourceCandidate>[];
+    for (final resolver in _ordered) {
+      try {
+        all.addAll(
+            await resolver.candidates(meta, season, episode, exclude: exclude));
+      } catch (e, st) {
+        _log.logError(e,
+            stackTrace: st,
+            source: 'CompositeResolver.candidates.${resolver.runtimeType}');
+      }
+    }
+    return all;
+  }
+
   /// Fan a pack request across the sub-resolvers, returning the first hit. A
   /// throwing sub-resolver is logged and skipped (mirrors [resolve]).
   Future<TorrentHandle?> _firstPackHit(

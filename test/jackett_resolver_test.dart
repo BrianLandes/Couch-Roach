@@ -407,6 +407,81 @@ ${titles.map((t) => '<item><title>$t</title>'
     });
   });
 
+  group('torrentInfohash + dedupeTorznabResults', () {
+    TorznabResult r(String title, String url, {int seeders = 10, int size = 900000000}) =>
+        TorznabResult(
+            title: title, downloadUrl: url, seeders: seeders, sizeBytes: size);
+
+    test('extracts the btih infohash from a magnet, null for a .torrent url', () {
+      expect(
+          torrentInfohash('magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01&dn=x'),
+          'abcdef0123456789abcdef0123456789abcdef01');
+      expect(torrentInfohash('http://127.0.0.1/dl/x.torrent'), isNull);
+    });
+
+    test('collapses the same torrent listed by several indexers', () {
+      final deduped = dedupeTorznabResults([
+        r('Show.S01E01', 'magnet:?xt=urn:btih:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', seeders: 100),
+        // Same infohash from a different indexer (different query string) — dropped.
+        r('Show S01E01 [other]', 'magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&tr=x', seeders: 5),
+        // A .torrent url with the same normalized title + size — dropped.
+        r('Show.S01E01', 'http://a/1.torrent'),
+        r('Show S01 E01', 'http://b/2.torrent'),
+        // A genuinely different release — kept.
+        r('Show.S01E01.720p', 'magnet:?xt=urn:btih:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'),
+      ]);
+      expect(deduped, hasLength(3));
+      expect(deduped[0].downloadUrl, contains('btih:AAAA'));
+    });
+  });
+
+  group('candidates', () {
+    const meta = ShowMeta(title: 'Game of Thrones');
+    String feed(List<String> titles) => '''<?xml version="1.0"?>
+<rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel>
+${titles.map((t) => '<item><title>$t</title>'
+            '<torznab:attr name="magneturl" value="magnet:?xt=urn:btih:${t.hashCode.abs()}"/>'
+            '<torznab:attr name="seeders" value="50"/>'
+            '<size>900000000</size></item>').join('\n')}
+</channel></rss>''';
+
+    test('lists episode releases and the season packs that contain it', () async {
+      final r = JackettResolver(
+        MockClient((req) async => http.Response(
+            req.url.queryParameters.containsKey('ep')
+                ? feed(['Game.of.Thrones.S01E01.1080p', 'Game.of.Thrones.S01E09.1080p'])
+                : feed(['Game.of.Thrones.S01.1080p']),
+            200)),
+        ErrorLogService(),
+        await _settings(),
+      )..configure(_config);
+
+      final sources = await r.candidates(meta, 1, 1);
+      final titles = sources.map((s) => s.title).toList();
+      expect(titles, contains('Game.of.Thrones.S01E01.1080p'));
+      expect(titles, contains('Game.of.Thrones.S01.1080p'));
+      expect(titles, isNot(contains('Game.of.Thrones.S01E09.1080p'))); // wrong ep
+      // The pack is flagged; the single episode isn't.
+      expect(
+          sources.firstWhere((s) => s.title.endsWith('S01.1080p')).isSeasonPack,
+          isTrue);
+      expect(
+          sources
+              .firstWhere((s) => s.title.contains('S01E01'))
+              .isSeasonPack,
+          isFalse);
+    });
+
+    test('empty when not configured', () async {
+      final r = JackettResolver(
+        MockClient((_) async => http.Response(feed(['x']), 200)),
+        ErrorLogService(),
+        await _settings(),
+      );
+      expect(await r.candidates(meta, 1, 1), isEmpty);
+    });
+  });
+
   group('parseJackettApiKey', () {
     test('reads the APIKey field', () {
       expect(parseJackettApiKey('{"APIKey":"abc123","Port":9117}'), 'abc123');

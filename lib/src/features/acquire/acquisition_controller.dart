@@ -135,6 +135,49 @@ class AcquisitionController extends StateNotifier<AcquireState> {
     }
   }
 
+  /// "Use this source" — the user picked a specific candidate from the source
+  /// picker. Discards whatever's downloading and prepares the chosen one,
+  /// rolling the control through preparing → ready. Allowed from any phase.
+  Future<void> chooseSource({
+    required TorrentHandle handle,
+    required String title,
+    required ShowMeta meta,
+    int? season,
+    int? episode,
+  }) async {
+    await _sub?.cancel();
+    state = const AcquireState.preparing();
+    try {
+      final prepared = await prepareChosenSource(
+        title: title,
+        meta: meta,
+        season: season,
+        episode: episode,
+        handle: handle,
+        bindProgress: (progress) {
+          _sub?.cancel();
+          _sub = progress.listen((p) {
+            if (mounted) state = AcquireState.preparing(progress: p);
+          });
+        },
+      );
+      await _sub?.cancel();
+      if (mounted) {
+        state = AcquireState.ready(
+          filePath: prepared.filePath,
+          libraryItemId: prepared.libraryItemId,
+        );
+      }
+    } on TorrentDaemonException catch (e) {
+      if (mounted) state = AcquireState.failed(e.userMessage);
+    } catch (_) {
+      if (mounted) {
+        state = const AcquireState.failed(
+            'Something went wrong starting this video. Please try again.');
+      }
+    }
+  }
+
   @override
   void dispose() {
     _sub?.cancel();

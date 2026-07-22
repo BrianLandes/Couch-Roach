@@ -30,6 +30,26 @@ class TorrentHandle {
   final bool seasonPack;
 }
 
+/// One selectable source for a title — a [TorrentHandle] to hand the daemon plus
+/// the display metadata the "Choose source" picker shows (release title, size,
+/// seeders, and whether it's a whole-season pack). Resolvers return these ranked
+/// best-first and deduped by content.
+class SourceCandidate {
+  const SourceCandidate({
+    required this.handle,
+    required this.title,
+    required this.sizeBytes,
+    required this.seeders,
+  });
+
+  final TorrentHandle handle;
+  final String title;
+  final int sizeBytes;
+  final int seeders;
+
+  bool get isSeasonPack => handle.seasonPack;
+}
+
 /// Maps a request to a downloadable handle, or null if nothing legal is found.
 abstract class AcquisitionResolver {
   /// [exclude] lists source URLs (the value that would land in
@@ -60,6 +80,19 @@ abstract class AcquisitionResolver {
     Set<String> exclude = const {},
   }) async =>
       null;
+
+  /// Every verified, ranked, deduped source for a title — for the "Choose
+  /// source" picker, so the user can see and pick among the candidates (episode
+  /// releases *and* the season packs that contain it) instead of trusting the
+  /// blind auto-rank. [exclude] drops sources already tried this session. Default:
+  /// none (a resolver that can't enumerate its catalog — the null-object default).
+  Future<List<SourceCandidate>> candidates(
+    ShowMeta meta,
+    int? season,
+    int? episode, {
+    Set<String> exclude = const {},
+  }) async =>
+      const [];
 }
 
 /// A stable per-title/episode key, used both as the daemon add's `dedupeKey`

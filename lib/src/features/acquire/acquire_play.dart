@@ -72,38 +72,87 @@ Future<Prepared> prepareForPlayback({
   }
   task ??= await _resolveAndAdd(request,
       episodeKey: episodeKey, seasonKey: seasonKey);
+  return _finishPrepared(task, request, bindProgress);
+}
+
+/// The shared tail of a prepare: bind progress, extract this episode's file from
+/// the (possibly multi-file/season-pack) torrent, register a library row — stamp
+/// the known TMDB id + canonical name *now* so the next-episode feature works
+/// immediately rather than racing the async match — and kick off that metadata
+/// match (fire-and-forget; the tile updates live off the drift stream).
+Future<Prepared> _finishPrepared(
+  TorrentTask task,
+  AcquireRequest request,
+  void Function(Stream<double>) bindProgress,
+) async {
   bindProgress(task.progress);
+  final file =
+      await task.prepareFile(season: request.season, episode: request.episode);
 
-  // Pass season/episode so a multi-file (season-pack) torrent hands back this
-  // exact episode's file rather than the largest video.
-  final file = await task.prepareFile(season: season, episode: episode);
-
-  // Register as a library item (upsert dedupes on the file path) so the player
-  // records watch history / resume and it surfaces in Continue Watching. Stamp
-  // the known TMDB id + canonical name onto the row *now* (we downloaded it for
-  // this exact title) so the next-episode feature — gated on a non-null tmdbId —
-  // works immediately, instead of racing the async match below. The poster is
-  // back-filled by that match.
   final library = getIt<LibraryRepository>();
   await library.upsert(ScannedFile(
     filePath: file,
-    title: title,
-    mediaType: meta.mediaType,
-    season: season,
-    episode: episode,
-    tmdbId: meta.tmdbId,
-    tmdbName: meta.tmdbId == null ? null : meta.title,
+    title: request.title,
+    mediaType: request.meta.mediaType,
+    season: request.season,
+    episode: request.episode,
+    tmdbId: request.meta.tmdbId,
+    tmdbName: request.meta.tmdbId == null ? null : request.meta.title,
   ));
   final libraryItemId = (await library.findByPath(file))?.id;
-
-  // Resolve its TMDB poster + canonical name now rather than waiting for the
-  // next startup match pass — otherwise its Continue Watching tile shows
-  // placeholder art until the app is relaunched. Fire-and-forget; the tile
-  // updates live off the drift stream once TMDB answers.
   if (libraryItemId != null) {
     unawaited(getIt<LibraryMatchService>().matchItem(libraryItemId));
   }
   return (filePath: file, libraryItemId: libraryItemId);
+}
+
+/// Ranked, deduped sources for the "Choose source" picker — episode releases and
+/// the season packs that contain the episode. Empty when nothing verifies or
+/// Jackett isn't up.
+Future<List<SourceCandidate>> sourceCandidates({
+  required ShowMeta meta,
+  int? season,
+  int? episode,
+}) =>
+    getIt<AcquisitionResolver>().candidates(meta, season, episode);
+
+/// Download a **specific** chosen source (from the picker) instead of the
+/// auto-ranked best: discard whatever's currently downloading for this episode,
+/// add the chosen handle, and prepare it. Records it as tried so a later blind
+/// "try another source" skips it. Throws [TorrentDaemonException] on no disk space.
+Future<Prepared> prepareChosenSource({
+  required String title,
+  required ShowMeta meta,
+  int? season,
+  int? episode,
+  required TorrentHandle handle,
+  required void Function(Stream<double>) bindProgress,
+}) async {
+  await _discardCurrentSource(meta, season, episode, title: title);
+  final episodeKey = acquisitionDedupeKey(
+      tmdbId: meta.tmdbId, title: meta.title, season: season, episode: episode);
+  final seasonKey = (season != null && episode != null)
+      ? acquisitionDedupeKey(
+          tmdbId: meta.tmdbId, title: meta.title, season: season)
+      : null;
+  final request =
+      AcquireRequest(title: title, meta: meta, season: season, episode: episode);
+  final session = getIt<AcquisitionSession>();
+  session.recordRequest(episodeKey, request);
+  session.markTried(episodeKey, handle.magnetOrUrl);
+
+  final isEpisode = season != null && episode != null;
+  final savePath = await getIt<StorageManager>().chooseTarget(
+      estimatedBytes: isEpisode ? _episodeEstimateBytes : _movieEstimateBytes);
+  if (savePath == null) {
+    throw TorrentDaemonException('not enough free disk space to download this',
+        kind: TorrentErrorKind.generic);
+  }
+  final addKey = (handle.seasonPack && seasonKey != null) ? seasonKey : episodeKey;
+  if (addKey != episodeKey) session.recordRequest(addKey, request);
+  final task =
+      await getIt<TorrentDaemon>().add(handle, savePath: savePath, dedupeKey: addKey);
+  return _finishPrepared(task, request, bindProgress);
 }
 
 /// Resolve a source for [request] — excluding any already tried this session
