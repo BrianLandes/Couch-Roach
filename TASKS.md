@@ -43,6 +43,19 @@ Follow-up (not done): requires `ALEXA_INBOX_TOKEN` in `dart_define.json` before 
 
 _Queued and ready to pick up._
 
+### Favorite / Want-to-watch for owned movies · `p2`
+
+- [ ] Let a movie be Favorited / Want-to-watch from the screen you actually land on when you own it.
+- **Finding (audit):** the *discovery* movie detail (`movie_detail_screen.dart`) already has `SaveTitleButtons` (Favorite + Want-to-watch, `mediaType: 'movie'`), and the landing **Favorites** / **Want to Watch** rails already render movies (`_savedTile` is media-type-agnostic). The gap is the **owned-movie detail page**: `_openDetail` routes any owned movie to `Routes.libraryDetail` → `LibraryDetailScreen`, which only has Play / Keep / Trailers / Delete — no save toggles. So once a movie is in your library you can't favorite it.
+- **Plan:** add `SaveTitleButtons` to `LibraryDetailScreen`'s action row for a matched movie (gate on `item.tmdbId != null`; `name: item.tmdbName ?? item.title`, `posterPath: item.tmdbPosterPath`). Repo/schema already support it (`SavedTitlesRepository.setFavorite/setWantToWatch`, `mediaType: 'movie'`).
+- **Open Q:** "Want to watch" on a movie you already own is semantically odd (you have it) — Favorite clearly fits. Decide whether to show only Favorite for owned titles, or both. (Owned matched TV already has its save toggles on the show detail page.)
+
+### "Recently downloaded" landing rail · `p2`
+
+- [ ] A new rail near the top of the landing page listing shows / movies with **recently downloaded files**.
+- **Plan:** source from `LibraryItems` ordered by `addedAt` desc, filtered to `managed = true` (files the app acquired via torrent, vs. ones already sitting in a library folder), **grouped by show identity** (`tmdbId`, else clean title) so a show with several freshly-grabbed episodes shows once → map to `DiscoverTile`. Make it live via a drift watch query (`StreamProvider`), like the other library-backed rails, so it updates as downloads land. Tap routes like the library grid (`openShowDetail` for tv, `Routes.libraryDetail` for movie / loose). Place it high — e.g. just under Continue Watching.
+- **Open Qs:** `managed`-only vs. any recently-added file; how "recent" is scoped (last N titles, or a rolling time window); exact placement among the existing rails.
+
 ### Player overlay still strands sometimes after a while · `p2`
 
 - [ ] The title / back / Next Episode overlay still **sometimes** fails to come up after long playback — a recurrence of the bug the paused-persistence + global-key reveal fix (commit 32ef09d) was meant to close.
