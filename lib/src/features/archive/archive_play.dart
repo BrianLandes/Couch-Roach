@@ -89,6 +89,7 @@ Future<Prepared> _prepare({
     filePath: path,
     title: file?.displayName ?? item.title,
     mediaType: 'movie',
+    managed: true, // app-acquired (Internet Archive)
   ));
   final libraryItemId = (await library.findByPath(path))?.id;
   return (filePath: path, libraryItemId: libraryItemId);

@@ -122,6 +122,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with RouteAware {
         ref.watch(favoritesProvider).asData?.value ?? const <SavedTitle>[];
     final wantToWatch =
         ref.watch(wantToWatchProvider).asData?.value ?? const <SavedTitle>[];
+    // Recently-downloaded titles (app-acquired), one tile per show. Only matched
+    // rows become tiles — the poster-tile routing keys off a TMDB id; a rare
+    // still-unmatched download simply waits until it's matched.
+    final recentDownloadTiles = [
+      for (final i
+          in ref.watch(recentlyDownloadedProvider).asData?.value ??
+              const <LibraryItem>[])
+        if (i.tmdbId != null) _recentlyDownloadedTile(i),
+    ];
     final resumable = continueAsync.asData?.value ?? const [];
 
     return Scaffold(
@@ -140,6 +149,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with RouteAware {
                   if (resumable.isNotEmpty)
                     SliverToBoxAdapter(
                         child: _ContinueWatchingRail(entries: resumable)),
+                  if (recentDownloadTiles.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DiscoverRail(
+                        label: 'Recently Downloaded',
+                        tiles: recentDownloadTiles,
+                        limit: null,
+                      ),
+                    ),
                   if (favorites.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _DiscoverRail(
@@ -231,6 +248,16 @@ DiscoverTile _savedTile(SavedTitle s) => DiscoverTile(
       title: s.name,
       mediaType: s.mediaType,
       posterPath: s.posterPath,
+    );
+
+/// Maps a recently-downloaded library row to a poster tile, using the show's
+/// canonical TMDB name/poster (not the episode's) so a series shows once with
+/// its own art. Only called for matched rows (`tmdbId != null`).
+DiscoverTile _recentlyDownloadedTile(LibraryItem i) => DiscoverTile(
+      tmdbId: i.tmdbId!,
+      title: i.tmdbName ?? i.title,
+      mediaType: i.mediaType,
+      posterPath: i.tmdbPosterPath,
     );
 
 /// Opens the detail page for a Continue Watching [item]: a matched TV episode

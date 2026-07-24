@@ -16,3 +16,9 @@ final libraryItemsProvider = StreamProvider<List<LibraryItem>>(
 final continueWatchingProvider = StreamProvider<List<ContinueWatchingEntry>>(
   (ref) => getIt<WatchHistoryRepository>().watchContinueWatching(),
 );
+
+/// Live "Recently Downloaded" feed: app-acquired titles, one entry per show,
+/// most-recently-downloaded first — for the landing rail of the same name.
+final recentlyDownloadedProvider = StreamProvider<List<LibraryItem>>(
+  (ref) => getIt<LibraryRepository>().watchRecentlyDownloaded(),
+);

@@ -14,6 +14,7 @@ import '../discover/show_detail_screen.dart';
 import '../discover/trailer_picker.dart';
 import '../player/player_screen.dart';
 import 'delete_actions.dart';
+import 'save_title_buttons.dart';
 
 /// Profile/detail page for a local library title (per the "tiles open a profile
 /// page, not the player" rule). Shows the poster, file info and watch state, and
@@ -73,6 +74,71 @@ class _LibraryDetailScreenState extends ConsumerState<LibraryDetailScreen> {
         label: Text(item.missing ? 'Remove from library' : 'Delete'),
       );
 
+  /// The action row for a present (non-missing) file. For a **matched movie** the
+  /// Play/Keep/Trailers/Delete buttons ride in `SaveTitleButtons`' leading slot
+  /// so Favorite + Want-to-watch share the same wrapping row — the movie is
+  /// otherwise stranded on this owned-title page with no way to save it (a
+  /// matched TV item instead links out to the show page, which carries its own
+  /// save toggles). Everything else keeps the plain button row.
+  Widget _buildActions({required String? trailerUrl}) {
+    final actions = <Widget>[
+      FilledButton.icon(
+        autofocus: true,
+        onPressed: _play,
+        icon: const Icon(Icons.play_arrow_rounded),
+        label: const Text('Play'),
+      ),
+      // Pin as "keep" so auto-cleanup never deletes it after a watch — for the
+      // couple of rewatch titles.
+      OutlinedButton.icon(
+        onPressed: _toggleKeep,
+        icon: Icon(_keep
+            ? Icons.bookmark_rounded
+            : Icons.bookmark_border_rounded),
+        label: Text(_keep ? 'Kept' : 'Keep'),
+      ),
+      if (trailerUrl != null)
+        OutlinedButton.icon(
+          onPressed: () => showTrailerPicker(
+            context,
+            tmdbId: item.tmdbId!,
+            isTv: !_isMovie,
+            title: item.tmdbName ?? item.title,
+          ),
+          icon: const Icon(Icons.movie_outlined),
+          label: const Text('Trailers'),
+        ),
+      if (_isMatchedTv)
+        OutlinedButton.icon(
+          onPressed: () => context.push(
+            Routes.showDetail,
+            extra: ShowDetailArgs(
+              tmdbId: item.tmdbId!,
+              name: item.tmdbName ?? item.title,
+            ),
+          ),
+          icon: const Icon(Icons.grid_view_rounded),
+          label: const Text('View full show'),
+        ),
+      _deleteButton,
+    ];
+
+    if (_isMatched && _isMovie) {
+      return SaveTitleButtons(
+        tmdbId: item.tmdbId!,
+        mediaType: 'movie',
+        name: item.tmdbName ?? item.title,
+        posterPath: item.tmdbPosterPath,
+        leading: actions,
+      );
+    }
+    return Wrap(
+      spacing: AppSpacing.md,
+      runSpacing: AppSpacing.md,
+      children: actions,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
@@ -115,51 +181,7 @@ class _LibraryDetailScreenState extends ConsumerState<LibraryDetailScreen> {
           const SizedBox(height: AppSpacing.md),
           Align(alignment: Alignment.centerLeft, child: _deleteButton),
         ] else
-          Wrap(
-            spacing: AppSpacing.md,
-            runSpacing: AppSpacing.md,
-            children: [
-              FilledButton.icon(
-                autofocus: true,
-                onPressed: _play,
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: const Text('Play'),
-              ),
-              // Pin as "keep" so auto-cleanup never deletes it after a
-              // watch — for the couple of rewatch titles.
-              OutlinedButton.icon(
-                onPressed: _toggleKeep,
-                icon: Icon(_keep
-                    ? Icons.bookmark_rounded
-                    : Icons.bookmark_border_rounded),
-                label: Text(_keep ? 'Kept' : 'Keep'),
-              ),
-              if (trailerUrl != null)
-                OutlinedButton.icon(
-                  onPressed: () => showTrailerPicker(
-                    context,
-                    tmdbId: item.tmdbId!,
-                    isTv: !_isMovie,
-                    title: item.tmdbName ?? item.title,
-                  ),
-                  icon: const Icon(Icons.movie_outlined),
-                  label: const Text('Trailers'),
-                ),
-              if (_isMatchedTv)
-                OutlinedButton.icon(
-                  onPressed: () => context.push(
-                    Routes.showDetail,
-                    extra: ShowDetailArgs(
-                      tmdbId: item.tmdbId!,
-                      name: item.tmdbName ?? item.title,
-                    ),
-                  ),
-                  icon: const Icon(Icons.grid_view_rounded),
-                  label: const Text('View full show'),
-                ),
-              _deleteButton,
-            ],
-          ),
+          _buildActions(trailerUrl: trailerUrl),
         if (overview.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.xl),
           Text(overview,

@@ -20,6 +20,7 @@ class ScannedFile {
     this.tmdbId,
     this.tmdbName,
     this.tmdbPosterPath,
+    this.managed = false,
   });
 
   final String filePath;
@@ -34,6 +35,11 @@ class ScannedFile {
   final int? tmdbId;
   final String? tmdbName;
   final String? tmdbPosterPath;
+
+  /// True when the app acquired this file (torrent / archive), false for a plain
+  /// disk scan of a file already in a library folder. Stamped on insert and
+  /// preserved across later rescans; powers the "Recently Downloaded" rail.
+  final bool managed;
 }
 
 /// Persists the on-disk library into the `library` table and answers the
@@ -55,6 +61,13 @@ abstract class LibraryRepository {
 
   /// Present (non-missing) items, for the library grid. Live.
   Stream<List<LibraryItem>> watchPresent();
+
+  /// Recently-downloaded titles for the landing "Recently Downloaded" rail:
+  /// app-acquired (`managed`), present files, collapsed to one entry per show
+  /// (matched `tmdbId` + media type, else the clean title) keeping each show's
+  /// most-recent file, ordered by `addedAt` newest-first. Live. [limit] caps how
+  /// many distinct titles are returned.
+  Stream<List<LibraryItem>> watchRecentlyDownloaded({int limit});
 
   /// Every row including missing ones. Live.
   Stream<List<LibraryItem>> watchAll();
@@ -116,12 +129,15 @@ class DriftLibraryRepository implements LibraryRepository {
         tmdbId: Value(f.tmdbId),
         tmdbName: Value(f.tmdbName),
         tmdbPosterPath: Value(f.tmdbPosterPath),
+        managed: Value(f.managed),
       );
 
   // On conflict we refresh only the scan-derived fields (and clear `missing`);
-  // managed / keep / addedAt are preserved. The TMDB identity is stamped only
-  // when this file carries one (an acquire): a plain scan has no tmdbId and must
-  // never clobber an existing match.
+  // keep / addedAt are preserved. The TMDB identity is stamped only when this
+  // file carries one (an acquire): a plain scan has no tmdbId and must never
+  // clobber an existing match. `managed` is likewise one-way — an acquire sets
+  // it true (even if a scan inserted the row first), and a later plain scan
+  // never clears it.
   LibraryItemsCompanion _onConflict(ScannedFile f) => LibraryItemsCompanion(
         title: Value(f.title),
         mediaType: Value(f.mediaType),
@@ -132,6 +148,7 @@ class DriftLibraryRepository implements LibraryRepository {
         tmdbName: f.tmdbId == null ? const Value.absent() : Value(f.tmdbName),
         tmdbPosterPath:
             f.tmdbId == null ? const Value.absent() : Value(f.tmdbPosterPath),
+        managed: f.managed ? const Value(true) : const Value.absent(),
       );
 
   @override
@@ -183,6 +200,38 @@ class DriftLibraryRepository implements LibraryRepository {
           ..where((t) => t.missing.equals(false))
           ..orderBy([(t) => OrderingTerm(expression: t.title)]))
         .watch();
+  }
+
+  @override
+  Stream<List<LibraryItem>> watchRecentlyDownloaded({int limit = 20}) {
+    return (_db.select(_db.libraryItems)
+          ..where((t) => t.managed.equals(true) & t.missing.equals(false))
+          ..orderBy([
+            (t) =>
+                OrderingTerm(expression: t.addedAt, mode: OrderingMode.desc),
+          ]))
+        .watch()
+        .map((rows) => _collapseByShow(rows, limit));
+  }
+
+  /// Keep only the newest row per show identity (rows arrive already sorted
+  /// newest-first), then cap to [limit] distinct titles. A matched title groups
+  /// by `'<mediaType>:<tmdbId>'` (so a show's several fresh episodes fold to one
+  /// entry, and movie/tv id namespaces never collide); an unmatched file falls
+  /// back to its clean lowercased title.
+  List<LibraryItem> _collapseByShow(List<LibraryItem> rows, int limit) {
+    final seen = <String>{};
+    final out = <LibraryItem>[];
+    for (final r in rows) {
+      final key = r.tmdbId != null
+          ? '${r.mediaType}:${r.tmdbId}'
+          : 'title:${r.title.toLowerCase()}';
+      if (seen.add(key)) {
+        out.add(r);
+        if (out.length >= limit) break;
+      }
+    }
+    return out;
   }
 
   @override

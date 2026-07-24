@@ -98,6 +98,7 @@ Future<Prepared> _finishPrepared(
     episode: request.episode,
     tmdbId: request.meta.tmdbId,
     tmdbName: request.meta.tmdbId == null ? null : request.meta.title,
+    managed: true, // app-acquired → surfaces on "Recently Downloaded"
   ));
   final libraryItemId = (await library.findByPath(file))?.id;
   if (libraryItemId != null) {
