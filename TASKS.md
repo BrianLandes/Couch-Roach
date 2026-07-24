@@ -43,7 +43,20 @@ Follow-up (not done): requires `ALEXA_INBOX_TOKEN` in `dart_define.json` before 
 
 _Queued and ready to pick up._
 
-### Add the Couch Roach icon to the launcher · `p4`
+### Player overlay still strands sometimes after a while · `p2`
+
+- [ ] The title / back button / Next Episode overlay still **sometimes** fails to come up after a video has been playing for a while — a recurrence of the bug the paused-persistence + global-key reveal fix was meant to close (commit 32ef09d: `_onPlayingChanged` keeps the overlay up while paused/ended; `HardwareKeyboard` handler reveals on any key; `Listener` reveals on pointer hover/move). So the earlier fix helped but didn't fully solve it.
+- Investigate the still-broken path: (1) does the `HardwareKeyboard` observer stay registered / keep firing after long playback (or does something consume keys first)? (2) is `_controlsVisible` getting stuck `false` while `_isPlaying` stays true, so neither the idle-reveal nor the paused-persistence kicks in? (3) does the media_kit controls' own visibility diverge from ours (theirs shows, ours doesn't) — as in the original report? Consider a belt-and-suspenders: a periodic/`Focus`-based re-assert, or driving our overlay off media_kit's own controls-visible signal instead of a parallel timer. Device-only repro (mouse vs remote both).
+
+### Auto-play the next episode on finish (or make the Next Episode button reliable) · `p2`
+
+- [ ] After an episode finishes it sometimes doesn't move on to the next — reported especially when the next episode is **already downloaded when the current one starts**.
+- **Finding:** there is **no auto-advance in the code today** — `stream.completed` only calls `_markCompleted` (records history + seeds Continue Watching); playing the next episode is the manual **"Play Next Episode"** button (`onPlayLocal` → `_openEpisode` → `pushReplacement`). So "sometimes doesn't auto-play" is either (a) a request to actually **auto-advance on completion when the next episode is local** (note: credits-detection auto-advance was deliberately dropped earlier in favor of the button — decide whether on-*completion* auto-advance is wanted, distinct from mid-credits), or (b) the **Next Episode button not appearing** — which overlaps the overlay-stranding task above (if the overlay doesn't come up, the button can't be tapped). Clarify with the user which behavior they want. If (a): trigger `_openEpisode(_nextLocalItem!)` from the completed listener when `_nextLocalItem != null`, guard against double-fire, and make it opt-out-able. The "already downloaded at start" clue points at `_resolveNextEpisode` / `_nextLocalItem` timing.
+
+### "Not interested" — hide a show/movie from the landing page · `p2`
+
+- [ ] A way to flag a show/movie as **Not interested** so it's dropped from *all* landing-page rows (recommendations, trending TV/movies, personalized "Because you watch …" genre rows, New Episodes, Popular, Free-to-watch/archive) but **still appears in search**.
+- Design: a per-title flag keyed by `{tmdbId, mediaType}` — fits **`SavedTitles`** as a nullable `notInterestedAt` column (schemaVersion bump + migration), mirroring the `keptAt`/`favoritedAt`/`wantToWatchAt` pattern and `SavedTitlesRepository.setKeep`. Add `setNotInterested(...)` + a live `notInterestedIds` set the landing providers subtract from their `DiscoverTile` lists (like `ownedTmdbIdsProvider` already does for owned titles). Search providers (`tmdbSearchProvider`) do **not** filter it. UI: a "Not interested" action on a discovery tile (long-press / context menu) and/or the movie/show detail page. Consider an unhide path (Settings "show N hidden titles again", like the personalized-genre reset).
 
 - [ ] Add the app icon to the Windows launcher.
 
