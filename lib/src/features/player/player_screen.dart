@@ -493,7 +493,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     messenger.showSnackBar(const SnackBar(
         content: Text('Searching for English subtitles…')));
 
-    final result = await _downloadAndSelectEnglish();
+    // Force a fresh fetch: the user asks manually precisely when what's already
+    // there (e.g. an empty embedded English track) isn't working, so skip the
+    // "already has English" short-circuit and pull a real transcript.
+    final result = await _downloadAndSelectEnglish(force: true);
     if (!mounted) return;
     setState(() => _subtitlesDownloading = false);
 
@@ -511,20 +514,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   /// Ask the subtitle service for an English track (skip-check → search →
   /// download → `<name>.en.srt`), then make sure an English subtitle is actually
-  /// *selected* for display: an already-present track (embedded, or a sidecar
-  /// libmpv auto-loaded) is switched on if it isn't already, otherwise the
-  /// freshly-downloaded sidecar is loaded + selected. Returns what happened so a
-  /// caller can report it. Best-effort; a failure here never disrupts playback.
-  Future<_SubtitleFetchResult> _downloadAndSelectEnglish() async {
+  /// *selected* for display. A freshly-downloaded sidecar wins: it's loaded +
+  /// selected ahead of any embedded track, so a real transcript replaces an
+  /// empty/broken embedded one. Only when nothing was downloaded do we fall back
+  /// to switching on an English track libmpv already exposes. Returns what
+  /// happened so a caller can report it. Best-effort; a failure here never
+  /// disrupts playback.
+  ///
+  /// [force] is passed through to the fetch to bypass the "already has English"
+  /// skip-check (the manual download path).
+  Future<_SubtitleFetchResult> _downloadAndSelectEnglish(
+      {bool force = false}) async {
     final log = getIt<ErrorLogService>();
     try {
-      final srtPath =
-          await getIt<SubtitleService>().ensureEnglish(widget.filePath);
+      final srtPath = await getIt<SubtitleService>()
+          .ensureEnglish(widget.filePath, force: force);
       if (!mounted) return _SubtitleFetchResult.none;
 
-      // If libmpv already exposes an English track — an embedded stream, or a
-      // sidecar it auto-loaded — select it if it isn't the active one. mpv
-      // won't necessarily display it on its own, so we turn it on explicitly.
+      // A downloaded (or existing) sidecar is the transcript we trust most —
+      // load + select it directly, so a fresh fetch replaces an empty embedded
+      // English track rather than losing out to it below. libmpv doesn't pick up
+      // a sidecar written mid-playback on its own, so we add it explicitly.
+      if (srtPath != null) {
+        await _player.setSubtitleTrack(
+          SubtitleTrack.uri(srtPath, title: 'English', language: 'en'),
+        );
+        log.info('Loaded + selected English subtitles: $srtPath',
+            source: 'PlayerScreen.ensureSubtitles');
+        return _SubtitleFetchResult.downloaded;
+      }
+
+      // Nothing downloaded. If libmpv already exposes an English track — an
+      // embedded stream, or a sidecar it auto-loaded — select it if it isn't the
+      // active one. mpv won't necessarily display it on its own.
       final english = _player.state.tracks.subtitle
           .where((s) => SubtitleSkipCheck.isEnglish(s.language, s.title))
           .toList();
@@ -549,18 +571,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return _SubtitleFetchResult.selectedExisting;
       }
 
-      if (srtPath == null) {
-        log.info('no English subtitles available (none found or downloaded)',
-            source: 'PlayerScreen.ensureSubtitles');
-        return _SubtitleFetchResult.none;
-      }
-
-      await _player.setSubtitleTrack(
-        SubtitleTrack.uri(srtPath, title: 'English', language: 'en'),
-      );
-      log.info('Loaded + selected English subtitles: $srtPath',
+      log.info('no English subtitles available (none found or downloaded)',
           source: 'PlayerScreen.ensureSubtitles');
-      return _SubtitleFetchResult.downloaded;
+      return _SubtitleFetchResult.none;
     } catch (e, st) {
       log.logError(e, stackTrace: st, source: 'PlayerScreen.ensureSubtitles');
       return _SubtitleFetchResult.error;

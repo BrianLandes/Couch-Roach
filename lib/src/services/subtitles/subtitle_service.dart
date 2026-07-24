@@ -9,7 +9,18 @@ abstract class SubtitleService {
   /// Ensure an English sidecar exists for [videoPath]. Returns the srt path if
   /// one is present or was downloaded, else null (e.g. no match, or deferred by
   /// quota). Used on-demand right before playback.
-  Future<String?> ensureEnglish(String videoPath, {int? tmdbId, int? season, int? episode});
+  ///
+  /// [force] bypasses the "already has English" skip-check and searches +
+  /// downloads a fresh transcript regardless — the manual "Download English
+  /// subtitles" path uses it, since the user asks precisely when the embedded /
+  /// existing track isn't working (e.g. an empty English stream).
+  Future<String?> ensureEnglish(
+    String videoPath, {
+    int? tmdbId,
+    int? season,
+    int? episode,
+    bool force = false,
+  });
 
   /// Work through a bounded batch of library items that still need English
   /// subtitles, respecting the daily download budget and stopping early if the

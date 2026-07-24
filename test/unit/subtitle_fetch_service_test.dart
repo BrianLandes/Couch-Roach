@@ -132,6 +132,31 @@ void main() {
     expect(need.where((e) => e.id == id), isEmpty);
   });
 
+  test('force bypasses the skip-check and downloads even with English present',
+      () async {
+    // The empty-embedded-English case: skip-check says "has English", but the
+    // manual (force) path must still fetch a real transcript.
+    final path = '${tmp.path}/Empty.mkv';
+    final id = await addItem(path);
+    final service = build(
+      hasEnglish: true, // skip-check would normally short-circuit
+      searchResult: _result(99),
+      download: DownloadResponse(link: 'https://dl.example/real.srt'),
+      httpClient: MockClient((_) async =>
+          http.Response('1\n00:00:01,000 --> 00:00:02,000\nReal\n', 200)),
+    );
+
+    final result = await service.ensureEnglish(path, force: true);
+
+    final expected = '${tmp.path}/Empty.en.srt';
+    expect(result, expected);
+    expect(File(expected).readAsStringSync(), contains('Real'));
+    expect(await attempts.downloadsToday(), 1);
+    // The item is no longer stuck as "present".
+    final need = await attempts.itemsNeedingSubtitles();
+    expect(need.where((e) => e.id == id), isEmpty);
+  });
+
   test('a found subtitle is downloaded and saved as <name>.en.srt', () async {
     final path = '${tmp.path}/Film.mkv';
     await addItem(path);

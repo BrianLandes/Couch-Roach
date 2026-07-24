@@ -72,6 +72,7 @@ class OpenSubtitlesSubtitleService implements SubtitleService {
     int? tmdbId,
     int? season,
     int? episode,
+    bool force = false,
   }) async {
     final item = await _library.findByPath(videoPath);
     final outcome = await _ensure(
@@ -80,6 +81,7 @@ class OpenSubtitlesSubtitleService implements SubtitleService {
       tmdbId: tmdbId,
       season: season,
       episode: episode,
+      force: force,
     );
     return outcome.path;
   }
@@ -93,10 +95,13 @@ class OpenSubtitlesSubtitleService implements SubtitleService {
     int? tmdbId,
     int? season,
     int? episode,
+    bool force = false,
   }) async {
     try {
-      // Already have English (embedded or a sidecar)? Nothing to fetch.
-      if (await _skip.hasEnglish(videoPath)) {
+      // Already have English (embedded or a sidecar)? Nothing to fetch — unless
+      // [force], where the caller wants a fresh transcript regardless (e.g. the
+      // embedded English track is empty and renders nothing).
+      if (!force && await _skip.hasEnglish(videoPath)) {
         await _record(item, SubtitleAttemptStatus.present);
         return (
           path: SubtitleSkipCheck.englishSidecarPath(videoPath),
