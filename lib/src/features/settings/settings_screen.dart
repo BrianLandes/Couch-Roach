@@ -105,6 +105,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onChanged: (v) => _set(_settings.setAutoDownloadSubtitles(v)),
               ),
               _ToggleRow(
+                title: 'Auto-play next episode',
+                subtitle:
+                    'When an episode ends, start the next one automatically if '
+                    "it's already downloaded.",
+                value: _settings.autoPlayNextEpisode,
+                onChanged: (v) => _set(_settings.setAutoPlayNextEpisode(v)),
+              ),
+              _ToggleRow(
                 title: 'Prefer surround sound',
                 subtitle: 'Pick the widest audio track (5.1/7.1) when available.',
                 value: _settings.preferSurroundAudio,

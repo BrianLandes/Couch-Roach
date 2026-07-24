@@ -19,6 +19,7 @@ class SettingsService extends ChangeNotifier {
 
   // Keys.
   static const _kAutoSubs = 'autoDownloadSubtitles';
+  static const _kAutoPlayNext = 'autoPlayNextEpisode';
   static const _kRequireVpn = 'requireVpn';
   static const _kCleanupEnabled = 'cleanupEnabled';
   static const _kCleanupGraceDays = 'cleanupGraceDays';
@@ -42,6 +43,10 @@ class SettingsService extends ChangeNotifier {
 
   /// Auto-fetch English subtitles when a title is scanned / played.
   bool get autoDownloadSubtitles => _boolOr(_kAutoSubs, true);
+
+  /// When a TV episode finishes, automatically play the next one if it's already
+  /// downloaded (binge behaviour). On by default.
+  bool get autoPlayNextEpisode => _boolOr(_kAutoPlayNext, true);
 
   /// Require the VPN tunnel to be up before streaming/acquiring.
   bool get requireVpn => _boolOr(_kRequireVpn, false);
@@ -95,6 +100,7 @@ class SettingsService extends ChangeNotifier {
   // ── setters ─────────────────────────────────────────────────────────────────
 
   Future<void> setAutoDownloadSubtitles(bool v) => _setBool(_kAutoSubs, v);
+  Future<void> setAutoPlayNextEpisode(bool v) => _setBool(_kAutoPlayNext, v);
   Future<void> setRequireVpn(bool v) => _setBool(_kRequireVpn, v);
   Future<void> setCleanupEnabled(bool v) => _setBool(_kCleanupEnabled, v);
   Future<void> setCleanupGraceDays(int v) => _setString(_kCleanupGraceDays, '$v');

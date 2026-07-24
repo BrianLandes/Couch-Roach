@@ -45,13 +45,13 @@ _Queued and ready to pick up._
 
 ### Player overlay still strands sometimes after a while · `p2`
 
-- [ ] The title / back button / Next Episode overlay still **sometimes** fails to come up after a video has been playing for a while — a recurrence of the bug the paused-persistence + global-key reveal fix was meant to close (commit 32ef09d: `_onPlayingChanged` keeps the overlay up while paused/ended; `HardwareKeyboard` handler reveals on any key; `Listener` reveals on pointer hover/move). So the earlier fix helped but didn't fully solve it.
-- Investigate the still-broken path: (1) does the `HardwareKeyboard` observer stay registered / keep firing after long playback (or does something consume keys first)? (2) is `_controlsVisible` getting stuck `false` while `_isPlaying` stays true, so neither the idle-reveal nor the paused-persistence kicks in? (3) does the media_kit controls' own visibility diverge from ours (theirs shows, ours doesn't) — as in the original report? Consider a belt-and-suspenders: a periodic/`Focus`-based re-assert, or driving our overlay off media_kit's own controls-visible signal instead of a parallel timer. Device-only repro (mouse vs remote both).
+- [ ] The title / back / Next Episode overlay still **sometimes** fails to come up after long playback — a recurrence of the bug the paused-persistence + global-key reveal fix (commit 32ef09d) was meant to close.
+- **Stab taken** (unverified — device-only, intermittent): broadened the reveal to a canonical `MouseRegion` (`onEnter`/`onHover`, fires even when the raw Listener's hover is shadowed by media_kit's own regions) layered over the existing `Listener` (hover/move + now pointer-signal/scroll), plus the existing `HardwareKeyboard` key reveal and play-state persistence. **Needs on-device confirmation it actually fixes it.**
+- If it recurs, go deeper: (1) does `_controlsVisible` get stuck `false` while `_isPlaying` stays true (neither idle-reveal nor paused-persistence kicks in)? (2) does media_kit's own controls visibility diverge from ours (theirs shows, ours doesn't)? Consider driving our overlay off media_kit's own controls-visible signal instead of a parallel timer, or a periodic re-assert. Repro on both mouse and remote.
 
-### Auto-play the next episode on finish (or make the Next Episode button reliable) · `p2`
+### Manually trigger "find subtitles" from the player even when auto is on · `p3`
 
-- [ ] After an episode finishes it sometimes doesn't move on to the next — reported especially when the next episode is **already downloaded when the current one starts**.
-- **Finding:** there is **no auto-advance in the code today** — `stream.completed` only calls `_markCompleted` (records history + seeds Continue Watching); playing the next episode is the manual **"Play Next Episode"** button (`onPlayLocal` → `_openEpisode` → `pushReplacement`). So "sometimes doesn't auto-play" is either (a) a request to actually **auto-advance on completion when the next episode is local** (note: credits-detection auto-advance was deliberately dropped earlier in favor of the button — decide whether on-*completion* auto-advance is wanted, distinct from mid-credits), or (b) the **Next Episode button not appearing** — which overlaps the overlay-stranding task above (if the overlay doesn't come up, the button can't be tapped). Clarify with the user which behavior they want. If (a): trigger `_openEpisode(_nextLocalItem!)` from the completed listener when `_nextLocalItem != null`, guard against double-fire, and make it opt-out-able. The "already downloaded at start" clue points at `_resolveNextEpisode` / `_nextLocalItem` timing.
+- [ ] The right-click **"Download English subtitles"** item only shows when auto-download is **off** (`player_screen.dart`: `if (widget.libraryItemId != null && !getIt<SettingsService>().autoDownloadSubtitles)`). But auto can be *on* and still leave a bad/empty English track (auto picked an empty/forced sidecar or an embedded stub). Make the manual fetch reachable regardless of the setting so the user can force a re-search. Trivial: drop the `!autoDownloadSubtitles` gate (keep the library-item + OpenSubtitles-key guards). Consider also offering it in the player's Subtitles submenu, and having `_manualDownloadSubtitles` prefer a *different* result than the currently-selected empty track (it already re-runs the OpenSubtitles search).
 
 ### "Not interested" — hide a show/movie from the landing page · `p2`
 
@@ -114,6 +114,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Auto-play the next episode when one finishes · `p2`
+
+- [x] There was no auto-advance — the next episode was a manual button. Now, when a TV episode finishes (`stream.completed`), the player rolls straight into the next one if it's **already downloaded** (`_maybeAutoAdvance` → `_openEpisode(_nextLocalItem)`), guarded to fire once and only for a local TV episode. Off-switch: a "Auto-play next episode" toggle in Settings → Playback (`SettingsService.autoPlayNextEpisode`, default on). When the next isn't on disk yet, the "Play Next Episode" button still stands in. Device-verify.
 
 ### "Choose source" picker + dedupe torrent candidates · `p3`
 

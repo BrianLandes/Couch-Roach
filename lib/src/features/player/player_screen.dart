@@ -149,6 +149,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int? _nextTmdbId;
   LibraryItem? _nextLocalItem;
   bool _nextDownloadRequested = false;
+  // Guards the on-completion auto-advance so it fires at most once per player.
+  bool _autoAdvanced = false;
 
   // Mirror the media_kit controls' auto-hide so the "Next Episode" button fades
   // in and out together with them: any pointer activity reveals it, and 3s of
@@ -248,7 +250,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
       }));
       _subs.add(_player.stream.completed.listen((done) {
-        if (done) _markCompleted();
+        if (done) {
+          _markCompleted();
+          _maybeAutoAdvance();
+        }
       }));
       // Track play state so the overlay stays up while paused/ended.
       _subs.add(_player.stream.playing.listen(_onPlayingChanged));
@@ -729,6 +734,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
         libraryItemId: next.id,
       ),
     );
+  }
+
+  /// When an episode finishes, roll straight into the next one if it's already
+  /// downloaded (binge) — the auto counterpart to the "Play Next Episode" button.
+  /// Fires at most once, only for a local TV episode, and only when the setting
+  /// is on and the next episode is actually on disk (else the button stands in,
+  /// offering to download it).
+  void _maybeAutoAdvance() {
+    if (_autoAdvanced || _isNetworkSource || !_isTvEpisode) return;
+    if (!getIt<SettingsService>().autoPlayNextEpisode) return;
+    final next = _nextLocalItem;
+    if (next == null) return;
+    _autoAdvanced = true;
+    _openEpisode(next);
   }
 
   /// Resolve the episode that follows the current one — and whether it's already
@@ -1489,18 +1508,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ],
                   ),
           ),
-          // Translucent hover catcher over the whole player: any pointer move
-          // reveals the overlay (and resets its idle-hide timer), so the Next
-          // Episode button fades in/out in step with the media_kit controls.
-          // Translucent + no gesture recognizers → taps, double-taps and the
-          // right-click menu still pass straight through to the video below.
+          // Activity catcher over the whole player: any pointer activity reveals
+          // the overlay (and resets its idle-hide timer), so the back/Next
+          // Episode buttons come up whenever the media_kit controls would.
+          // A MouseRegion (canonical hover, fires even when the raw Listener's
+          // hover is shadowed by media_kit's own regions) is layered with the
+          // Listener for move/scroll. Both are non-opaque / translucent with no
+          // gesture recognizers, so taps, double-taps and the right-click menu
+          // still pass straight through to the video below — and taps reveal the
+          // overlay anyway via the play/pause state change. Key presses (a
+          // remote) reveal it through the global HardwareKeyboard handler.
           if (_error == null)
             Positioned.fill(
-              child: Listener(
-                behavior: HitTestBehavior.translucent,
-                onPointerHover: (_) => _revealControls(),
-                onPointerMove: (_) => _revealControls(),
-                child: const SizedBox.expand(),
+              child: MouseRegion(
+                opaque: false,
+                onEnter: (_) => _revealControls(),
+                onHover: (_) => _revealControls(),
+                child: Listener(
+                  behavior: HitTestBehavior.translucent,
+                  onPointerHover: (_) => _revealControls(),
+                  onPointerMove: (_) => _revealControls(),
+                  onPointerSignal: (_) => _revealControls(),
+                  child: const SizedBox.expand(),
+                ),
               ),
             ),
           // Our own top bar (back + title), fading with the controls. Rendered
