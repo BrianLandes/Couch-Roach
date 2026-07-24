@@ -1473,10 +1473,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 onPressed: _showCast,
                                 child: const Text('Who’s in this?'),
                               ),
-                            // Manual subtitle fetch — surfaced when auto-download
-                            // is off, so subtitles can still be pulled on demand.
+                            // Manual subtitle fetch — always available (not just
+                            // when auto-download is off): auto can be on yet still
+                            // leave a bad/empty English track, so the user needs a
+                            // way to force a re-search. Shown whenever there's a
+                            // library item + an OpenSubtitles key to search with.
                             if (widget.libraryItemId != null &&
-                                !getIt<SettingsService>().autoDownloadSubtitles)
+                                const AppConfig().hasOpenSubtitlesKey)
                               MenuItemButton(
                                 leadingIcon: _subtitlesDownloading
                                     ? const SizedBox(

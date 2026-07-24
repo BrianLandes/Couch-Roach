@@ -49,10 +49,6 @@ _Queued and ready to pick up._
 - **Stab taken** (unverified — device-only, intermittent): broadened the reveal to a canonical `MouseRegion` (`onEnter`/`onHover`, fires even when the raw Listener's hover is shadowed by media_kit's own regions) layered over the existing `Listener` (hover/move + now pointer-signal/scroll), plus the existing `HardwareKeyboard` key reveal and play-state persistence. **Needs on-device confirmation it actually fixes it.**
 - If it recurs, go deeper: (1) does `_controlsVisible` get stuck `false` while `_isPlaying` stays true (neither idle-reveal nor paused-persistence kicks in)? (2) does media_kit's own controls visibility diverge from ours (theirs shows, ours doesn't)? Consider driving our overlay off media_kit's own controls-visible signal instead of a parallel timer, or a periodic re-assert. Repro on both mouse and remote.
 
-### Manually trigger "find subtitles" from the player even when auto is on · `p3`
-
-- [ ] The right-click **"Download English subtitles"** item only shows when auto-download is **off** (`player_screen.dart`: `if (widget.libraryItemId != null && !getIt<SettingsService>().autoDownloadSubtitles)`). But auto can be *on* and still leave a bad/empty English track (auto picked an empty/forced sidecar or an embedded stub). Make the manual fetch reachable regardless of the setting so the user can force a re-search. Trivial: drop the `!autoDownloadSubtitles` gate (keep the library-item + OpenSubtitles-key guards). Consider also offering it in the player's Subtitles submenu, and having `_manualDownloadSubtitles` prefer a *different* result than the currently-selected empty track (it already re-runs the OpenSubtitles search).
-
 ### "Not interested" — hide a show/movie from the landing page · `p2`
 
 - [ ] A way to flag a show/movie as **Not interested** so it's dropped from *all* landing-page rows (recommendations, trending TV/movies, personalized "Because you watch …" genre rows, New Episodes, Popular, Free-to-watch/archive) but **still appears in search**.
@@ -114,6 +110,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Manual "find subtitles" from the player, even when auto is on · `p3`
+
+- [x] The player's right-click "Download English subtitles" item was gated on auto-download being *off*. But auto can be on and still leave a bad/empty English track, with no way to force a re-search. Now shown whenever there's a library item + an OpenSubtitles key (dropped the `!autoDownloadSubtitles` gate). `_manualDownloadSubtitles` already re-runs the OpenSubtitles search and reports the outcome.
 
 ### Auto-play the next episode when one finishes · `p2`
 
