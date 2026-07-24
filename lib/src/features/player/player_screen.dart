@@ -192,7 +192,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // persisted on the library row so a re-watch stays corrected. Range is
   // clamped to ±10s in the editor.
   int _subtitleOffsetMs = 0;
-  static const _subtitleOffsetLimit = 10000;
+  static const _subtitleOffsetLimit = 100000; // ±100s
 
   @override
   void initState() {
@@ -1263,7 +1263,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  /// Dialog to nudge the subtitle timing offset (±10s, in ms). Applies live as
+  /// Dialog to nudge the subtitle timing offset (±100s, in ms). Applies live as
   /// the value changes; persists once when dismissed.
   Future<void> _openSubtitleOffsetDialog() async {
     _subtitleMenuController.close();
@@ -1299,7 +1299,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   const SizedBox(height: AppSpacing.md),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: [step(-1000), step(-100), step(-10)],
+                    children: [step(-10000), step(-1000), step(-100), step(-10)],
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   SizedBox(
@@ -1323,7 +1323,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   const SizedBox(height: AppSpacing.sm),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: [step(10), step(100), step(1000)],
+                    children: [step(10), step(100), step(1000), step(10000)],
                   ),
                 ],
               ),
