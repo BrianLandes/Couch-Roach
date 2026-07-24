@@ -118,6 +118,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // English, then the widest layout). After that the user is free to change it
   // from the right-click "Audio" menu and we won't override their choice.
   bool _audioAutoSelected = false;
+  // Restore of a saved manual subtitle choice runs once (in _onTracks); this
+  // guards against re-applying it after the user changes tracks mid-playback.
+  bool _subtitleRestored = false;
+  // Set at open when the file has a saved manual subtitle choice that the auto-
+  // English fetch must NOT override — an embedded track or "off" (a sidecar
+  // choice is left to the auto path, which reloads the same .en.srt).
+  bool _suppressAutoSubtitleSelect = false;
   // Audio tracks libmpv exposes and the active one, mirrored from the player
   // streams so the right-click "Audio" menu lists the real, current options.
   List<AudioTrack> _audioTracks = const [];
@@ -222,6 +229,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final item = await _library.findById(id);
         _currentItem = item;
         _subtitleOffsetMs = item?.subtitleOffsetMs ?? 0;
+        // A saved manual subtitle choice that isn't a sidecar (an embedded track
+        // or "off") must win over the auto-English fetch — suppress it. A sidecar
+        // choice is restored by letting the auto path reload the same .en.srt.
+        final subPref = item?.preferredSubtitleTrackId;
+        _suppressAutoSubtitleSelect =
+            subPref == 'no' || (subPref != null && !_isSidecarSubId(subPref));
         // Compose the fullest title from the row now (show + SxxExx, or a clean
         // movie name); the episode name is added later by _loadCreditsMeta.
         _refreshDisplayTitle();
@@ -424,6 +437,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // ad-hoc streams have no library item (and no local file to hash/search).
     if (widget.libraryItemId == null) {
       log.info('subtitles skipped: no library item (trailer/ad-hoc stream)',
+          source: 'PlayerScreen.ensureSubtitles');
+      return;
+    }
+    if (_suppressAutoSubtitleSelect) {
+      log.info(
+          'subtitles: honoring the saved manual track choice — skipping the '
+          'auto-English fetch',
           source: 'PlayerScreen.ensureSubtitles');
       return;
     }
@@ -901,6 +921,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       setState(() => _audioTracks = audio);
     }
 
+    // A saved manual choice wins over the auto-pick — restore it (once) as soon
+    // as its target track is available, before the auto-audio block runs.
+    _restorePreferredTracks(tracks);
+
     if (_audioAutoSelected) return;
     if (audio.length < 2) return;
 
@@ -932,6 +956,57 @@ class _PlayerScreenState extends State<PlayerScreen> {
       source: 'PlayerScreen',
     );
   }
+
+  /// Restore the user's saved *manual* audio / subtitle choices (once each),
+  /// overriding the auto-pick. Audio and embedded-subtitle tracks are matched by
+  /// libmpv id; "off" is honored (its fetch already suppressed at open); a
+  /// sidecar subtitle is left to the auto path, which reloads the same `.en.srt`
+  /// and selects it. Called on every tracks update until each is restored, since
+  /// embedded streams and a loaded sidecar appear at different times.
+  void _restorePreferredTracks(Tracks tracks) {
+    final item = _currentItem;
+    if (item == null) return;
+
+    final audioPref = item.preferredAudioTrackId;
+    if (!_audioAutoSelected && audioPref != null) {
+      final matches = tracks.audio.where((t) => t.id == audioPref);
+      if (matches.isNotEmpty) {
+        _audioAutoSelected = true; // manual choice wins over the auto-pick
+        if (_player.state.track.audio.id != audioPref) {
+          _player.setAudioTrack(matches.first);
+        }
+      }
+    }
+
+    final subPref = item.preferredSubtitleTrackId;
+    if (!_subtitleRestored && subPref != null) {
+      if (subPref == 'no') {
+        _subtitleRestored = true;
+        if (_player.state.track.subtitle.id != 'no') {
+          _player.setSubtitleTrack(SubtitleTrack.no());
+        }
+      } else if (!_isSidecarSubId(subPref)) {
+        final matches = tracks.subtitle.where((t) => t.id == subPref);
+        if (matches.isNotEmpty) {
+          _subtitleRestored = true;
+          if (_player.state.track.subtitle.id != subPref) {
+            _player.setSubtitleTrack(matches.first);
+          }
+        }
+      }
+      // A sidecar pref (a file path) is restored by the auto path reloading it.
+    }
+  }
+
+  /// A subtitle-track id that names a sidecar file (its path — how media_kit
+  /// keys a `SubtitleTrack.uri`) rather than an embedded stream (a small
+  /// integer). Sidecar paths are deterministic, so the id is stable across
+  /// sessions, but the sidecar only exists once the auto path reloads it.
+  bool _isSidecarSubId(String id) =>
+      id.endsWith('.srt') ||
+      id.endsWith('.vtt') ||
+      id.contains('/') ||
+      id.contains(r'\');
 
   // Only real, selectable tracks — skip the synthetic "auto"/"no" entries.
   List<AudioTrack> _selectableAudio(List<AudioTrack> audio) => audio
@@ -995,6 +1070,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     try {
       await _player.setAudioTrack(track);
       if (mounted) setState(() => _selectedAudio = track);
+      unawaited(_persistPreferredTrack(audioTrackId: track.id));
       getIt<ErrorLogService>().info(
         'User selected audio: ${_audioLabel(track)} (id=${track.id})',
         source: 'PlayerScreen',
@@ -1187,6 +1263,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     try {
       await _player.setSubtitleTrack(track);
       if (mounted) setState(() => _selectedSubtitle = track);
+      // Remember the manual choice for this file; a later manual choice (incl.
+      // the auto-English fetch being overridden) keeps whatever the user last
+      // picked. Skip the synthetic "auto" — it means "no explicit choice".
+      if (track.id != 'auto') {
+        unawaited(_persistPreferredTrack(subtitleTrackId: track.id));
+      }
       getIt<ErrorLogService>().info(
         'User selected subtitle: ${_subtitleLabel(track)} (id=${track.id})',
         source: 'PlayerScreen',
@@ -1245,6 +1327,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final clamped = ms.clamp(-_subtitleOffsetLimit, _subtitleOffsetLimit);
     if (mounted) setState(() => _subtitleOffsetMs = clamped);
     unawaited(_applySubtitleDelay(clamped));
+  }
+
+  /// Persist the user's manual audio / subtitle track choice for this file so
+  /// it's restored on the next play and overrides the auto-pick. No-op for
+  /// ad-hoc streams that have no library item.
+  Future<void> _persistPreferredTrack({
+    String? audioTrackId,
+    String? subtitleTrackId,
+  }) async {
+    final id = widget.libraryItemId;
+    if (id == null) return;
+    try {
+      if (audioTrackId != null) {
+        await _library.setPreferredAudioTrack(id, audioTrackId);
+      }
+      if (subtitleTrackId != null) {
+        await _library.setPreferredSubtitleTrack(id, subtitleTrackId);
+      }
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.persistTrack');
+    }
   }
 
   /// Persist the current offset on the library row (per title). No-op for

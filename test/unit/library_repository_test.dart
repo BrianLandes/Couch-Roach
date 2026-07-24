@@ -203,6 +203,28 @@ void main() {
     });
   });
 
+  test('preferred audio/subtitle track ids persist and clear', () async {
+    await repo.upsert(movie('/m/a.mkv', 'A'));
+    final id = (await repo.findByPath('/m/a.mkv'))!.id;
+
+    // Default: no manual choice recorded.
+    var row = await repo.findById(id);
+    expect(row!.preferredAudioTrackId, isNull);
+    expect(row.preferredSubtitleTrackId, isNull);
+
+    await repo.setPreferredAudioTrack(id, '2');
+    await repo.setPreferredSubtitleTrack(id, 'no'); // subtitles off
+    row = await repo.findById(id);
+    expect(row!.preferredAudioTrackId, '2');
+    expect(row.preferredSubtitleTrackId, 'no');
+
+    // Passing null clears the choice (back to auto).
+    await repo.setPreferredAudioTrack(id, null);
+    row = await repo.findById(id);
+    expect(row!.preferredAudioTrackId, isNull);
+    expect(row.preferredSubtitleTrackId, 'no'); // unaffected
+  });
+
   test('a plain scan never clobbers an existing TMDB match', () async {
     // First, an acquire stamps the match.
     await repo.upsert(const ScannedFile(

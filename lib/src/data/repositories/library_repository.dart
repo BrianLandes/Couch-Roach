@@ -80,6 +80,16 @@ abstract class LibraryRepository {
   /// mpv's `sub-delay` on playback. Kept per file so a re-watch stays corrected.
   Future<void> setSubtitleOffset(int id, int offsetMs);
 
+  /// Persist the user's *manual* audio-track choice (a libmpv track id) for a
+  /// file, restored on the next play and overriding the auto-pick. Null clears
+  /// it (back to auto).
+  Future<void> setPreferredAudioTrack(int id, String? trackId);
+
+  /// Persist the user's *manual* subtitle-track choice (a libmpv track id, or
+  /// `'no'` for off) for a file, restored on the next play and overriding the
+  /// auto-English pick. Null clears it (back to auto).
+  Future<void> setPreferredSubtitleTrack(int id, String? trackId);
+
   /// Present items not yet matched to a TMDB id (for back-fill).
   Future<List<LibraryItem>> unmatched();
 
@@ -260,6 +270,18 @@ class DriftLibraryRepository implements LibraryRepository {
   Future<void> setSubtitleOffset(int id, int offsetMs) async {
     await (_db.update(_db.libraryItems)..where((t) => t.id.equals(id)))
         .write(LibraryItemsCompanion(subtitleOffsetMs: Value(offsetMs)));
+  }
+
+  @override
+  Future<void> setPreferredAudioTrack(int id, String? trackId) async {
+    await (_db.update(_db.libraryItems)..where((t) => t.id.equals(id)))
+        .write(LibraryItemsCompanion(preferredAudioTrackId: Value(trackId)));
+  }
+
+  @override
+  Future<void> setPreferredSubtitleTrack(int id, String? trackId) async {
+    await (_db.update(_db.libraryItems)..where((t) => t.id.equals(id)))
+        .write(LibraryItemsCompanion(preferredSubtitleTrackId: Value(trackId)));
   }
 
   @override

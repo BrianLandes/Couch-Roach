@@ -101,6 +101,18 @@ class $LibraryItemsTable extends LibraryItems
       type: DriftSqlType.int,
       requiredDuringInsert: false,
       defaultValue: const Constant(0));
+  static const VerificationMeta _preferredAudioTrackIdMeta =
+      const VerificationMeta('preferredAudioTrackId');
+  @override
+  late final GeneratedColumn<String> preferredAudioTrackId =
+      GeneratedColumn<String>('preferred_audio_track_id', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _preferredSubtitleTrackIdMeta =
+      const VerificationMeta('preferredSubtitleTrackId');
+  @override
+  late final GeneratedColumn<String> preferredSubtitleTrackId =
+      GeneratedColumn<String>('preferred_subtitle_track_id', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _managedMeta =
       const VerificationMeta('managed');
   @override
@@ -154,6 +166,8 @@ class $LibraryItemsTable extends LibraryItems
         audioCodec,
         hasEmbeddedEnSub,
         subtitleOffsetMs,
+        preferredAudioTrackId,
+        preferredSubtitleTrackId,
         managed,
         keep,
         missing,
@@ -240,6 +254,19 @@ class $LibraryItemsTable extends LibraryItems
           subtitleOffsetMs.isAcceptableOrUnknown(
               data['subtitle_offset_ms']!, _subtitleOffsetMsMeta));
     }
+    if (data.containsKey('preferred_audio_track_id')) {
+      context.handle(
+          _preferredAudioTrackIdMeta,
+          preferredAudioTrackId.isAcceptableOrUnknown(
+              data['preferred_audio_track_id']!, _preferredAudioTrackIdMeta));
+    }
+    if (data.containsKey('preferred_subtitle_track_id')) {
+      context.handle(
+          _preferredSubtitleTrackIdMeta,
+          preferredSubtitleTrackId.isAcceptableOrUnknown(
+              data['preferred_subtitle_track_id']!,
+              _preferredSubtitleTrackIdMeta));
+    }
     if (data.containsKey('managed')) {
       context.handle(_managedMeta,
           managed.isAcceptableOrUnknown(data['managed']!, _managedMeta));
@@ -293,6 +320,12 @@ class $LibraryItemsTable extends LibraryItems
           DriftSqlType.bool, data['${effectivePrefix}has_embedded_en_sub'])!,
       subtitleOffsetMs: attachedDatabase.typeMapping.read(
           DriftSqlType.int, data['${effectivePrefix}subtitle_offset_ms'])!,
+      preferredAudioTrackId: attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}preferred_audio_track_id']),
+      preferredSubtitleTrackId: attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}preferred_subtitle_track_id']),
       managed: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}managed'])!,
       keep: attachedDatabase.typeMapping
@@ -335,6 +368,15 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
   /// Persisted per file so a re-watch keeps the correction; 0 means in sync.
   final int subtitleOffsetMs;
 
+  /// The audio / subtitle track the user *manually* chose for this file, as the
+  /// libmpv track id (a subtitle id of `'no'` means "off"). Null until the user
+  /// picks one from the player menu — while null the automatic pick governs
+  /// (surround/language for audio, English fetch for subtitles). Set means the
+  /// choice is restored on every re-watch and overrides the auto-pick. Stored
+  /// per file so each episode/movie remembers its own.
+  final String? preferredAudioTrackId;
+  final String? preferredSubtitleTrackId;
+
   /// Provenance: true when the app acquired this file (torrent), false when it
   /// was already sitting in a library folder. Informational — cleanup eligibility
   /// is driven by library-folder membership + [keep], not this flag.
@@ -366,6 +408,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       this.audioCodec,
       required this.hasEmbeddedEnSub,
       required this.subtitleOffsetMs,
+      this.preferredAudioTrackId,
+      this.preferredSubtitleTrackId,
       required this.managed,
       required this.keep,
       required this.missing,
@@ -403,6 +447,13 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
     }
     map['has_embedded_en_sub'] = Variable<bool>(hasEmbeddedEnSub);
     map['subtitle_offset_ms'] = Variable<int>(subtitleOffsetMs);
+    if (!nullToAbsent || preferredAudioTrackId != null) {
+      map['preferred_audio_track_id'] = Variable<String>(preferredAudioTrackId);
+    }
+    if (!nullToAbsent || preferredSubtitleTrackId != null) {
+      map['preferred_subtitle_track_id'] =
+          Variable<String>(preferredSubtitleTrackId);
+    }
     map['managed'] = Variable<bool>(managed);
     map['keep'] = Variable<bool>(keep);
     map['missing'] = Variable<bool>(missing);
@@ -440,6 +491,12 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           : Value(audioCodec),
       hasEmbeddedEnSub: Value(hasEmbeddedEnSub),
       subtitleOffsetMs: Value(subtitleOffsetMs),
+      preferredAudioTrackId: preferredAudioTrackId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(preferredAudioTrackId),
+      preferredSubtitleTrackId: preferredSubtitleTrackId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(preferredSubtitleTrackId),
       managed: Value(managed),
       keep: Value(keep),
       missing: Value(missing),
@@ -465,6 +522,10 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       audioCodec: serializer.fromJson<String?>(json['audioCodec']),
       hasEmbeddedEnSub: serializer.fromJson<bool>(json['hasEmbeddedEnSub']),
       subtitleOffsetMs: serializer.fromJson<int>(json['subtitleOffsetMs']),
+      preferredAudioTrackId:
+          serializer.fromJson<String?>(json['preferredAudioTrackId']),
+      preferredSubtitleTrackId:
+          serializer.fromJson<String?>(json['preferredSubtitleTrackId']),
       managed: serializer.fromJson<bool>(json['managed']),
       keep: serializer.fromJson<bool>(json['keep']),
       missing: serializer.fromJson<bool>(json['missing']),
@@ -489,6 +550,10 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       'audioCodec': serializer.toJson<String?>(audioCodec),
       'hasEmbeddedEnSub': serializer.toJson<bool>(hasEmbeddedEnSub),
       'subtitleOffsetMs': serializer.toJson<int>(subtitleOffsetMs),
+      'preferredAudioTrackId':
+          serializer.toJson<String?>(preferredAudioTrackId),
+      'preferredSubtitleTrackId':
+          serializer.toJson<String?>(preferredSubtitleTrackId),
       'managed': serializer.toJson<bool>(managed),
       'keep': serializer.toJson<bool>(keep),
       'missing': serializer.toJson<bool>(missing),
@@ -511,6 +576,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           Value<String?> audioCodec = const Value.absent(),
           bool? hasEmbeddedEnSub,
           int? subtitleOffsetMs,
+          Value<String?> preferredAudioTrackId = const Value.absent(),
+          Value<String?> preferredSubtitleTrackId = const Value.absent(),
           bool? managed,
           bool? keep,
           bool? missing,
@@ -531,6 +598,12 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
         audioCodec: audioCodec.present ? audioCodec.value : this.audioCodec,
         hasEmbeddedEnSub: hasEmbeddedEnSub ?? this.hasEmbeddedEnSub,
         subtitleOffsetMs: subtitleOffsetMs ?? this.subtitleOffsetMs,
+        preferredAudioTrackId: preferredAudioTrackId.present
+            ? preferredAudioTrackId.value
+            : this.preferredAudioTrackId,
+        preferredSubtitleTrackId: preferredSubtitleTrackId.present
+            ? preferredSubtitleTrackId.value
+            : this.preferredSubtitleTrackId,
         managed: managed ?? this.managed,
         keep: keep ?? this.keep,
         missing: missing ?? this.missing,
@@ -560,6 +633,12 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       subtitleOffsetMs: data.subtitleOffsetMs.present
           ? data.subtitleOffsetMs.value
           : this.subtitleOffsetMs,
+      preferredAudioTrackId: data.preferredAudioTrackId.present
+          ? data.preferredAudioTrackId.value
+          : this.preferredAudioTrackId,
+      preferredSubtitleTrackId: data.preferredSubtitleTrackId.present
+          ? data.preferredSubtitleTrackId.value
+          : this.preferredSubtitleTrackId,
       managed: data.managed.present ? data.managed.value : this.managed,
       keep: data.keep.present ? data.keep.value : this.keep,
       missing: data.missing.present ? data.missing.value : this.missing,
@@ -584,6 +663,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           ..write('audioCodec: $audioCodec, ')
           ..write('hasEmbeddedEnSub: $hasEmbeddedEnSub, ')
           ..write('subtitleOffsetMs: $subtitleOffsetMs, ')
+          ..write('preferredAudioTrackId: $preferredAudioTrackId, ')
+          ..write('preferredSubtitleTrackId: $preferredSubtitleTrackId, ')
           ..write('managed: $managed, ')
           ..write('keep: $keep, ')
           ..write('missing: $missing, ')
@@ -608,6 +689,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
       audioCodec,
       hasEmbeddedEnSub,
       subtitleOffsetMs,
+      preferredAudioTrackId,
+      preferredSubtitleTrackId,
       managed,
       keep,
       missing,
@@ -630,6 +713,8 @@ class LibraryItem extends DataClass implements Insertable<LibraryItem> {
           other.audioCodec == this.audioCodec &&
           other.hasEmbeddedEnSub == this.hasEmbeddedEnSub &&
           other.subtitleOffsetMs == this.subtitleOffsetMs &&
+          other.preferredAudioTrackId == this.preferredAudioTrackId &&
+          other.preferredSubtitleTrackId == this.preferredSubtitleTrackId &&
           other.managed == this.managed &&
           other.keep == this.keep &&
           other.missing == this.missing &&
@@ -651,6 +736,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
   final Value<String?> audioCodec;
   final Value<bool> hasEmbeddedEnSub;
   final Value<int> subtitleOffsetMs;
+  final Value<String?> preferredAudioTrackId;
+  final Value<String?> preferredSubtitleTrackId;
   final Value<bool> managed;
   final Value<bool> keep;
   final Value<bool> missing;
@@ -670,6 +757,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.audioCodec = const Value.absent(),
     this.hasEmbeddedEnSub = const Value.absent(),
     this.subtitleOffsetMs = const Value.absent(),
+    this.preferredAudioTrackId = const Value.absent(),
+    this.preferredSubtitleTrackId = const Value.absent(),
     this.managed = const Value.absent(),
     this.keep = const Value.absent(),
     this.missing = const Value.absent(),
@@ -690,6 +779,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     this.audioCodec = const Value.absent(),
     this.hasEmbeddedEnSub = const Value.absent(),
     this.subtitleOffsetMs = const Value.absent(),
+    this.preferredAudioTrackId = const Value.absent(),
+    this.preferredSubtitleTrackId = const Value.absent(),
     this.managed = const Value.absent(),
     this.keep = const Value.absent(),
     this.missing = const Value.absent(),
@@ -712,6 +803,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     Expression<String>? audioCodec,
     Expression<bool>? hasEmbeddedEnSub,
     Expression<int>? subtitleOffsetMs,
+    Expression<String>? preferredAudioTrackId,
+    Expression<String>? preferredSubtitleTrackId,
     Expression<bool>? managed,
     Expression<bool>? keep,
     Expression<bool>? missing,
@@ -732,6 +825,10 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       if (audioCodec != null) 'audio_codec': audioCodec,
       if (hasEmbeddedEnSub != null) 'has_embedded_en_sub': hasEmbeddedEnSub,
       if (subtitleOffsetMs != null) 'subtitle_offset_ms': subtitleOffsetMs,
+      if (preferredAudioTrackId != null)
+        'preferred_audio_track_id': preferredAudioTrackId,
+      if (preferredSubtitleTrackId != null)
+        'preferred_subtitle_track_id': preferredSubtitleTrackId,
       if (managed != null) 'managed': managed,
       if (keep != null) 'keep': keep,
       if (missing != null) 'missing': missing,
@@ -754,6 +851,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       Value<String?>? audioCodec,
       Value<bool>? hasEmbeddedEnSub,
       Value<int>? subtitleOffsetMs,
+      Value<String?>? preferredAudioTrackId,
+      Value<String?>? preferredSubtitleTrackId,
       Value<bool>? managed,
       Value<bool>? keep,
       Value<bool>? missing,
@@ -773,6 +872,10 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
       audioCodec: audioCodec ?? this.audioCodec,
       hasEmbeddedEnSub: hasEmbeddedEnSub ?? this.hasEmbeddedEnSub,
       subtitleOffsetMs: subtitleOffsetMs ?? this.subtitleOffsetMs,
+      preferredAudioTrackId:
+          preferredAudioTrackId ?? this.preferredAudioTrackId,
+      preferredSubtitleTrackId:
+          preferredSubtitleTrackId ?? this.preferredSubtitleTrackId,
       managed: managed ?? this.managed,
       keep: keep ?? this.keep,
       missing: missing ?? this.missing,
@@ -825,6 +928,14 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
     if (subtitleOffsetMs.present) {
       map['subtitle_offset_ms'] = Variable<int>(subtitleOffsetMs.value);
     }
+    if (preferredAudioTrackId.present) {
+      map['preferred_audio_track_id'] =
+          Variable<String>(preferredAudioTrackId.value);
+    }
+    if (preferredSubtitleTrackId.present) {
+      map['preferred_subtitle_track_id'] =
+          Variable<String>(preferredSubtitleTrackId.value);
+    }
     if (managed.present) {
       map['managed'] = Variable<bool>(managed.value);
     }
@@ -857,6 +968,8 @@ class LibraryItemsCompanion extends UpdateCompanion<LibraryItem> {
           ..write('audioCodec: $audioCodec, ')
           ..write('hasEmbeddedEnSub: $hasEmbeddedEnSub, ')
           ..write('subtitleOffsetMs: $subtitleOffsetMs, ')
+          ..write('preferredAudioTrackId: $preferredAudioTrackId, ')
+          ..write('preferredSubtitleTrackId: $preferredSubtitleTrackId, ')
           ..write('managed: $managed, ')
           ..write('keep: $keep, ')
           ..write('missing: $missing, ')
@@ -2551,6 +2664,8 @@ typedef $$LibraryItemsTableCreateCompanionBuilder = LibraryItemsCompanion
   Value<String?> audioCodec,
   Value<bool> hasEmbeddedEnSub,
   Value<int> subtitleOffsetMs,
+  Value<String?> preferredAudioTrackId,
+  Value<String?> preferredSubtitleTrackId,
   Value<bool> managed,
   Value<bool> keep,
   Value<bool> missing,
@@ -2572,6 +2687,8 @@ typedef $$LibraryItemsTableUpdateCompanionBuilder = LibraryItemsCompanion
   Value<String?> audioCodec,
   Value<bool> hasEmbeddedEnSub,
   Value<int> subtitleOffsetMs,
+  Value<String?> preferredAudioTrackId,
+  Value<String?> preferredSubtitleTrackId,
   Value<bool> managed,
   Value<bool> keep,
   Value<bool> missing,
@@ -2667,6 +2784,14 @@ class $$LibraryItemsTableFilterComposer
 
   ColumnFilters<int> get subtitleOffsetMs => $composableBuilder(
       column: $table.subtitleOffsetMs,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get preferredAudioTrackId => $composableBuilder(
+      column: $table.preferredAudioTrackId,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get preferredSubtitleTrackId => $composableBuilder(
+      column: $table.preferredSubtitleTrackId,
       builder: (column) => ColumnFilters(column));
 
   ColumnFilters<bool> get managed => $composableBuilder(
@@ -2778,6 +2903,14 @@ class $$LibraryItemsTableOrderingComposer
       column: $table.subtitleOffsetMs,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get preferredAudioTrackId => $composableBuilder(
+      column: $table.preferredAudioTrackId,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get preferredSubtitleTrackId => $composableBuilder(
+      column: $table.preferredSubtitleTrackId,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<bool> get managed => $composableBuilder(
       column: $table.managed, builder: (column) => ColumnOrderings(column));
 
@@ -2841,6 +2974,12 @@ class $$LibraryItemsTableAnnotationComposer
 
   GeneratedColumn<int> get subtitleOffsetMs => $composableBuilder(
       column: $table.subtitleOffsetMs, builder: (column) => column);
+
+  GeneratedColumn<String> get preferredAudioTrackId => $composableBuilder(
+      column: $table.preferredAudioTrackId, builder: (column) => column);
+
+  GeneratedColumn<String> get preferredSubtitleTrackId => $composableBuilder(
+      column: $table.preferredSubtitleTrackId, builder: (column) => column);
 
   GeneratedColumn<bool> get managed =>
       $composableBuilder(column: $table.managed, builder: (column) => column);
@@ -2935,6 +3074,8 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             Value<String?> audioCodec = const Value.absent(),
             Value<bool> hasEmbeddedEnSub = const Value.absent(),
             Value<int> subtitleOffsetMs = const Value.absent(),
+            Value<String?> preferredAudioTrackId = const Value.absent(),
+            Value<String?> preferredSubtitleTrackId = const Value.absent(),
             Value<bool> managed = const Value.absent(),
             Value<bool> keep = const Value.absent(),
             Value<bool> missing = const Value.absent(),
@@ -2955,6 +3096,8 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             audioCodec: audioCodec,
             hasEmbeddedEnSub: hasEmbeddedEnSub,
             subtitleOffsetMs: subtitleOffsetMs,
+            preferredAudioTrackId: preferredAudioTrackId,
+            preferredSubtitleTrackId: preferredSubtitleTrackId,
             managed: managed,
             keep: keep,
             missing: missing,
@@ -2975,6 +3118,8 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             Value<String?> audioCodec = const Value.absent(),
             Value<bool> hasEmbeddedEnSub = const Value.absent(),
             Value<int> subtitleOffsetMs = const Value.absent(),
+            Value<String?> preferredAudioTrackId = const Value.absent(),
+            Value<String?> preferredSubtitleTrackId = const Value.absent(),
             Value<bool> managed = const Value.absent(),
             Value<bool> keep = const Value.absent(),
             Value<bool> missing = const Value.absent(),
@@ -2995,6 +3140,8 @@ class $$LibraryItemsTableTableManager extends RootTableManager<
             audioCodec: audioCodec,
             hasEmbeddedEnSub: hasEmbeddedEnSub,
             subtitleOffsetMs: subtitleOffsetMs,
+            preferredAudioTrackId: preferredAudioTrackId,
+            preferredSubtitleTrackId: preferredSubtitleTrackId,
             managed: managed,
             keep: keep,
             missing: missing,

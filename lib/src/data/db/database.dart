@@ -40,6 +40,15 @@ class LibraryItems extends Table {
   IntColumn get subtitleOffsetMs =>
       integer().withDefault(const Constant(0))();
 
+  /// The audio / subtitle track the user *manually* chose for this file, as the
+  /// libmpv track id (a subtitle id of `'no'` means "off"). Null until the user
+  /// picks one from the player menu — while null the automatic pick governs
+  /// (surround/language for audio, English fetch for subtitles). Set means the
+  /// choice is restored on every re-watch and overrides the auto-pick. Stored
+  /// per file so each episode/movie remembers its own.
+  TextColumn get preferredAudioTrackId => text().nullable()();
+  TextColumn get preferredSubtitleTrackId => text().nullable()();
+
   /// Provenance: true when the app acquired this file (torrent), false when it
   /// was already sitting in a library folder. Informational — cleanup eligibility
   /// is driven by library-folder membership + [keep], not this flag.
@@ -167,7 +176,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -196,6 +205,11 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 9) {
             await m.addColumn(savedTitles, savedTitles.notInterestedAt);
+          }
+          if (from < 10) {
+            await m.addColumn(libraryItems, libraryItems.preferredAudioTrackId);
+            await m.addColumn(
+                libraryItems, libraryItems.preferredSubtitleTrackId);
           }
         },
         beforeOpen: (details) async {
