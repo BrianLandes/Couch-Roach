@@ -7,9 +7,10 @@ import '../../injection.dart';
 import '../../theme/theme.dart';
 import 'saved_titles_providers.dart';
 
-/// A pair of toggles for a TMDB title's user lists: Favorite (heart) and Want to
-/// watch (bookmark). Reflects the live saved-state and flips it on tap. Drop it
-/// on any detail page that knows the title's tmdbId, mediaType, name and poster.
+/// Toggles for a TMDB title's user lists: Favorite (heart), Want to watch
+/// (bookmark) and Not interested (hides it from the landing rails). Reflects the
+/// live saved-state and flips it on tap. Drop it on any detail page that knows
+/// the title's tmdbId, mediaType, name and poster.
 class SaveTitleButtons extends ConsumerWidget {
   const SaveTitleButtons({
     super.key,
@@ -68,6 +69,25 @@ class SaveTitleButtons extends ConsumerWidget {
     }
   }
 
+  Future<void> _toggleNotInterested(BuildContext context, bool value) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await getIt<SavedTitlesRepository>().setNotInterested(
+        tmdbId: tmdbId,
+        mediaType: mediaType,
+        name: name,
+        posterPath: posterPath,
+        value: value,
+      );
+    } catch (e, st) {
+      getIt<ErrorLogService>().logError(e,
+          stackTrace: st, source: 'SaveTitleButtons.notInterested');
+      messenger.showSnackBar(
+        const SnackBar(content: Text("Couldn't update Not interested")),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final saved = ref
@@ -76,6 +96,7 @@ class SaveTitleButtons extends ConsumerWidget {
         ?.value;
     final isFavorite = saved?.favoritedAt != null;
     final isWanted = saved?.wantToWatchAt != null;
+    final isNotInterested = saved?.notInterestedAt != null;
 
     return Wrap(
       spacing: AppSpacing.md,
@@ -96,6 +117,13 @@ class SaveTitleButtons extends ConsumerWidget {
               ? Icons.bookmark_added_rounded
               : Icons.bookmark_add_outlined),
           label: Text(isWanted ? 'On your list' : 'Want to watch'),
+        ),
+        OutlinedButton.icon(
+          onPressed: () => _toggleNotInterested(context, !isNotInterested),
+          icon: Icon(isNotInterested
+              ? Icons.visibility_off_rounded
+              : Icons.not_interested_rounded),
+          label: Text(isNotInterested ? 'Hidden' : 'Not interested'),
         ),
       ],
     );

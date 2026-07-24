@@ -125,6 +125,11 @@ class SavedTitles extends Table {
   /// (which still pins an individual movie / loose file).
   DateTimeColumn get keptAt => dateTime().nullable()();
 
+  /// Set means the user marked this title "not interested": it's dropped from
+  /// every discovery row on the landing page (recommendations, trending,
+  /// personalized genre rows, …) but still turns up in search.
+  DateTimeColumn get notInterestedAt => dateTime().nullable()();
+
   /// How this entry got here when it wasn't a direct in-app action — e.g.
   /// 'alexa' for a title queued by voice (see the Alexa inbox drain). Null for
   /// the normal case (the user favorited/watchlisted it themselves).
@@ -162,7 +167,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -188,6 +193,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 8) {
             await m.addColumn(savedTitles, savedTitles.keptAt);
+          }
+          if (from < 9) {
+            await m.addColumn(savedTitles, savedTitles.notInterestedAt);
           }
         },
         beforeOpen: (details) async {

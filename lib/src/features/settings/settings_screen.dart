@@ -15,8 +15,11 @@ import '../../services/acquisition/jackett_process.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/status_pill.dart';
+import '../../data/db/database.dart';
+import '../../data/repositories/saved_titles_repository.dart';
 import '../acquire/jackett_providers.dart';
 import '../discover/taste_providers.dart';
+import '../library/saved_titles_providers.dart';
 import 'storage_providers.dart';
 
 /// The one place to manage the app: library folders (add with an OS folder
@@ -196,6 +199,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                 ),
+              const _NotInterestedList(),
 
               // ── Sources ───────────────────────────────────────────────────
               const SizedBox(height: AppSpacing.xl),
@@ -373,6 +377,71 @@ class _SectionLabel extends StatelessWidget {
         label.toUpperCase(),
         style: text.labelMedium
             ?.copyWith(color: AppColors.textTertiary, letterSpacing: 1.5),
+      ),
+    );
+  }
+}
+
+/// The "not interested" titles the user has hidden from the landing rails, each
+/// with an un-hide action. Renders nothing when the list is empty. Live — the
+/// row drops the moment a title is restored.
+class _NotInterestedList extends ConsumerWidget {
+  const _NotInterestedList();
+
+  Future<void> _unhide(BuildContext context, SavedTitle title) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await getIt<SavedTitlesRepository>().setNotInterested(
+        tmdbId: title.tmdbId,
+        mediaType: title.mediaType,
+        name: title.name,
+        posterPath: title.posterPath,
+        value: false,
+      );
+    } catch (e, st) {
+      getIt<ErrorLogService>().logError(e,
+          stackTrace: st, source: 'Settings.unhideNotInterested');
+      messenger.showSnackBar(
+        const SnackBar(content: Text("Couldn't restore that title")),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    final titles = ref.watch(notInterestedTitlesProvider).asData?.value ??
+        const <SavedTitle>[];
+    if (titles.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: GlassSurface(
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Not interested — hidden from every row',
+              style: text.titleMedium,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                for (final t in titles)
+                  InputChip(
+                    label: Text(t.name),
+                    avatar: const Icon(Icons.not_interested_rounded, size: 18),
+                    onDeleted: () => _unhide(context, t),
+                    deleteIcon: const Icon(Icons.close_rounded, size: 18),
+                    deleteButtonTooltipMessage: 'Show again',
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

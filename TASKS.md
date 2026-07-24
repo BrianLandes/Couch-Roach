@@ -49,11 +49,6 @@ _Queued and ready to pick up._
 - **Stab taken** (unverified — device-only, intermittent): broadened the reveal to a canonical `MouseRegion` (`onEnter`/`onHover`, fires even when the raw Listener's hover is shadowed by media_kit's own regions) layered over the existing `Listener` (hover/move + now pointer-signal/scroll), plus the existing `HardwareKeyboard` key reveal and play-state persistence. **Needs on-device confirmation it actually fixes it.**
 - If it recurs, go deeper: (1) does `_controlsVisible` get stuck `false` while `_isPlaying` stays true (neither idle-reveal nor paused-persistence kicks in)? (2) does media_kit's own controls visibility diverge from ours (theirs shows, ours doesn't)? Consider driving our overlay off media_kit's own controls-visible signal instead of a parallel timer, or a periodic re-assert. Repro on both mouse and remote.
 
-### "Not interested" — hide a show/movie from the landing page · `p2`
-
-- [ ] A way to flag a show/movie as **Not interested** so it's dropped from *all* landing-page rows (recommendations, trending TV/movies, personalized "Because you watch …" genre rows, New Episodes, Popular, Free-to-watch/archive) but **still appears in search**.
-- Design: a per-title flag keyed by `{tmdbId, mediaType}` — fits **`SavedTitles`** as a nullable `notInterestedAt` column (schemaVersion bump + migration), mirroring the `keptAt`/`favoritedAt`/`wantToWatchAt` pattern and `SavedTitlesRepository.setKeep`. Add `setNotInterested(...)` + a live `notInterestedIds` set the landing providers subtract from their `DiscoverTile` lists (like `ownedTmdbIdsProvider` already does for owned titles). Search providers (`tmdbSearchProvider`) do **not** filter it. UI: a "Not interested" action on a discovery tile (long-press / context menu) and/or the movie/show detail page. Consider an unhide path (Settings "show N hidden titles again", like the personalized-genre reset).
-
 - [ ] Add the app icon to the Windows launcher.
 
 ### Disable "Download next" when the next episode hasn't aired · `p4`
@@ -110,6 +105,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### "Not interested" — hide a show/movie from the landing page · `p2`
+
+- [x] Flag a show/movie **Not interested** to drop it from *every* landing-page discovery row while keeping it in search. Backed by `SavedTitles.notInterestedAt` (nullable timestamp, schemaVersion 8→9 + migration), mirroring the `keptAt` pattern; `SavedTitlesRepository.setNotInterested` + `watchNotInterested` (live `{'<mediaType>:<tmdbId>'}` set) + `watchNotInterestedTitles` (rows for the un-hide surface). Filtering is a **single point**: `_DiscoverRail` (now a `ConsumerWidget`) subtracts the not-interested set from its tiles, so all rails — trending, personalized genre rows, etc. — honor it and a rail that empties out doesn't render. `tmdbSearchProvider` unchanged (still searchable). Marking UI: a "Not interested" toggle in `SaveTitleButtons` (detail pages) **and** a long-press / right-click context menu on `DiscoverPosterCard` (new `onContextAction` on `FocusableCard` → `onLongPress`/`onSecondaryTap`). Un-hide path: a live chip list in Settings → Home screen, each chip restoring one title. Repo tests (flag/coexist/cleanup/key-set/title-list); 471+ green, analyze clean.
 
 ### Manual "find subtitles" from the player, even when auto is on · `p3`
 

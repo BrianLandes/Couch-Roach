@@ -21,3 +21,18 @@ final savedTitleProvider =
   (ref, key) => getIt<SavedTitlesRepository>()
       .watchTitle(tmdbId: key.tmdbId, mediaType: key.mediaType),
 );
+
+/// Live set of "not interested" titles, keyed `'<mediaType>:<tmdbId>'` — the
+/// landing rails subtract these from their discovery tiles.
+final notInterestedProvider = StreamProvider<Set<String>>(
+  (ref) => getIt<SavedTitlesRepository>().watchNotInterested(),
+);
+
+/// The key a [DiscoverTile]-like title matches against [notInterestedProvider].
+String notInterestedKey(int tmdbId, String mediaType) => '$mediaType:$tmdbId';
+
+/// Live "not interested" titles (newest-flagged first) for the Settings surface
+/// that lets the user un-hide them.
+final notInterestedTitlesProvider = StreamProvider<List<SavedTitle>>(
+  (ref) => getIt<SavedTitlesRepository>().watchNotInterestedTitles(),
+);

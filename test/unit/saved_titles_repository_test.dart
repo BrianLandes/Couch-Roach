@@ -90,6 +90,42 @@ void main() {
     expect(saved.keptAt, isNull);
   });
 
+  test('setNotInterested flags a title without touching the lists, and cleans up',
+      () async {
+    await repo.setNotInterested(
+        tmdbId: 11, mediaType: 'tv', name: 'Nope', value: true);
+    final saved = await repo.watchTitle(tmdbId: 11, mediaType: 'tv').first;
+    expect(saved!.notInterestedAt, isNotNull);
+    expect(saved.favoritedAt, isNull);
+    expect(saved.wantToWatchAt, isNull);
+    // It surfaces in the not-interested key set and title list...
+    expect(await repo.watchNotInterested().first, {'tv:11'});
+    expect((await repo.watchNotInterestedTitles().first).map((s) => s.tmdbId),
+        [11]);
+    // ...but never on the discovery lists.
+    expect(await repo.watchFavorites().first, isEmpty);
+    expect(await repo.watchWantToWatch().first, isEmpty);
+
+    // Un-flagging the not-interested-only row removes it (no tombstone).
+    await repo.setNotInterested(
+        tmdbId: 11, mediaType: 'tv', name: 'Nope', value: false);
+    expect(await repo.watchTitle(tmdbId: 11, mediaType: 'tv').first, isNull);
+    expect(await repo.watchNotInterested().first, isEmpty);
+  });
+
+  test('not-interested coexists with a list flag on the same row', () async {
+    await repo.setWantToWatch(
+        tmdbId: 12, mediaType: 'movie', name: 'M', value: true);
+    await repo.setNotInterested(
+        tmdbId: 12, mediaType: 'movie', name: 'M', value: true);
+    // Un-flagging not-interested leaves the want-to-watch intact.
+    await repo.setNotInterested(
+        tmdbId: 12, mediaType: 'movie', name: 'M', value: false);
+    final saved = await repo.watchTitle(tmdbId: 12, mediaType: 'movie').first;
+    expect(saved!.wantToWatchAt, isNotNull);
+    expect(saved.notInterestedAt, isNull);
+  });
+
   test('re-favoriting keeps the original timestamp (stable ordering)', () async {
     await repo.setFavorite(tmdbId: 3, mediaType: 'tv', name: 'A', value: true);
     final first = (await repo.watchTitle(tmdbId: 3, mediaType: 'tv').first)!

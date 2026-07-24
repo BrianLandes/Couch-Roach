@@ -523,7 +523,7 @@ class _ContinueWatchingRail extends StatelessWidget {
   }
 }
 
-class _DiscoverRail extends StatelessWidget {
+class _DiscoverRail extends ConsumerWidget {
   const _DiscoverRail({
     required this.label,
     required this.tiles,
@@ -541,9 +541,20 @@ class _DiscoverRail extends StatelessWidget {
   final VoidCallback? onHide;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Drop "not interested" titles from every discovery rail (one place, so all
+    // rails honor it); if that empties the rail, don't render it at all.
+    final hidden = ref.watch(notInterestedProvider).asData?.value ?? const {};
+    final visible = hidden.isEmpty
+        ? tiles
+        : [
+            for (final t in tiles)
+              if (!hidden.contains(notInterestedKey(t.tmdbId, t.mediaType))) t,
+          ];
+    if (visible.isEmpty) return const SizedBox.shrink();
     final lim = limit;
-    final top = lim == null ? tiles : tiles.take(lim).toList(growable: false);
+    final top =
+        lim == null ? visible : visible.take(lim).toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

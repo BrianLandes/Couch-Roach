@@ -14,12 +14,17 @@ class FocusableCard extends StatefulWidget {
     super.key,
     required this.child,
     this.onPressed,
+    this.onContextAction,
     this.borderRadius = AppRadii.rLg,
     this.autofocus = false,
   });
 
   final Widget child;
   final VoidCallback? onPressed;
+
+  /// Optional secondary action — fired on long-press (remote/touch) or
+  /// right-click (pointer). Used for a context menu like "Not interested".
+  final VoidCallback? onContextAction;
   final BorderRadius borderRadius;
   final bool autofocus;
 
@@ -85,6 +90,8 @@ class _FocusableCardState extends State<FocusableCard> {
       },
       child: GestureDetector(
         onTap: widget.onPressed,
+        onLongPress: widget.onContextAction,
+        onSecondaryTap: widget.onContextAction,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOut,

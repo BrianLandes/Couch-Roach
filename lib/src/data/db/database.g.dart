@@ -1732,6 +1732,12 @@ class $SavedTitlesTable extends SavedTitles
   late final GeneratedColumn<DateTime> keptAt = GeneratedColumn<DateTime>(
       'kept_at', aliasedName, true,
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _notInterestedAtMeta =
+      const VerificationMeta('notInterestedAt');
+  @override
+  late final GeneratedColumn<DateTime> notInterestedAt =
+      GeneratedColumn<DateTime>('not_interested_at', aliasedName, true,
+          type: DriftSqlType.dateTime, requiredDuringInsert: false);
   static const VerificationMeta _sourceMeta = const VerificationMeta('source');
   @override
   late final GeneratedColumn<String> source = GeneratedColumn<String>(
@@ -1746,6 +1752,7 @@ class $SavedTitlesTable extends SavedTitles
         favoritedAt,
         wantToWatchAt,
         keptAt,
+        notInterestedAt,
         source
       ];
   @override
@@ -1798,6 +1805,12 @@ class $SavedTitlesTable extends SavedTitles
       context.handle(_keptAtMeta,
           keptAt.isAcceptableOrUnknown(data['kept_at']!, _keptAtMeta));
     }
+    if (data.containsKey('not_interested_at')) {
+      context.handle(
+          _notInterestedAtMeta,
+          notInterestedAt.isAcceptableOrUnknown(
+              data['not_interested_at']!, _notInterestedAtMeta));
+    }
     if (data.containsKey('source')) {
       context.handle(_sourceMeta,
           source.isAcceptableOrUnknown(data['source']!, _sourceMeta));
@@ -1825,6 +1838,8 @@ class $SavedTitlesTable extends SavedTitles
           DriftSqlType.dateTime, data['${effectivePrefix}want_to_watch_at']),
       keptAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}kept_at']),
+      notInterestedAt: attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime, data['${effectivePrefix}not_interested_at']),
       source: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}source']),
     );
@@ -1856,6 +1871,11 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
   /// (which still pins an individual movie / loose file).
   final DateTime? keptAt;
 
+  /// Set means the user marked this title "not interested": it's dropped from
+  /// every discovery row on the landing page (recommendations, trending,
+  /// personalized genre rows, …) but still turns up in search.
+  final DateTime? notInterestedAt;
+
   /// How this entry got here when it wasn't a direct in-app action — e.g.
   /// 'alexa' for a title queued by voice (see the Alexa inbox drain). Null for
   /// the normal case (the user favorited/watchlisted it themselves).
@@ -1869,6 +1889,7 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
       this.favoritedAt,
       this.wantToWatchAt,
       this.keptAt,
+      this.notInterestedAt,
       this.source});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1887,6 +1908,9 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
     }
     if (!nullToAbsent || keptAt != null) {
       map['kept_at'] = Variable<DateTime>(keptAt);
+    }
+    if (!nullToAbsent || notInterestedAt != null) {
+      map['not_interested_at'] = Variable<DateTime>(notInterestedAt);
     }
     if (!nullToAbsent || source != null) {
       map['source'] = Variable<String>(source);
@@ -1910,6 +1934,9 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
           : Value(wantToWatchAt),
       keptAt:
           keptAt == null && nullToAbsent ? const Value.absent() : Value(keptAt),
+      notInterestedAt: notInterestedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(notInterestedAt),
       source:
           source == null && nullToAbsent ? const Value.absent() : Value(source),
     );
@@ -1926,6 +1953,7 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
       favoritedAt: serializer.fromJson<DateTime?>(json['favoritedAt']),
       wantToWatchAt: serializer.fromJson<DateTime?>(json['wantToWatchAt']),
       keptAt: serializer.fromJson<DateTime?>(json['keptAt']),
+      notInterestedAt: serializer.fromJson<DateTime?>(json['notInterestedAt']),
       source: serializer.fromJson<String?>(json['source']),
     );
   }
@@ -1940,6 +1968,7 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
       'favoritedAt': serializer.toJson<DateTime?>(favoritedAt),
       'wantToWatchAt': serializer.toJson<DateTime?>(wantToWatchAt),
       'keptAt': serializer.toJson<DateTime?>(keptAt),
+      'notInterestedAt': serializer.toJson<DateTime?>(notInterestedAt),
       'source': serializer.toJson<String?>(source),
     };
   }
@@ -1952,6 +1981,7 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
           Value<DateTime?> favoritedAt = const Value.absent(),
           Value<DateTime?> wantToWatchAt = const Value.absent(),
           Value<DateTime?> keptAt = const Value.absent(),
+          Value<DateTime?> notInterestedAt = const Value.absent(),
           Value<String?> source = const Value.absent()}) =>
       SavedTitle(
         tmdbId: tmdbId ?? this.tmdbId,
@@ -1962,6 +1992,9 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
         wantToWatchAt:
             wantToWatchAt.present ? wantToWatchAt.value : this.wantToWatchAt,
         keptAt: keptAt.present ? keptAt.value : this.keptAt,
+        notInterestedAt: notInterestedAt.present
+            ? notInterestedAt.value
+            : this.notInterestedAt,
         source: source.present ? source.value : this.source,
       );
   SavedTitle copyWithCompanion(SavedTitlesCompanion data) {
@@ -1977,6 +2010,9 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
           ? data.wantToWatchAt.value
           : this.wantToWatchAt,
       keptAt: data.keptAt.present ? data.keptAt.value : this.keptAt,
+      notInterestedAt: data.notInterestedAt.present
+          ? data.notInterestedAt.value
+          : this.notInterestedAt,
       source: data.source.present ? data.source.value : this.source,
     );
   }
@@ -1991,6 +2027,7 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
           ..write('favoritedAt: $favoritedAt, ')
           ..write('wantToWatchAt: $wantToWatchAt, ')
           ..write('keptAt: $keptAt, ')
+          ..write('notInterestedAt: $notInterestedAt, ')
           ..write('source: $source')
           ..write(')'))
         .toString();
@@ -1998,7 +2035,7 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
 
   @override
   int get hashCode => Object.hash(tmdbId, mediaType, name, posterPath,
-      favoritedAt, wantToWatchAt, keptAt, source);
+      favoritedAt, wantToWatchAt, keptAt, notInterestedAt, source);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2010,6 +2047,7 @@ class SavedTitle extends DataClass implements Insertable<SavedTitle> {
           other.favoritedAt == this.favoritedAt &&
           other.wantToWatchAt == this.wantToWatchAt &&
           other.keptAt == this.keptAt &&
+          other.notInterestedAt == this.notInterestedAt &&
           other.source == this.source);
 }
 
@@ -2021,6 +2059,7 @@ class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
   final Value<DateTime?> favoritedAt;
   final Value<DateTime?> wantToWatchAt;
   final Value<DateTime?> keptAt;
+  final Value<DateTime?> notInterestedAt;
   final Value<String?> source;
   final Value<int> rowid;
   const SavedTitlesCompanion({
@@ -2031,6 +2070,7 @@ class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
     this.favoritedAt = const Value.absent(),
     this.wantToWatchAt = const Value.absent(),
     this.keptAt = const Value.absent(),
+    this.notInterestedAt = const Value.absent(),
     this.source = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -2042,6 +2082,7 @@ class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
     this.favoritedAt = const Value.absent(),
     this.wantToWatchAt = const Value.absent(),
     this.keptAt = const Value.absent(),
+    this.notInterestedAt = const Value.absent(),
     this.source = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : tmdbId = Value(tmdbId),
@@ -2055,6 +2096,7 @@ class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
     Expression<DateTime>? favoritedAt,
     Expression<DateTime>? wantToWatchAt,
     Expression<DateTime>? keptAt,
+    Expression<DateTime>? notInterestedAt,
     Expression<String>? source,
     Expression<int>? rowid,
   }) {
@@ -2066,6 +2108,7 @@ class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
       if (favoritedAt != null) 'favorited_at': favoritedAt,
       if (wantToWatchAt != null) 'want_to_watch_at': wantToWatchAt,
       if (keptAt != null) 'kept_at': keptAt,
+      if (notInterestedAt != null) 'not_interested_at': notInterestedAt,
       if (source != null) 'source': source,
       if (rowid != null) 'rowid': rowid,
     });
@@ -2079,6 +2122,7 @@ class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
       Value<DateTime?>? favoritedAt,
       Value<DateTime?>? wantToWatchAt,
       Value<DateTime?>? keptAt,
+      Value<DateTime?>? notInterestedAt,
       Value<String?>? source,
       Value<int>? rowid}) {
     return SavedTitlesCompanion(
@@ -2089,6 +2133,7 @@ class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
       favoritedAt: favoritedAt ?? this.favoritedAt,
       wantToWatchAt: wantToWatchAt ?? this.wantToWatchAt,
       keptAt: keptAt ?? this.keptAt,
+      notInterestedAt: notInterestedAt ?? this.notInterestedAt,
       source: source ?? this.source,
       rowid: rowid ?? this.rowid,
     );
@@ -2118,6 +2163,9 @@ class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
     if (keptAt.present) {
       map['kept_at'] = Variable<DateTime>(keptAt.value);
     }
+    if (notInterestedAt.present) {
+      map['not_interested_at'] = Variable<DateTime>(notInterestedAt.value);
+    }
     if (source.present) {
       map['source'] = Variable<String>(source.value);
     }
@@ -2137,6 +2185,7 @@ class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
           ..write('favoritedAt: $favoritedAt, ')
           ..write('wantToWatchAt: $wantToWatchAt, ')
           ..write('keptAt: $keptAt, ')
+          ..write('notInterestedAt: $notInterestedAt, ')
           ..write('source: $source, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -3686,6 +3735,7 @@ typedef $$SavedTitlesTableCreateCompanionBuilder = SavedTitlesCompanion
   Value<DateTime?> favoritedAt,
   Value<DateTime?> wantToWatchAt,
   Value<DateTime?> keptAt,
+  Value<DateTime?> notInterestedAt,
   Value<String?> source,
   Value<int> rowid,
 });
@@ -3698,6 +3748,7 @@ typedef $$SavedTitlesTableUpdateCompanionBuilder = SavedTitlesCompanion
   Value<DateTime?> favoritedAt,
   Value<DateTime?> wantToWatchAt,
   Value<DateTime?> keptAt,
+  Value<DateTime?> notInterestedAt,
   Value<String?> source,
   Value<int> rowid,
 });
@@ -3731,6 +3782,10 @@ class $$SavedTitlesTableFilterComposer
 
   ColumnFilters<DateTime> get keptAt => $composableBuilder(
       column: $table.keptAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get notInterestedAt => $composableBuilder(
+      column: $table.notInterestedAt,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get source => $composableBuilder(
       column: $table.source, builder: (column) => ColumnFilters(column));
@@ -3767,6 +3822,10 @@ class $$SavedTitlesTableOrderingComposer
   ColumnOrderings<DateTime> get keptAt => $composableBuilder(
       column: $table.keptAt, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<DateTime> get notInterestedAt => $composableBuilder(
+      column: $table.notInterestedAt,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get source => $composableBuilder(
       column: $table.source, builder: (column) => ColumnOrderings(column));
 }
@@ -3800,6 +3859,9 @@ class $$SavedTitlesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get keptAt =>
       $composableBuilder(column: $table.keptAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get notInterestedAt => $composableBuilder(
+      column: $table.notInterestedAt, builder: (column) => column);
 
   GeneratedColumn<String> get source =>
       $composableBuilder(column: $table.source, builder: (column) => column);
@@ -3835,6 +3897,7 @@ class $$SavedTitlesTableTableManager extends RootTableManager<
             Value<DateTime?> favoritedAt = const Value.absent(),
             Value<DateTime?> wantToWatchAt = const Value.absent(),
             Value<DateTime?> keptAt = const Value.absent(),
+            Value<DateTime?> notInterestedAt = const Value.absent(),
             Value<String?> source = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
@@ -3846,6 +3909,7 @@ class $$SavedTitlesTableTableManager extends RootTableManager<
             favoritedAt: favoritedAt,
             wantToWatchAt: wantToWatchAt,
             keptAt: keptAt,
+            notInterestedAt: notInterestedAt,
             source: source,
             rowid: rowid,
           ),
@@ -3857,6 +3921,7 @@ class $$SavedTitlesTableTableManager extends RootTableManager<
             Value<DateTime?> favoritedAt = const Value.absent(),
             Value<DateTime?> wantToWatchAt = const Value.absent(),
             Value<DateTime?> keptAt = const Value.absent(),
+            Value<DateTime?> notInterestedAt = const Value.absent(),
             Value<String?> source = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
@@ -3868,6 +3933,7 @@ class $$SavedTitlesTableTableManager extends RootTableManager<
             favoritedAt: favoritedAt,
             wantToWatchAt: wantToWatchAt,
             keptAt: keptAt,
+            notInterestedAt: notInterestedAt,
             source: source,
             rowid: rowid,
           ),

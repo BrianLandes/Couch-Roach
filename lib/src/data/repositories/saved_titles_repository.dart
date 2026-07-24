@@ -54,6 +54,24 @@ abstract class SavedTitlesRepository {
     String? posterPath,
     required bool value,
   });
+
+  /// Flag/unflag [tmdbId]/[mediaType] as "not interested" — dropped from every
+  /// discovery row on the landing page (but still found in search).
+  Future<void> setNotInterested({
+    required int tmdbId,
+    required String mediaType,
+    required String name,
+    String? posterPath,
+    required bool value,
+  });
+
+  /// Live set of "not interested" titles, keyed `'<mediaType>:<tmdbId>'`, so the
+  /// landing rails can filter them out reactively.
+  Stream<Set<String>> watchNotInterested();
+
+  /// Live list of "not interested" titles (newest-flagged first) for the
+  /// Settings "hidden titles" surface, where each can be un-hidden.
+  Stream<List<SavedTitle>> watchNotInterestedTitles();
 }
 
 @LazySingleton(as: SavedTitlesRepository)
@@ -147,6 +165,43 @@ class DriftSavedTitlesRepository implements SavedTitlesRepository {
     );
   }
 
+  @override
+  Future<void> setNotInterested({
+    required int tmdbId,
+    required String mediaType,
+    required String name,
+    String? posterPath,
+    required bool value,
+  }) {
+    return _apply(
+      tmdbId: tmdbId,
+      mediaType: mediaType,
+      name: name,
+      posterPath: posterPath,
+      notInterested: value,
+    );
+  }
+
+  @override
+  Stream<Set<String>> watchNotInterested() {
+    return (_db.select(_db.savedTitles)
+          ..where((t) => t.notInterestedAt.isNotNull()))
+        .watch()
+        .map((rows) =>
+            {for (final r in rows) '${r.mediaType}:${r.tmdbId}'});
+  }
+
+  @override
+  Stream<List<SavedTitle>> watchNotInterestedTitles() {
+    return (_db.select(_db.savedTitles)
+          ..where((t) => t.notInterestedAt.isNotNull())
+          ..orderBy([
+            (t) => OrderingTerm(
+                expression: t.notInterestedAt, mode: OrderingMode.desc),
+          ]))
+        .watch();
+  }
+
   /// Flip one list flag while preserving the others. Turning a flag on stamps
   /// `now` (only if it wasn't already set, so ordering is stable across
   /// re-saves); turning it off nulls it. When every flag ends up null the row is
@@ -159,6 +214,7 @@ class DriftSavedTitlesRepository implements SavedTitlesRepository {
     bool? favorite,
     bool? want,
     bool? keep,
+    bool? notInterested,
     String? source,
   }) async {
     final existing = await (_db.select(_db.savedTitles)
@@ -169,15 +225,22 @@ class DriftSavedTitlesRepository implements SavedTitlesRepository {
     var favoritedAt = existing?.favoritedAt;
     var wantAt = existing?.wantToWatchAt;
     var keptAt = existing?.keptAt;
+    var notInterestedAt = existing?.notInterestedAt;
     if (favorite != null) favoritedAt = favorite ? (favoritedAt ?? now) : null;
     if (want != null) wantAt = want ? (wantAt ?? now) : null;
     if (keep != null) keptAt = keep ? (keptAt ?? now) : null;
+    if (notInterested != null) {
+      notInterestedAt = notInterested ? (notInterestedAt ?? now) : null;
+    }
     // Origin is first-write-wins: a brand-new row takes [source]; an existing
     // row keeps whatever it had (even null), so neither a manual re-save nor a
     // later Alexa re-add relabels a title that was already on a list.
     final resolvedSource = existing != null ? existing.source : source;
 
-    if (favoritedAt == null && wantAt == null && keptAt == null) {
+    if (favoritedAt == null &&
+        wantAt == null &&
+        keptAt == null &&
+        notInterestedAt == null) {
       await (_db.delete(_db.savedTitles)
             ..where((t) =>
                 t.tmdbId.equals(tmdbId) & t.mediaType.equals(mediaType)))
@@ -194,6 +257,7 @@ class DriftSavedTitlesRepository implements SavedTitlesRepository {
             favoritedAt: Value(favoritedAt),
             wantToWatchAt: Value(wantAt),
             keptAt: Value(keptAt),
+            notInterestedAt: Value(notInterestedAt),
             source: Value(resolvedSource),
           ),
         );
