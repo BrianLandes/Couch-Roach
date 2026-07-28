@@ -36,12 +36,13 @@ class CompositeAcquisitionResolver implements AcquisitionResolver {
     int? season,
     int? episode, {
     Set<String> exclude = const {},
+    bool allowSeasonPack = true,
   }) async {
     final ep = (season != null && episode != null) ? ' S${season}E$episode' : '';
     for (final resolver in _ordered) {
       try {
         final hit = await resolver.resolve(meta, season, episode,
-            exclude: exclude);
+            exclude: exclude, allowSeasonPack: allowSeasonPack);
         if (hit != null) {
           _log.info('resolved "${meta.title}"$ep via ${resolver.runtimeType}',
               source: 'CompositeResolver');

@@ -403,6 +403,30 @@ ${titles.map((t) => '<item><title>$t</title>'
       expect(call, 2, reason: 'season-pack query, then the episode query');
     });
 
+    test('allowSeasonPack:false skips the pack, uses the single episode',
+        () async {
+      var call = 0;
+      final r = JackettResolver(
+        MockClient((req) async {
+          call++;
+          // A pack IS available on the season-only query, but must be ignored.
+          return http.Response(
+              req.url.queryParameters.containsKey('ep')
+                  ? feed(['Game.of.Thrones.S01E01.1080p'])
+                  : feed(['Game.of.Thrones.S01.1080p']),
+              200);
+        }),
+        ErrorLogService(),
+        await _settings(),
+      )..configure(_config);
+
+      final handle = await r.resolve(meta, 1, 1, allowSeasonPack: false);
+      expect(handle, isNotNull);
+      expect(handle!.displayName, 'Game.of.Thrones.S01E01.1080p');
+      expect(handle.seasonPack, isFalse);
+      expect(call, 1, reason: 'no season-pack query when packs are disallowed');
+    });
+
     test('Tier 3: no verified source → null (fail loudly, no wrong guess)',
         () async {
       final r = JackettResolver(

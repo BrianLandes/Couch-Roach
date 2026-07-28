@@ -181,6 +181,9 @@ Future<TorrentHandle?> _resolveEpisodeSource(
     return resolver.resolve(meta, season, episode, exclude: exclude);
   }
 
+  // Reuse a remembered pack directly — the hot path for later episodes of a
+  // season, and no air-date fetch needed (a pack is only remembered once one was
+  // actually found/chosen for this season) — unless it just failed this session.
   final packs = getIt<SeasonPackSourceRepository>();
   final cached = await packs.find(meta.tmdbId!, season);
   if (cached != null && !exclude.contains(cached.downloadUrl)) {
@@ -192,6 +195,20 @@ Future<TorrentHandle?> _resolveEpisodeSource(
         magnetOrUrl: cached.downloadUrl,
         displayName: cached.displayName,
         seasonPack: true);
+  }
+
+  // No remembered pack: a still-airing season can't have a complete one, so skip
+  // the (fruitless, slower) pack search and grab the single episode. Only when
+  // TMDB gives us the season's episodes; otherwise keep the normal pack-first path.
+  final details =
+      await getIt<DiscoveryClient>().seasonDetails(meta.tmdbId!, season);
+  if (!seasonPackWorthTrying(details?.episodes ?? const [], DateTime.now())) {
+    getIt<ErrorLogService>().info(
+        'season $season of "${meta.title}" is still airing — skipping the '
+        'season-pack check, fetching the single episode',
+        source: 'AcquirePack');
+    return resolver.resolve(meta, season, episode,
+        exclude: exclude, allowSeasonPack: false);
   }
 
   final handle = await resolver.resolve(meta, season, episode, exclude: exclude);
@@ -396,6 +413,17 @@ Future<void> prefetchEpisode({
   await daemon.add(handle, savePath: savePath, dedupeKey: addKey);
   log.info('prefetching next episode S${season}E$episode of "$showName"',
       source: 'AcquirePrefetch');
+}
+
+/// Whether a whole-season pack is worth looking for, given a season's [episodes]:
+/// only once *every* episode has aired by [now], since a complete pack can't
+/// exist — nor contain a later episode — while the season is still airing. An
+/// empty list (we can't tell) returns true, keeping the normal pack-first
+/// behavior. Pure + tested.
+bool seasonPackWorthTrying(List<EpisodeSummary> episodes, DateTime now) {
+  if (episodes.isEmpty) return true;
+  return episodes.every((e) => isAired(
+      e.airDate == null ? null : DateTime.tryParse(e.airDate!), now));
 }
 
 /// The episode numbers in [episodes] that have aired by [now] — the ones with

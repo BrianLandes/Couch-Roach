@@ -55,11 +55,17 @@ abstract class AcquisitionResolver {
   /// [exclude] lists source URLs (the value that would land in
   /// [TorrentHandle.magnetOrUrl]) already handed out for this title — skip them
   /// so "try another source" resolves the next-best instead of the same one.
+  ///
+  /// [allowSeasonPack] (episode requests only): when false, don't fall back to /
+  /// prefer a whole-season pack — resolve the single episode only. The caller
+  /// sets this false for a still-airing season, where a complete pack can't
+  /// exist and wouldn't contain the requested episode anyway.
   Future<TorrentHandle?> resolve(
     ShowMeta meta,
     int? season,
     int? episode, {
     Set<String> exclude = const {},
+    bool allowSeasonPack = true,
   });
 
   /// Resolve a **whole-season pack** for [season] of [meta]'s show, or null when

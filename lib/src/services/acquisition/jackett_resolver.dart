@@ -42,6 +42,7 @@ class JackettResolver implements AcquisitionResolver {
     int? season,
     int? episode, {
     Set<String> exclude = const {},
+    bool allowSeasonPack = true,
   }) async {
     final config = _config;
     if (config == null) {
@@ -60,24 +61,27 @@ class JackettResolver implements AcquisitionResolver {
       if (season != null && episode != null) {
         // Tier 1 — prefer a whole-season pack: it's usually better-seeded and one
         // consistent A/V source across the season, and the daemon extracts just
-        // this episode's file from it (season-only query).
-        final packResults = await _query(config, meta, season, null);
-        final packBest = pickBestTorznabResult(
-            seasonPackResults(packResults, meta, season,
-                excludeSignLanguage: excludeSign, excludeUrls: exclude),
-            preferAudioLanguage: preferLang);
-        if (packBest != null) {
-          _log.info(
-              'resolved S${season}E$episode via season pack "${packBest.title}"',
-              source: 'JackettResolver');
-          return TorrentHandle(
-              magnetOrUrl: packBest.downloadUrl,
-              displayName: packBest.title,
-              seasonPack: true);
+        // this episode's file from it (season-only query). Skipped when the
+        // caller says the season is still airing (no complete pack can exist).
+        if (allowSeasonPack) {
+          final packResults = await _query(config, meta, season, null);
+          final packBest = pickBestTorznabResult(
+              seasonPackResults(packResults, meta, season,
+                  excludeSignLanguage: excludeSign, excludeUrls: exclude),
+              preferAudioLanguage: preferLang);
+          if (packBest != null) {
+            _log.info(
+                'resolved S${season}E$episode via season pack "${packBest.title}"',
+                source: 'JackettResolver');
+            return TorrentHandle(
+                magnetOrUrl: packBest.downloadUrl,
+                displayName: packBest.title,
+                seasonPack: true);
+          }
         }
 
-        // Tier 2 — no verified season pack: a release whose title parses to
-        // exactly this S/E.
+        // Tier 2 — no verified season pack (or packs skipped): a release whose
+        // title parses to exactly this S/E.
         final episodeResults = await _query(config, meta, season, episode);
         final episodeBest = pickBestTorznabResult(
             verifiedEpisodeResults(episodeResults, meta, season, episode,

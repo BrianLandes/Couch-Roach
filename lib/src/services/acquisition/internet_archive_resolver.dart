@@ -40,6 +40,7 @@ class InternetArchiveResolver extends AcquisitionResolver {
     int? season,
     int? episode, {
     Set<String> exclude = const {},
+    bool allowSeasonPack = true, // IA serves single titles; no packs to skip
   }) async {
     final searchUri = Uri.https(_host, '/advancedsearch.php', {
       'q': buildInternetArchiveQuery(meta, season, episode),

@@ -25,4 +25,32 @@ void main() {
       expect(airedEpisodeNumbers(const [], now), isEmpty);
     });
   });
+
+  group('seasonPackWorthTrying', () {
+    test('true when every episode has aired (a complete season)', () {
+      final eps = [
+        ep(1, airDate: '2026-01-01'),
+        ep(2, airDate: '2026-07-09'),
+      ];
+      expect(seasonPackWorthTrying(eps, now), isTrue);
+    });
+
+    test('false when any episode is still to air', () {
+      final eps = [
+        ep(1, airDate: '2026-01-01'),
+        ep(2, airDate: '2026-12-25'), // future → season still airing
+      ];
+      expect(seasonPackWorthTrying(eps, now), isFalse);
+    });
+
+    test('false when an episode has no air date (treated as not aired)', () {
+      final eps = [ep(1, airDate: '2026-01-01'), ep(2)];
+      expect(seasonPackWorthTrying(eps, now), isFalse);
+    });
+
+    test('true for an empty list (unknown → keep normal pack-first behavior)',
+        () {
+      expect(seasonPackWorthTrying(const [], now), isTrue);
+    });
+  });
 }
