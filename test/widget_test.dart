@@ -170,4 +170,46 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 1));
   });
+
+  testWidgets(
+      'show detail falls back to local episodes when TMDB details 404',
+      (tester) async {
+    // TMDB returns nothing for this show (offline / stale id / no key).
+    getIt.unregister<DiscoveryClient>();
+    getIt.registerSingleton<DiscoveryClient>(TmdbClient(
+      MockClient((_) async => http.Response('{}', 404)),
+      getIt<ErrorLogService>(),
+    ));
+
+    // ...but a matched episode is on disk (the row carries the cached identity).
+    await getIt<LibraryRepository>().upsert(const ScannedFile(
+      filePath: '/tv/myshow.S01E03.mkv',
+      title: 'My Show S01E03',
+      mediaType: 'tv',
+      season: 1,
+      episode: 3,
+      tmdbId: 424242,
+      tmdbName: 'My Show',
+    ));
+
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: ShowDetailScreen(
+            args: ShowDetailArgs(tmdbId: 424242, name: 'My Show'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Instead of a dead "Not found on TMDB", the file is playable.
+    expect(find.textContaining("Couldn't load full details"), findsOneWidget);
+    expect(find.text('S01E03'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Play'), findsOneWidget);
+    expect(find.text('Not found on TMDB.'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
 }

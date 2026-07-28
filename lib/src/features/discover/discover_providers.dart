@@ -227,3 +227,19 @@ final localEpisodesProvider =
       if (i.season != null && i.episode != null) (i.season!, i.episode!): i,
   };
 });
+
+/// Every local file matched to a show (tmdbId), season/episode order — the
+/// fallback the show detail page lists when TMDB details won't load, so the
+/// user can still play what's on disk. Unlike [localEpisodesProvider] it keeps
+/// files that lack a season/episode (a loose matched file) rather than dropping
+/// them.
+final localShowItemsProvider =
+    FutureProvider.family<List<LibraryItem>, int>((ref, tmdbId) async {
+  final items = await getIt<LibraryRepository>().localEpisodes(tmdbId);
+  items.sort((a, b) {
+    final sa = a.season ?? 0, sb = b.season ?? 0;
+    if (sa != sb) return sa.compareTo(sb);
+    return (a.episode ?? 0).compareTo(b.episode ?? 0);
+  });
+  return items;
+});

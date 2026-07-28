@@ -70,16 +70,24 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
         ...detailAsync.when(
           loading: () =>
               const [_CenteredNotice(child: CircularProgressIndicator())],
-          error: (e, _) => const [
-            _CenteredNotice(
-              child: Text(
-                'Could not load details — see the error log.',
-                style: TextStyle(color: AppColors.danger),
-              ),
+          // A TMDB fetch failure (offline, rate-limited, no key) shouldn't strand
+          // files that are already on disk — fall back to a playable list of what
+          // we have, and only show the bare notice when there's nothing local.
+          error: (e, _) => [
+            _LocalOnlyFallback(
+              tmdbId: widget.args.tmdbId,
+              name: widget.args.name,
+              notice: 'Could not load details — see the error log.',
             ),
           ],
           data: (details) => details == null
-              ? const [_CenteredNotice(child: Text('Not found on TMDB'))]
+              ? [
+                  _LocalOnlyFallback(
+                    tmdbId: widget.args.tmdbId,
+                    name: widget.args.name,
+                    notice: 'Not found on TMDB.',
+                  ),
+                ]
               : _contentChildren(details),
         ),
       ],
@@ -191,6 +199,135 @@ class _CenteredNotice extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.xxl * 2),
       child: Center(child: child),
+    );
+  }
+}
+
+/// Shown when TMDB details won't load (offline, rate-limited, no key, or a stale
+/// match) but the show still has files on disk: a minimal poster/name header and
+/// a playable list of the local episodes, using the name/poster the library row
+/// already cached. Falls back to [notice] only when there's nothing local to
+/// play, so a genuinely-unmatched show still reads as such.
+class _LocalOnlyFallback extends ConsumerWidget {
+  const _LocalOnlyFallback({
+    required this.tmdbId,
+    required this.name,
+    required this.notice,
+  });
+
+  final int tmdbId;
+  final String name;
+  final String notice;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    final itemsAsync = ref.watch(localShowItemsProvider(tmdbId));
+    final items = itemsAsync.asData?.value ?? const <LibraryItem>[];
+
+    if (itemsAsync.isLoading) {
+      return const _CenteredNotice(child: CircularProgressIndicator());
+    }
+    if (items.isEmpty) {
+      return _CenteredNotice(child: Text(notice));
+    }
+
+    final posterPath =
+        items.map((i) => i.tmdbPosterPath).firstWhere((p) => p != null,
+            orElse: () => null);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GlassSurface(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 140,
+                child: ClipRRect(
+                  borderRadius: AppRadii.rMd,
+                  child: AspectRatio(
+                    aspectRatio: 2 / 3,
+                    child: PosterArt(posterPath: posterPath, seed: name),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.lg),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: text.headlineSmall),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      "Couldn't load full details from TMDB — here are the "
+                      'episodes you have downloaded.',
+                      style: text.bodyMedium
+                          ?.copyWith(color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        for (final item in items)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.md),
+            child: _LocalItemRow(item: item, showName: name),
+          ),
+      ],
+    );
+  }
+}
+
+/// One playable local file in the [_LocalOnlyFallback] list: its SxxExx (or the
+/// filename title when it isn't a parsed episode) and a Play button.
+class _LocalItemRow extends StatelessWidget {
+  const _LocalItemRow({required this.item, required this.showName});
+
+  final LibraryItem item;
+  final String showName;
+
+  String get _label {
+    final s = item.season, e = item.episode;
+    if (s != null && e != null) {
+      return 'S${s.toString().padLeft(2, '0')}E${e.toString().padLeft(2, '0')}';
+    }
+    return item.tmdbName ?? item.title;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return GlassSurface(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(_label,
+                style: text.titleMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          FilledButton.icon(
+            onPressed: () => context.push(
+              Routes.player,
+              extra: PlayerArgs(
+                filePath: item.filePath,
+                title: item.tmdbName ?? item.title,
+                libraryItemId: item.id,
+              ),
+            ),
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: const Text('Play'),
+          ),
+        ],
+      ),
     );
   }
 }
