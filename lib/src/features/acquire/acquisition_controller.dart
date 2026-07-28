@@ -178,6 +178,25 @@ class AcquisitionController extends StateNotifier<AcquireState> {
     }
   }
 
+  /// "Stop this" — cancel the in-progress download, remove the torrent + its
+  /// partial files, and reset the control to idle (a Download button). Best-
+  /// effort: even if the removal fails, the control still returns to idle.
+  Future<void> cancel({
+    required String title,
+    required ShowMeta meta,
+    int? season,
+    int? episode,
+  }) async {
+    await _sub?.cancel();
+    try {
+      await cancelDownload(
+          title: title, meta: meta, season: season, episode: episode);
+    } catch (_) {
+      // Best-effort — still drop the control back to idle below.
+    }
+    if (mounted) state = const AcquireState.idle();
+  }
+
   @override
   void dispose() {
     _sub?.cancel();

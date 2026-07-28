@@ -65,6 +65,7 @@ class AcquireButton extends ConsumerWidget {
           context,
           ref,
           dedupeKey,
+          cancellable: true,
           _Preparing(
             progress: state.progress,
             // Live ETA off the torrent status the auto-adopt listener already
@@ -121,11 +122,13 @@ class AcquireButton extends ConsumerWidget {
   }
 
   /// Wrap the active control ([child]) with a small overflow menu: "Try a
-  /// different source" (blindly re-resolve the next-best in place) and "Choose
+  /// different source" (blindly re-resolve the next-best in place), "Choose
   /// source…" (open the picker to see and pick among all candidates) — the escape
-  /// hatches when the current torrent is bad or stalled.
+  /// hatches when the current torrent is bad or stalled — and, while it's still
+  /// downloading ([cancellable]), "Cancel download" (stop and remove it).
   Widget _withRetryMenu(
-      BuildContext context, WidgetRef ref, String dedupeKey, Widget child) {
+      BuildContext context, WidgetRef ref, String dedupeKey, Widget child,
+      {bool cancellable = false}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -171,6 +174,27 @@ class AcquireButton extends ConsumerWidget {
               },
               child: const Text('Choose source…'),
             ),
+            if (cancellable)
+              MenuItemButton(
+                leadingIcon: const Icon(Icons.cancel_outlined,
+                    size: 18, color: AppColors.danger),
+                onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  await ref
+                      .read(acquisitionControllerProvider(dedupeKey).notifier)
+                      .cancel(
+                        title: title,
+                        meta: meta,
+                        season: season,
+                        episode: episode,
+                      );
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('Download cancelled.')),
+                  );
+                },
+                child: const Text('Cancel download',
+                    style: TextStyle(color: AppColors.danger)),
+              ),
           ],
           builder: (context, controller, _) => IconButton(
             onPressed: () =>

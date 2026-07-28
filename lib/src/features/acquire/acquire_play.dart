@@ -351,6 +351,32 @@ Future<void> _discardCurrentSource(
       source: 'AcquireRetry');
 }
 
+/// Stop and remove the in-progress download for this title/episode, deleting its
+/// partial files — the user cancelled it from the inline control's menu. Removes
+/// the episode's own torrent; only if there isn't one (it was streaming from a
+/// season pack) is the pack removed. No re-resolve — the control returns to idle.
+/// The remembered season pack is left intact (cancelling isn't "this source is
+/// bad", just "not now"), so a later play can still reuse it.
+Future<void> cancelDownload({
+  required ShowMeta meta,
+  int? season,
+  int? episode,
+  required String title,
+}) async {
+  final daemon = getIt<TorrentDaemon>();
+  final episodeKey = acquisitionDedupeKey(
+      tmdbId: meta.tmdbId, title: meta.title, season: season, episode: episode);
+  final hadEpisodeTorrent = await daemon.taskForDedupeKey(episodeKey) != null;
+  await daemon.removeByDedupeKey(episodeKey, deleteFiles: true);
+  if (!hadEpisodeTorrent && season != null && episode != null) {
+    final seasonKey =
+        acquisitionDedupeKey(tmdbId: meta.tmdbId, title: meta.title, season: season);
+    await daemon.removeByDedupeKey(seasonKey, deleteFiles: true);
+  }
+  getIt<ErrorLogService>()
+      .info('cancelled download for "$title"', source: 'AcquireCancel');
+}
+
 /// Start downloading an episode in the **background** if it isn't already
 /// downloading — used to prefetch the next episode while the current one plays.
 /// Fire-and-forget: resolves + adds the torrent but never waits, buffers, or
