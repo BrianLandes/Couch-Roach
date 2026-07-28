@@ -353,33 +353,15 @@ ${titles.map((t) => '<item><title>$t</title>'
             '<size>900000000</size></item>').join('\n')}
 </channel></rss>''';
 
-    test('Tier 1: returns a verified single episode, ignoring wrong ones',
-        () async {
-      final r = JackettResolver(
-        MockClient((_) async => http.Response(
-            feed(['Game.of.Thrones.S01E09.1080p', 'Game.of.Thrones.S01E01.1080p']),
-            200)),
-        ErrorLogService(),
-        await _settings(),
-      )..configure(_config);
-
-      final handle = await r.resolve(meta, 1, 1);
-      expect(handle, isNotNull);
-      expect(handle!.displayName, 'Game.of.Thrones.S01E01.1080p');
-      expect(handle.seasonPack, isFalse);
-    });
-
-    test('Tier 2: falls back to a season pack when no single episode verifies',
-        () async {
+    test('Tier 1: prefers a season pack over a single episode', () async {
       var call = 0;
       final r = JackettResolver(
         MockClient((req) async {
           call++;
-          // First query (season+ep) → only a wrong episode; second (season-only)
-          // → the pack.
+          // Season-only query → a pack; the episode query shouldn't even run.
           return http.Response(
               req.url.queryParameters.containsKey('ep')
-                  ? feed(['Game.of.Thrones.S01E09.1080p'])
+                  ? feed(['Game.of.Thrones.S01E01.1080p'])
                   : feed(['Game.of.Thrones.S01.1080p']),
               200);
         }),
@@ -391,7 +373,34 @@ ${titles.map((t) => '<item><title>$t</title>'
       expect(handle, isNotNull);
       expect(handle!.displayName, 'Game.of.Thrones.S01.1080p');
       expect(handle.seasonPack, isTrue);
-      expect(call, 2, reason: 'episode query, then a season-only pack query');
+      expect(call, 1, reason: 'season-pack query first; no episode query needed');
+    });
+
+    test('Tier 2: uses a single episode when no season pack verifies', () async {
+      var call = 0;
+      final r = JackettResolver(
+        MockClient((req) async {
+          call++;
+          // Season-only query → only single episodes (no pack); the episode query
+          // → the requested episode, ignoring wrong ones.
+          return http.Response(
+              req.url.queryParameters.containsKey('ep')
+                  ? feed([
+                      'Game.of.Thrones.S01E09.1080p',
+                      'Game.of.Thrones.S01E01.1080p',
+                    ])
+                  : feed(['Game.of.Thrones.S01E05.1080p']),
+              200);
+        }),
+        ErrorLogService(),
+        await _settings(),
+      )..configure(_config);
+
+      final handle = await r.resolve(meta, 1, 1);
+      expect(handle, isNotNull);
+      expect(handle!.displayName, 'Game.of.Thrones.S01E01.1080p');
+      expect(handle.seasonPack, isFalse);
+      expect(call, 2, reason: 'season-pack query, then the episode query');
     });
 
     test('Tier 3: no verified source → null (fail loudly, no wrong guess)',

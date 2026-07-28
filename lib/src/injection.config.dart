@@ -17,6 +17,8 @@ import 'package:couch_roach/src/data/repositories/library_repository.dart'
     as _i877;
 import 'package:couch_roach/src/data/repositories/saved_titles_repository.dart'
     as _i574;
+import 'package:couch_roach/src/data/repositories/season_pack_source_repository.dart'
+    as _i218;
 import 'package:couch_roach/src/data/repositories/storage_repository.dart'
     as _i366;
 import 'package:couch_roach/src/data/repositories/subtitle_attempts_repository.dart'
@@ -116,6 +118,8 @@ extension GetItInjectableX on _i174.GetIt {
             ));
     gh.lazySingleton<_i877.LibraryRepository>(
         () => _i877.DriftLibraryRepository(gh<_i865.AppDatabase>()));
+    gh.lazySingleton<_i218.SeasonPackSourceRepository>(
+        () => _i218.DriftSeasonPackSourceRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i806.SubtitleAttemptsRepository>(
         () => _i806.DriftSubtitleAttemptsRepository(gh<_i865.AppDatabase>()));
     gh.lazySingleton<_i516.VpnService>(

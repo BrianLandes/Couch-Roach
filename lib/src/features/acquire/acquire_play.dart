@@ -7,6 +7,7 @@ import '../../core/logging/error_log_service.dart';
 import '../../core/settings/settings_service.dart';
 import '../../core/storage/storage_manager.dart';
 import '../../data/repositories/library_repository.dart';
+import '../../data/repositories/season_pack_source_repository.dart';
 import '../../data/tmdb/season.dart';
 import '../../injection.dart';
 import '../../router/app_router.dart';
@@ -151,9 +152,65 @@ Future<Prepared> prepareChosenSource({
   }
   final addKey = (handle.seasonPack && seasonKey != null) ? seasonKey : episodeKey;
   if (addKey != episodeKey) session.recordRequest(addKey, request);
+  // A pack the user picked from the source list becomes this season's remembered
+  // pack, so other episodes reuse the same one.
+  if (handle.seasonPack && season != null && episode != null) {
+    await _rememberSeasonPack(meta, season, handle);
+  }
   final task =
       await getIt<TorrentDaemon>().add(handle, savePath: savePath, dedupeKey: addKey);
   return _finishPrepared(task, request, bindProgress);
+}
+
+/// Resolve a source for an episode, **cache- and pack-first**: a season pack
+/// already remembered for this show+season is reused directly — so other
+/// episodes share one consistent, well-seeded source, we skip re-searching, and
+/// the reuse survives a restart / the pack leaving the client. Otherwise the
+/// resolver is asked (it prefers a season pack over a single episode), and a
+/// freshly-found pack is remembered for the rest of the season. [exclude] drops
+/// sources already tried this session, so a pack that just failed is neither
+/// reused nor re-remembered. Movie / unscoped requests bypass the cache.
+Future<TorrentHandle?> _resolveEpisodeSource(
+  AcquireRequest request, {
+  required Set<String> exclude,
+}) async {
+  final meta = request.meta;
+  final season = request.season, episode = request.episode;
+  final resolver = getIt<AcquisitionResolver>();
+  if (season == null || episode == null || meta.tmdbId == null) {
+    return resolver.resolve(meta, season, episode, exclude: exclude);
+  }
+
+  final packs = getIt<SeasonPackSourceRepository>();
+  final cached = await packs.find(meta.tmdbId!, season);
+  if (cached != null && !exclude.contains(cached.downloadUrl)) {
+    getIt<ErrorLogService>().info(
+        'reusing remembered season pack for "${meta.title}" S$season: '
+        '${cached.displayName ?? cached.downloadUrl}',
+        source: 'AcquirePack');
+    return TorrentHandle(
+        magnetOrUrl: cached.downloadUrl,
+        displayName: cached.displayName,
+        seasonPack: true);
+  }
+
+  final handle = await resolver.resolve(meta, season, episode, exclude: exclude);
+  if (handle != null && handle.seasonPack) {
+    await _rememberSeasonPack(meta, season, handle);
+  }
+  return handle;
+}
+
+/// Persist a chosen season pack for a show's season so other episodes reuse it.
+Future<void> _rememberSeasonPack(
+    ShowMeta meta, int season, TorrentHandle handle) async {
+  if (meta.tmdbId == null || !handle.seasonPack) return;
+  await getIt<SeasonPackSourceRepository>().remember(
+    tmdbId: meta.tmdbId!,
+    season: season,
+    downloadUrl: handle.magnetOrUrl,
+    displayName: handle.displayName,
+  );
 }
 
 /// Resolve a source for [request] — excluding any already tried this session
@@ -168,10 +225,8 @@ Future<TorrentTask> _resolveAndAdd(
   required String? seasonKey,
 }) async {
   final session = getIt<AcquisitionSession>();
-  final handle = await getIt<AcquisitionResolver>().resolve(
-    request.meta,
-    request.season,
-    request.episode,
+  final handle = await _resolveEpisodeSource(
+    request,
     exclude: session.triedFor(episodeKey),
   );
   if (handle == null) {
@@ -267,6 +322,12 @@ Future<void> _discardCurrentSource(
     final seasonKey =
         acquisitionDedupeKey(tmdbId: meta.tmdbId, title: meta.title, season: season);
     await daemon.removeByDedupeKey(seasonKey, deleteFiles: true);
+    // The episode was served from the remembered pack and it's being rejected —
+    // forget it so the retry finds a genuinely different source (session-exclude
+    // also blocks re-picking it), and so the whole season moves off a bad pack.
+    if (meta.tmdbId != null) {
+      await getIt<SeasonPackSourceRepository>().forget(meta.tmdbId!, season);
+    }
   }
   getIt<ErrorLogService>().info(
       'retry: discarded current source for "$title" — resolving next-best',
@@ -310,12 +371,11 @@ Future<void> prefetchEpisode({
 
   // Record how this episode was requested so "try another source" can retry it,
   // and skip any source already tried this session.
-  session.recordRequest(
-      episodeKey,
-      AcquireRequest(
-          title: showName, meta: meta, season: season, episode: episode));
-  final handle = await getIt<AcquisitionResolver>()
-      .resolve(meta, season, episode, exclude: session.triedFor(episodeKey));
+  final request = AcquireRequest(
+      title: showName, meta: meta, season: season, episode: episode);
+  session.recordRequest(episodeKey, request);
+  final handle = await _resolveEpisodeSource(request,
+      exclude: session.triedFor(episodeKey));
   if (handle == null) {
     log.info('prefetch: no source for S${season}E$episode of "$showName"',
         source: 'AcquirePrefetch');
@@ -509,6 +569,11 @@ Future<bool> _tryPack({
       await getIt<StorageManager>().chooseTarget(estimatedBytes: estimateBytes);
   if (savePath == null) return false;
   await daemon.add(handle, savePath: savePath, dedupeKey: dedupeKey);
+  // Remember a season pack so single-episode plays of that season reuse it too
+  // (a whole-series pack has no single season to key on).
+  if (request.season != null) {
+    await _rememberSeasonPack(request.meta, request.season!, handle);
+  }
   log.info('queued $label: ${handle.displayName}', source: 'AcquirePack');
   return true;
 }

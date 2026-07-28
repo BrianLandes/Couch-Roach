@@ -58,25 +58,9 @@ class JackettResolver implements AcquisitionResolver {
       // TV episode: verify the release actually is this episode — never trust the
       // indexer's season/ep filtering, which routinely returns other episodes.
       if (season != null && episode != null) {
-        // Tier 1 — a release whose title parses to exactly this S/E.
-        final episodeResults = await _query(config, meta, season, episode);
-        final episodeBest = pickBestTorznabResult(
-            verifiedEpisodeResults(episodeResults, meta, season, episode,
-                excludeSignLanguage: excludeSign, excludeUrls: exclude),
-            preferAudioLanguage: preferLang);
-        if (episodeBest != null) {
-          _log.info(
-              'resolved S${season}E$episode as a single episode: '
-              '"${episodeBest.title}"',
-              source: 'JackettResolver');
-          return TorrentHandle(
-              magnetOrUrl: episodeBest.downloadUrl,
-              displayName: episodeBest.title);
-        }
-
-        // Tier 2 — no verified single episode: fall back to a verified season
-        // pack (separate season-only query); the daemon extracts this episode's
-        // file from it.
+        // Tier 1 — prefer a whole-season pack: it's usually better-seeded and one
+        // consistent A/V source across the season, and the daemon extracts just
+        // this episode's file from it (season-only query).
         final packResults = await _query(config, meta, season, null);
         final packBest = pickBestTorznabResult(
             seasonPackResults(packResults, meta, season,
@@ -84,13 +68,29 @@ class JackettResolver implements AcquisitionResolver {
             preferAudioLanguage: preferLang);
         if (packBest != null) {
           _log.info(
-              'no verified single episode for S${season}E$episode — falling '
-              'back to season pack "${packBest.title}"',
+              'resolved S${season}E$episode via season pack "${packBest.title}"',
               source: 'JackettResolver');
           return TorrentHandle(
               magnetOrUrl: packBest.downloadUrl,
               displayName: packBest.title,
               seasonPack: true);
+        }
+
+        // Tier 2 — no verified season pack: a release whose title parses to
+        // exactly this S/E.
+        final episodeResults = await _query(config, meta, season, episode);
+        final episodeBest = pickBestTorznabResult(
+            verifiedEpisodeResults(episodeResults, meta, season, episode,
+                excludeSignLanguage: excludeSign, excludeUrls: exclude),
+            preferAudioLanguage: preferLang);
+        if (episodeBest != null) {
+          _log.info(
+              'no verified season pack for S${season}E$episode — using single '
+              'episode "${episodeBest.title}"',
+              source: 'JackettResolver');
+          return TorrentHandle(
+              magnetOrUrl: episodeBest.downloadUrl,
+              displayName: episodeBest.title);
         }
 
         _log.info(

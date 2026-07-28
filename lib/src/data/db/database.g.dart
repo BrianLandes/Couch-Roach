@@ -2306,6 +2306,328 @@ class SavedTitlesCompanion extends UpdateCompanion<SavedTitle> {
   }
 }
 
+class $SeasonPackSourcesTable extends SeasonPackSources
+    with TableInfo<$SeasonPackSourcesTable, SeasonPackSource> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SeasonPackSourcesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _tmdbIdMeta = const VerificationMeta('tmdbId');
+  @override
+  late final GeneratedColumn<int> tmdbId = GeneratedColumn<int>(
+      'tmdb_id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _seasonMeta = const VerificationMeta('season');
+  @override
+  late final GeneratedColumn<int> season = GeneratedColumn<int>(
+      'season', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _downloadUrlMeta =
+      const VerificationMeta('downloadUrl');
+  @override
+  late final GeneratedColumn<String> downloadUrl = GeneratedColumn<String>(
+      'download_url', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _displayNameMeta =
+      const VerificationMeta('displayName');
+  @override
+  late final GeneratedColumn<String> displayName = GeneratedColumn<String>(
+      'display_name', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _foundAtMeta =
+      const VerificationMeta('foundAt');
+  @override
+  late final GeneratedColumn<DateTime> foundAt = GeneratedColumn<DateTime>(
+      'found_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [tmdbId, season, downloadUrl, displayName, foundAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'season_pack_sources';
+  @override
+  VerificationContext validateIntegrity(Insertable<SeasonPackSource> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('tmdb_id')) {
+      context.handle(_tmdbIdMeta,
+          tmdbId.isAcceptableOrUnknown(data['tmdb_id']!, _tmdbIdMeta));
+    } else if (isInserting) {
+      context.missing(_tmdbIdMeta);
+    }
+    if (data.containsKey('season')) {
+      context.handle(_seasonMeta,
+          season.isAcceptableOrUnknown(data['season']!, _seasonMeta));
+    } else if (isInserting) {
+      context.missing(_seasonMeta);
+    }
+    if (data.containsKey('download_url')) {
+      context.handle(
+          _downloadUrlMeta,
+          downloadUrl.isAcceptableOrUnknown(
+              data['download_url']!, _downloadUrlMeta));
+    } else if (isInserting) {
+      context.missing(_downloadUrlMeta);
+    }
+    if (data.containsKey('display_name')) {
+      context.handle(
+          _displayNameMeta,
+          displayName.isAcceptableOrUnknown(
+              data['display_name']!, _displayNameMeta));
+    }
+    if (data.containsKey('found_at')) {
+      context.handle(_foundAtMeta,
+          foundAt.isAcceptableOrUnknown(data['found_at']!, _foundAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {tmdbId, season};
+  @override
+  SeasonPackSource map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SeasonPackSource(
+      tmdbId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}tmdb_id'])!,
+      season: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}season'])!,
+      downloadUrl: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}download_url'])!,
+      displayName: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}display_name']),
+      foundAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}found_at'])!,
+    );
+  }
+
+  @override
+  $SeasonPackSourcesTable createAlias(String alias) {
+    return $SeasonPackSourcesTable(attachedDatabase, alias);
+  }
+}
+
+class SeasonPackSource extends DataClass
+    implements Insertable<SeasonPackSource> {
+  final int tmdbId;
+  final int season;
+
+  /// The magnet or `.torrent` URL of the chosen pack — handed straight back to
+  /// the daemon (the same value that lands in `TorrentHandle.magnetOrUrl`).
+  final String downloadUrl;
+
+  /// The release title, cached for logging / the source picker.
+  final String? displayName;
+  final DateTime foundAt;
+  const SeasonPackSource(
+      {required this.tmdbId,
+      required this.season,
+      required this.downloadUrl,
+      this.displayName,
+      required this.foundAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['tmdb_id'] = Variable<int>(tmdbId);
+    map['season'] = Variable<int>(season);
+    map['download_url'] = Variable<String>(downloadUrl);
+    if (!nullToAbsent || displayName != null) {
+      map['display_name'] = Variable<String>(displayName);
+    }
+    map['found_at'] = Variable<DateTime>(foundAt);
+    return map;
+  }
+
+  SeasonPackSourcesCompanion toCompanion(bool nullToAbsent) {
+    return SeasonPackSourcesCompanion(
+      tmdbId: Value(tmdbId),
+      season: Value(season),
+      downloadUrl: Value(downloadUrl),
+      displayName: displayName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(displayName),
+      foundAt: Value(foundAt),
+    );
+  }
+
+  factory SeasonPackSource.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SeasonPackSource(
+      tmdbId: serializer.fromJson<int>(json['tmdbId']),
+      season: serializer.fromJson<int>(json['season']),
+      downloadUrl: serializer.fromJson<String>(json['downloadUrl']),
+      displayName: serializer.fromJson<String?>(json['displayName']),
+      foundAt: serializer.fromJson<DateTime>(json['foundAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'tmdbId': serializer.toJson<int>(tmdbId),
+      'season': serializer.toJson<int>(season),
+      'downloadUrl': serializer.toJson<String>(downloadUrl),
+      'displayName': serializer.toJson<String?>(displayName),
+      'foundAt': serializer.toJson<DateTime>(foundAt),
+    };
+  }
+
+  SeasonPackSource copyWith(
+          {int? tmdbId,
+          int? season,
+          String? downloadUrl,
+          Value<String?> displayName = const Value.absent(),
+          DateTime? foundAt}) =>
+      SeasonPackSource(
+        tmdbId: tmdbId ?? this.tmdbId,
+        season: season ?? this.season,
+        downloadUrl: downloadUrl ?? this.downloadUrl,
+        displayName: displayName.present ? displayName.value : this.displayName,
+        foundAt: foundAt ?? this.foundAt,
+      );
+  SeasonPackSource copyWithCompanion(SeasonPackSourcesCompanion data) {
+    return SeasonPackSource(
+      tmdbId: data.tmdbId.present ? data.tmdbId.value : this.tmdbId,
+      season: data.season.present ? data.season.value : this.season,
+      downloadUrl:
+          data.downloadUrl.present ? data.downloadUrl.value : this.downloadUrl,
+      displayName:
+          data.displayName.present ? data.displayName.value : this.displayName,
+      foundAt: data.foundAt.present ? data.foundAt.value : this.foundAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SeasonPackSource(')
+          ..write('tmdbId: $tmdbId, ')
+          ..write('season: $season, ')
+          ..write('downloadUrl: $downloadUrl, ')
+          ..write('displayName: $displayName, ')
+          ..write('foundAt: $foundAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(tmdbId, season, downloadUrl, displayName, foundAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SeasonPackSource &&
+          other.tmdbId == this.tmdbId &&
+          other.season == this.season &&
+          other.downloadUrl == this.downloadUrl &&
+          other.displayName == this.displayName &&
+          other.foundAt == this.foundAt);
+}
+
+class SeasonPackSourcesCompanion extends UpdateCompanion<SeasonPackSource> {
+  final Value<int> tmdbId;
+  final Value<int> season;
+  final Value<String> downloadUrl;
+  final Value<String?> displayName;
+  final Value<DateTime> foundAt;
+  final Value<int> rowid;
+  const SeasonPackSourcesCompanion({
+    this.tmdbId = const Value.absent(),
+    this.season = const Value.absent(),
+    this.downloadUrl = const Value.absent(),
+    this.displayName = const Value.absent(),
+    this.foundAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SeasonPackSourcesCompanion.insert({
+    required int tmdbId,
+    required int season,
+    required String downloadUrl,
+    this.displayName = const Value.absent(),
+    this.foundAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : tmdbId = Value(tmdbId),
+        season = Value(season),
+        downloadUrl = Value(downloadUrl);
+  static Insertable<SeasonPackSource> custom({
+    Expression<int>? tmdbId,
+    Expression<int>? season,
+    Expression<String>? downloadUrl,
+    Expression<String>? displayName,
+    Expression<DateTime>? foundAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (tmdbId != null) 'tmdb_id': tmdbId,
+      if (season != null) 'season': season,
+      if (downloadUrl != null) 'download_url': downloadUrl,
+      if (displayName != null) 'display_name': displayName,
+      if (foundAt != null) 'found_at': foundAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SeasonPackSourcesCompanion copyWith(
+      {Value<int>? tmdbId,
+      Value<int>? season,
+      Value<String>? downloadUrl,
+      Value<String?>? displayName,
+      Value<DateTime>? foundAt,
+      Value<int>? rowid}) {
+    return SeasonPackSourcesCompanion(
+      tmdbId: tmdbId ?? this.tmdbId,
+      season: season ?? this.season,
+      downloadUrl: downloadUrl ?? this.downloadUrl,
+      displayName: displayName ?? this.displayName,
+      foundAt: foundAt ?? this.foundAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (tmdbId.present) {
+      map['tmdb_id'] = Variable<int>(tmdbId.value);
+    }
+    if (season.present) {
+      map['season'] = Variable<int>(season.value);
+    }
+    if (downloadUrl.present) {
+      map['download_url'] = Variable<String>(downloadUrl.value);
+    }
+    if (displayName.present) {
+      map['display_name'] = Variable<String>(displayName.value);
+    }
+    if (foundAt.present) {
+      map['found_at'] = Variable<DateTime>(foundAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SeasonPackSourcesCompanion(')
+          ..write('tmdbId: $tmdbId, ')
+          ..write('season: $season, ')
+          ..write('downloadUrl: $downloadUrl, ')
+          ..write('displayName: $displayName, ')
+          ..write('foundAt: $foundAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $StorageLocationsTable extends StorageLocations
     with TableInfo<$StorageLocationsTable, StorageLocation> {
   @override
@@ -2613,6 +2935,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $SubtitleAttemptsTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
   late final $SavedTitlesTable savedTitles = $SavedTitlesTable(this);
+  late final $SeasonPackSourcesTable seasonPackSources =
+      $SeasonPackSourcesTable(this);
   late final $StorageLocationsTable storageLocations =
       $StorageLocationsTable(this);
   @override
@@ -2625,6 +2949,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         subtitleAttempts,
         settings,
         savedTitles,
+        seasonPackSources,
         storageLocations
       ];
   @override
@@ -4103,6 +4428,181 @@ typedef $$SavedTitlesTableProcessedTableManager = ProcessedTableManager<
     (SavedTitle, BaseReferences<_$AppDatabase, $SavedTitlesTable, SavedTitle>),
     SavedTitle,
     PrefetchHooks Function()>;
+typedef $$SeasonPackSourcesTableCreateCompanionBuilder
+    = SeasonPackSourcesCompanion Function({
+  required int tmdbId,
+  required int season,
+  required String downloadUrl,
+  Value<String?> displayName,
+  Value<DateTime> foundAt,
+  Value<int> rowid,
+});
+typedef $$SeasonPackSourcesTableUpdateCompanionBuilder
+    = SeasonPackSourcesCompanion Function({
+  Value<int> tmdbId,
+  Value<int> season,
+  Value<String> downloadUrl,
+  Value<String?> displayName,
+  Value<DateTime> foundAt,
+  Value<int> rowid,
+});
+
+class $$SeasonPackSourcesTableFilterComposer
+    extends Composer<_$AppDatabase, $SeasonPackSourcesTable> {
+  $$SeasonPackSourcesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get tmdbId => $composableBuilder(
+      column: $table.tmdbId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get season => $composableBuilder(
+      column: $table.season, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get downloadUrl => $composableBuilder(
+      column: $table.downloadUrl, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get displayName => $composableBuilder(
+      column: $table.displayName, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get foundAt => $composableBuilder(
+      column: $table.foundAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$SeasonPackSourcesTableOrderingComposer
+    extends Composer<_$AppDatabase, $SeasonPackSourcesTable> {
+  $$SeasonPackSourcesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get tmdbId => $composableBuilder(
+      column: $table.tmdbId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get season => $composableBuilder(
+      column: $table.season, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get downloadUrl => $composableBuilder(
+      column: $table.downloadUrl, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get displayName => $composableBuilder(
+      column: $table.displayName, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get foundAt => $composableBuilder(
+      column: $table.foundAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$SeasonPackSourcesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SeasonPackSourcesTable> {
+  $$SeasonPackSourcesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get tmdbId =>
+      $composableBuilder(column: $table.tmdbId, builder: (column) => column);
+
+  GeneratedColumn<int> get season =>
+      $composableBuilder(column: $table.season, builder: (column) => column);
+
+  GeneratedColumn<String> get downloadUrl => $composableBuilder(
+      column: $table.downloadUrl, builder: (column) => column);
+
+  GeneratedColumn<String> get displayName => $composableBuilder(
+      column: $table.displayName, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get foundAt =>
+      $composableBuilder(column: $table.foundAt, builder: (column) => column);
+}
+
+class $$SeasonPackSourcesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $SeasonPackSourcesTable,
+    SeasonPackSource,
+    $$SeasonPackSourcesTableFilterComposer,
+    $$SeasonPackSourcesTableOrderingComposer,
+    $$SeasonPackSourcesTableAnnotationComposer,
+    $$SeasonPackSourcesTableCreateCompanionBuilder,
+    $$SeasonPackSourcesTableUpdateCompanionBuilder,
+    (
+      SeasonPackSource,
+      BaseReferences<_$AppDatabase, $SeasonPackSourcesTable, SeasonPackSource>
+    ),
+    SeasonPackSource,
+    PrefetchHooks Function()> {
+  $$SeasonPackSourcesTableTableManager(
+      _$AppDatabase db, $SeasonPackSourcesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SeasonPackSourcesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SeasonPackSourcesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SeasonPackSourcesTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> tmdbId = const Value.absent(),
+            Value<int> season = const Value.absent(),
+            Value<String> downloadUrl = const Value.absent(),
+            Value<String?> displayName = const Value.absent(),
+            Value<DateTime> foundAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SeasonPackSourcesCompanion(
+            tmdbId: tmdbId,
+            season: season,
+            downloadUrl: downloadUrl,
+            displayName: displayName,
+            foundAt: foundAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required int tmdbId,
+            required int season,
+            required String downloadUrl,
+            Value<String?> displayName = const Value.absent(),
+            Value<DateTime> foundAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              SeasonPackSourcesCompanion.insert(
+            tmdbId: tmdbId,
+            season: season,
+            downloadUrl: downloadUrl,
+            displayName: displayName,
+            foundAt: foundAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$SeasonPackSourcesTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $SeasonPackSourcesTable,
+    SeasonPackSource,
+    $$SeasonPackSourcesTableFilterComposer,
+    $$SeasonPackSourcesTableOrderingComposer,
+    $$SeasonPackSourcesTableAnnotationComposer,
+    $$SeasonPackSourcesTableCreateCompanionBuilder,
+    $$SeasonPackSourcesTableUpdateCompanionBuilder,
+    (
+      SeasonPackSource,
+      BaseReferences<_$AppDatabase, $SeasonPackSourcesTable, SeasonPackSource>
+    ),
+    SeasonPackSource,
+    PrefetchHooks Function()>;
 typedef $$StorageLocationsTableCreateCompanionBuilder
     = StorageLocationsCompanion Function({
   Value<int> id,
@@ -4285,6 +4785,8 @@ class $AppDatabaseManager {
       $$SettingsTableTableManager(_db, _db.settings);
   $$SavedTitlesTableTableManager get savedTitles =>
       $$SavedTitlesTableTableManager(_db, _db.savedTitles);
+  $$SeasonPackSourcesTableTableManager get seasonPackSources =>
+      $$SeasonPackSourcesTableTableManager(_db, _db.seasonPackSources);
   $$StorageLocationsTableTableManager get storageLocations =>
       $$StorageLocationsTableTableManager(_db, _db.storageLocations);
 }

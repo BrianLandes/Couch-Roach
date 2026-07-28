@@ -149,6 +149,30 @@ class SavedTitles extends Table {
   Set<Column> get primaryKey => {tmdbId, mediaType};
 }
 
+/// A remembered whole-season pack torrent for a show's season, so downloading
+/// *other* episodes of that season reuses the same pack (better-seeded, and one
+/// consistent A/V source) instead of re-searching — and it survives a restart /
+/// the pack leaving the torrent client. Keyed by TMDB show id + season number.
+/// Distinct from LibraryItems (per file) and SavedTitles (per title): this maps
+/// a (show, season) to its chosen source. Written when a season pack is found or
+/// picked; cleared when the user "tries another source" off that pack.
+class SeasonPackSources extends Table {
+  IntColumn get tmdbId => integer()();
+  IntColumn get season => integer()();
+
+  /// The magnet or `.torrent` URL of the chosen pack — handed straight back to
+  /// the daemon (the same value that lands in `TorrentHandle.magnetOrUrl`).
+  TextColumn get downloadUrl => text()();
+
+  /// The release title, cached for logging / the source picker.
+  TextColumn get displayName => text().nullable()();
+
+  DateTimeColumn get foundAt => dateTime().withDefault(currentDateAndTime)();
+
+  @override
+  Set<Column> get primaryKey => {tmdbId, season};
+}
+
 /// Configured storage roots. Content spreads across these by free space
 /// (see DECISIONS: multi-disk storage).
 class StorageLocations extends Table {
@@ -166,6 +190,7 @@ class StorageLocations extends Table {
     SubtitleAttempts,
     Settings,
     SavedTitles,
+    SeasonPackSources,
     StorageLocations,
   ],
 )
@@ -176,7 +201,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -210,6 +235,9 @@ class AppDatabase extends _$AppDatabase {
             await m.addColumn(libraryItems, libraryItems.preferredAudioTrackId);
             await m.addColumn(
                 libraryItems, libraryItems.preferredSubtitleTrackId);
+          }
+          if (from < 11) {
+            await m.createTable(seasonPackSources);
           }
         },
         beforeOpen: (details) async {
