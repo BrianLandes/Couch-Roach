@@ -212,4 +212,77 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 1));
   });
+
+  testWidgets('a season chip shows a downloaded indicator', (tester) async {
+    getIt.unregister<DiscoveryClient>();
+    getIt.registerSingleton<DiscoveryClient>(TmdbClient(
+      MockClient((req) async {
+        const jsonUtf8 = {'content-type': 'application/json; charset=utf-8'};
+        final p = req.url.path;
+        if (p.contains('/tv/555/season/1')) {
+          return http.Response(
+              jsonEncode({
+                'season_number': 1,
+                'name': 'Season 1',
+                'episodes': [
+                  {'episode_number': 1, 'name': 'One', 'air_date': '2020-01-01'},
+                  {'episode_number': 2, 'name': 'Two', 'air_date': '2020-01-08'},
+                ],
+              }),
+              200,
+              headers: jsonUtf8);
+        }
+        if (p.contains('/tv/555')) {
+          return http.Response(
+              jsonEncode({
+                'id': 555,
+                'name': 'Downloady',
+                'seasons': [
+                  {'season_number': 1, 'name': 'Season 1', 'episode_count': 2},
+                ],
+              }),
+              200,
+              headers: jsonUtf8);
+        }
+        return http.Response('{}', 404);
+      }),
+      getIt<ErrorLogService>(),
+    ));
+
+    // One of the season's two episodes is on disk → "some" → download arrow.
+    await getIt<LibraryRepository>().upsert(const ScannedFile(
+      filePath: '/tv/downloady.S01E01.mkv',
+      title: 'Downloady S01E01',
+      mediaType: 'tv',
+      season: 1,
+      episode: 1,
+      tmdbId: 555,
+      tmdbName: 'Downloady',
+    ));
+
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: ShowDetailScreen(
+            args: ShowDetailArgs(tmdbId: 555, name: 'Downloady'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The partial-download indicator sits on the season chip (scoped so the
+    // page's own "Download…" button, which shares the icon, doesn't count).
+    expect(
+      find.descendant(
+        of: find.byType(ChoiceChip),
+        matching: find.byIcon(Icons.download_rounded),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.download_done_rounded), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
 }

@@ -175,6 +175,7 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
         _SeasonChips(
           seasons: seasons,
           selected: selected,
+          local: local,
           onSelect: (n) => setState(() => _season = n),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -572,16 +573,46 @@ class _DeleteShowButton extends ConsumerWidget {
   }
 }
 
+/// How much of a season is on disk, for the season chip's download indicator.
+enum SeasonDownloadState { none, some, all }
+
+/// Classify a season from its [downloaded] episode count against [total] (the
+/// season's episode count, or null when TMDB doesn't report it — then any
+/// downloaded reads as "some", never "all"). Pure + tested.
+SeasonDownloadState seasonDownloadState({required int downloaded, int? total}) {
+  if (downloaded <= 0) return SeasonDownloadState.none;
+  if (total != null && total > 0 && downloaded >= total) {
+    return SeasonDownloadState.all;
+  }
+  return SeasonDownloadState.some;
+}
+
 class _SeasonChips extends StatelessWidget {
   const _SeasonChips({
     required this.seasons,
     required this.selected,
+    required this.local,
     required this.onSelect,
   });
 
   final List<SeasonSummary> seasons;
   final int selected;
+
+  /// The downloaded episodes for this show, keyed (season, episode) — drives the
+  /// per-season "downloaded" indicator.
+  final Map<(int, int), LibraryItem> local;
   final ValueChanged<int> onSelect;
+
+  /// Small leading icon on a chip: filled download-done (green) when the whole
+  /// season is on disk, a plain download arrow (muted) when only some is, and
+  /// nothing when none is.
+  Widget? _indicator(SeasonDownloadState state) => switch (state) {
+        SeasonDownloadState.none => null,
+        SeasonDownloadState.some => const Icon(Icons.download_rounded,
+            size: 16, color: AppColors.textSecondary),
+        SeasonDownloadState.all => const Icon(Icons.download_done_rounded,
+            size: 16, color: AppColors.success),
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -590,13 +621,33 @@ class _SeasonChips extends StatelessWidget {
       runSpacing: AppSpacing.sm,
       children: [
         for (final s in seasons)
-          ChoiceChip(
-            label: Text(s.name),
-            selected: s.seasonNumber == selected,
-            onSelected: (_) => onSelect(s.seasonNumber),
-          ),
+          _seasonChip(s),
       ],
     );
+  }
+
+  Widget _seasonChip(SeasonSummary s) {
+    final downloaded =
+        local.keys.where((k) => k.$1 == s.seasonNumber).length;
+    final state = seasonDownloadState(
+        downloaded: downloaded, total: s.episodeCount);
+    final chip = ChoiceChip(
+      label: Text(s.name),
+      avatar: _indicator(state),
+      // Our avatar is the download indicator; the selected state shows via the
+      // chip's fill, so drop the default selected checkmark to avoid two icons.
+      showCheckmark: false,
+      selected: s.seasonNumber == selected,
+      onSelected: (_) => onSelect(s.seasonNumber),
+    );
+    if (state == SeasonDownloadState.none) return chip;
+    final total = s.episodeCount;
+    final message = state == SeasonDownloadState.all
+        ? 'All episodes downloaded'
+        : total != null
+            ? '$downloaded of $total downloaded'
+            : '$downloaded downloaded';
+    return Tooltip(message: message, child: chip);
   }
 }
 

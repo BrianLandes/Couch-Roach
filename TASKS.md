@@ -106,6 +106,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 
 _Finished work worth a short record; prune freely — git history is the archive._
 
+### Season chips: download-coverage indicator · `p3`
+
+- [x] Each season chip on the show detail page now carries a small leading icon showing how much of the season is on disk: nothing when none is downloaded, a muted download arrow (`Icons.download_rounded`) when *some* episodes are, and a green `download_done` when *all* are. A tooltip reads "N of M downloaded" / "All episodes downloaded". Pure classifier `seasonDownloadState({downloaded, total})` (total from `SeasonSummary.episodeCount`; unknown total never reads as "all"); `_SeasonChips` takes the live `localEpisodes` map so it updates as episodes land, counts per season, and drops the default selected-checkmark so the indicator is the only leading icon. Tests: classifier (none/some/all/extras/unknown-total) + a widget test asserting the chip indicator. 525 green, analyze clean.
+
 ### Prefer season packs for single episodes, and remember the pack per season · `p2`
 
 - [x] Two changes so single-episode acquisition rides a whole-season pack (better-seeded, one consistent A/V source) and other episodes reuse it.
