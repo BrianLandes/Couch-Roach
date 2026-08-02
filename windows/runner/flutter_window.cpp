@@ -27,6 +27,11 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
+  // Own the OS media session so the hardware Play/Pause key controls Couch Roach
+  // instead of leaking to Spotify/YouTube in the background.
+  media_session_ = std::make_unique<MediaSession>(
+      GetHandle(), flutter_controller_->engine()->messenger());
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -40,6 +45,9 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  // Tear down the media session (uses the engine messenger) before the engine.
+  media_session_ = nullptr;
+
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -65,6 +73,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case MediaSession::kButtonMessage:
+      // An SMTC media-key press marshaled from its background callback.
+      if (media_session_) {
+        media_session_->OnButtonOnUiThread(static_cast<int>(wparam));
+      }
+      return 0;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

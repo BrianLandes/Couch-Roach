@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "media_session.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -28,6 +29,10 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  // Windows media-key / SMTC integration (owns the OS media session so the
+  // hardware Play/Pause key routes here, not to background media apps).
+  std::unique_ptr<MediaSession> media_session_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

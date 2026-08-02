@@ -14,6 +14,7 @@ import 'package:media_kit_video/media_kit_video.dart' hide toggleFullscreen;
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
 import '../../core/media/ytdlp.dart';
+import '../../core/platform/media_session.dart';
 import '../../core/platform/open_url.dart';
 import '../../core/media/ytdlp_resolver.dart';
 import '../../core/settings/settings_service.dart';
@@ -201,6 +202,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _subtitleOffsetMs = 0;
   static const _subtitleOffsetLimit = 100000; // ±100s
 
+  /// Windows media-session bridge: while a video plays, Couch Roach owns the OS
+  /// media session so the hardware Play/Pause key controls it (and not a
+  /// background Spotify/YouTube). No-op off Windows.
+  late final MediaSessionController _mediaSession;
+
   @override
   void initState() {
     super.initState();
@@ -208,17 +214,44 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // the overlay without stealing focus or key handling from the media_kit
     // controls (Space / media-key play-pause, arrow-seek).
     HardwareKeyboard.instance.addHandler(_onHardwareKey);
+    _mediaSession = MediaSessionController()..onButton = _onMediaButton;
     _open();
   }
 
-  /// Any physical key press counts as activity and reveals the overlay. Returns
-  /// false so the event is never consumed — it still reaches the player controls
-  /// (this is an observer, not a handler).
+  /// Any physical key press counts as activity and reveals the overlay. Normally
+  /// returns false so the event still reaches the player controls (this is an
+  /// observer). The exception is the **media Play/Pause key on Windows**: there
+  /// the SMTC session drives play/pause (via [_onMediaButton]), so we swallow the
+  /// raw key here to stop media_kit from *also* toggling — a double-toggle would
+  /// cancel out. Other platforms (no SMTC) keep letting media_kit handle it.
   bool _onHardwareKey(KeyEvent event) {
     if (mounted && (event is KeyDownEvent || event is KeyRepeatEvent)) {
       _revealControls();
     }
+    if (Platform.isWindows && _isMediaPlayPauseKey(event.logicalKey)) {
+      return true;
+    }
     return false;
+  }
+
+  static bool _isMediaPlayPauseKey(LogicalKeyboardKey key) =>
+      key == LogicalKeyboardKey.mediaPlayPause ||
+      key == LogicalKeyboardKey.mediaPlay ||
+      key == LogicalKeyboardKey.mediaPause;
+
+  /// An OS media button (from the hardware key or the Windows media flyout),
+  /// routed through the SMTC session. Reveals the controls and applies the
+  /// explicit action — SMTC sends Play when paused and Pause when playing, off
+  /// the status we keep in sync in [_onPlayingChanged].
+  void _onMediaButton(String button) {
+    if (!mounted) return;
+    _revealControls();
+    switch (button) {
+      case 'play':
+        _player.play();
+      case 'pause':
+        _player.pause();
+    }
   }
 
   Future<void> _open() async {
@@ -310,6 +343,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       // Seek is applied on the first ready position tick (see _onPosition).
       await _player.open(Media(mediaUrl));
+
+      // Claim the OS media session (Windows) so the hardware Play/Pause key drives
+      // this video, not a background media app. No-op on other platforms.
+      unawaited(_mediaSession.enable(title: _effectiveTitle ?? widget.title));
 
       // Re-apply the saved subtitle timing offset for this title (no-op at 0).
       if (_subtitleOffsetMs != 0) unawaited(_applySubtitleDelay(_subtitleOffsetMs));
@@ -1195,6 +1232,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_onHardwareKey);
+    // Release the OS media session so the media key falls back to other apps
+    // once we're no longer playing.
+    unawaited(_mediaSession.disable());
+    _mediaSession.dispose();
     _persistFinal();
     _controlsHideTimer?.cancel();
     // Best-effort: remove the trailer's downloaded caption sidecar.
@@ -1231,6 +1272,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// back to the normal reveal-then-idle-hide behavior.
   void _onPlayingChanged(bool playing) {
     _isPlaying = playing;
+    // Keep the OS media session's status in step so its play/pause button and
+    // status readout match the player (Windows; no-op elsewhere).
+    unawaited(_mediaSession.setPlaying(playing));
     if (!playing) {
       _controlsHideTimer?.cancel();
       if (mounted && !_controlsVisible) setState(() => _controlsVisible = true);
