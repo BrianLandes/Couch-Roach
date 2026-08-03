@@ -63,11 +63,16 @@ abstract class LibraryRepository {
   Stream<List<LibraryItem>> watchPresent();
 
   /// Recently-downloaded titles for the landing "Recently Downloaded" rail:
-  /// app-acquired (`managed`), present files, collapsed to one entry per show
-  /// (matched `tmdbId` + media type, else the clean title) keeping each show's
-  /// most-recent file, ordered by `addedAt` newest-first. Live. [limit] caps how
-  /// many distinct titles are returned.
-  Stream<List<LibraryItem>> watchRecentlyDownloaded({int limit});
+  /// app-acquired (`managed`), present files downloaded within [maxAge], collapsed
+  /// to one entry per show (matched `tmdbId` + media type, else the clean title)
+  /// keeping each show's most-recent file, ordered by `addedAt` newest-first, and
+  /// **excluding titles watched since they were downloaded** (those live on
+  /// Continue Watching / are done). Live — updates as downloads land and as titles
+  /// get watched. [limit] caps how many distinct titles are returned.
+  Stream<List<LibraryItem>> watchRecentlyDownloaded({
+    int limit,
+    Duration maxAge,
+  });
 
   /// Every row including missing ones. Live.
   Stream<List<LibraryItem>> watchAll();
@@ -213,31 +218,72 @@ class DriftLibraryRepository implements LibraryRepository {
   }
 
   @override
-  Stream<List<LibraryItem>> watchRecentlyDownloaded({int limit = 20}) {
-    return (_db.select(_db.libraryItems)
-          ..where((t) => t.managed.equals(true) & t.missing.equals(false))
-          ..orderBy([
-            (t) =>
-                OrderingTerm(expression: t.addedAt, mode: OrderingMode.desc),
-          ]))
-        .watch()
-        .map((rows) => _collapseByShow(rows, limit));
+  Stream<List<LibraryItem>> watchRecentlyDownloaded({
+    int limit = 20,
+    Duration maxAge = const Duration(days: 60),
+  }) {
+    final cutoff = DateTime.now().subtract(maxAge);
+    // Join watch history so the query is reactive to *both* new downloads and
+    // titles getting watched (a left join keeps not-yet-watched downloads).
+    final query = _db.select(_db.libraryItems).join([
+      leftOuterJoin(
+        _db.watchHistory,
+        _db.watchHistory.libraryItemId.equalsExp(_db.libraryItems.id),
+      ),
+    ])
+      ..where(_db.libraryItems.managed.equals(true) &
+          _db.libraryItems.missing.equals(false) &
+          _db.libraryItems.addedAt.isBiggerOrEqualValue(cutoff))
+      ..orderBy([
+        OrderingTerm(
+            expression: _db.libraryItems.addedAt, mode: OrderingMode.desc),
+      ]);
+    return query.watch().map((rows) {
+      final paired = [
+        for (final row in rows)
+          (
+            item: row.readTable(_db.libraryItems),
+            history: row.readTableOrNull(_db.watchHistory),
+          ),
+      ];
+      return _collapseUnwatched(paired, limit);
+    });
   }
 
-  /// Keep only the newest row per show identity (rows arrive already sorted
-  /// newest-first), then cap to [limit] distinct titles. A matched title groups
-  /// by `'<mediaType>:<tmdbId>'` (so a show's several fresh episodes fold to one
+  /// Show identity for the Recently-Downloaded collapse: matched titles group by
+  /// `'<mediaType>:<tmdbId>'` (so a show's several fresh episodes fold to one
   /// entry, and movie/tv id namespaces never collide); an unmatched file falls
   /// back to its clean lowercased title.
-  List<LibraryItem> _collapseByShow(List<LibraryItem> rows, int limit) {
+  String _showKey(LibraryItem i) => i.tmdbId != null
+      ? '${i.mediaType}:${i.tmdbId}'
+      : 'title:${i.title.toLowerCase()}';
+
+  /// Collapse recent downloads to one newest entry per show, dropping any show
+  /// **watched since it was downloaded** — a file counts as watched-since when it
+  /// has watch history stamped at/after its own `addedAt` (so an old, since-reaped
+  /// title that's freshly re-downloaded still shows: its old history predates the
+  /// new download). [rows] arrive newest-first; result is capped to [limit].
+  List<LibraryItem> _collapseUnwatched(
+    List<({LibraryItem item, WatchHistoryData? history})> rows,
+    int limit,
+  ) {
+    // A show is out if any of its within-window downloads was watched since it
+    // arrived.
+    final watchedSince = <String>{};
+    for (final r in rows) {
+      final h = r.history;
+      if (h != null && !h.lastWatchedAt.isBefore(r.item.addedAt)) {
+        watchedSince.add(_showKey(r.item));
+      }
+    }
+
     final seen = <String>{};
     final out = <LibraryItem>[];
     for (final r in rows) {
-      final key = r.tmdbId != null
-          ? '${r.mediaType}:${r.tmdbId}'
-          : 'title:${r.title.toLowerCase()}';
+      final key = _showKey(r.item);
+      if (watchedSince.contains(key)) continue;
       if (seen.add(key)) {
-        out.add(r);
+        out.add(r.item);
         if (out.length >= limit) break;
       }
     }

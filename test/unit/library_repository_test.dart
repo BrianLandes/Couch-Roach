@@ -125,7 +125,17 @@ void main() {
   });
 
   group('watchRecentlyDownloaded', () {
-    final t0 = DateTime(2026, 1, 1, 12);
+    // Anchor within the default recency window (relative to real now).
+    final t0 = DateTime.now().subtract(const Duration(days: 5));
+
+    // Record that a file was watched at [lastWatchedAt].
+    Future<void> watchedAt(String filePath, DateTime lastWatchedAt) async {
+      final item = await repo.findByPath(filePath);
+      await db.into(db.watchHistory).insert(WatchHistoryCompanion.insert(
+            libraryItemId: item!.id,
+            lastWatchedAt: Value(lastWatchedAt),
+          ));
+    }
 
     test('only managed, present files appear', () async {
       await insertRow('/tv/managed.mkv',
@@ -200,6 +210,55 @@ void main() {
       ));
       final rows = await repo.watchRecentlyDownloaded().first;
       expect(rows.map((r) => r.tmdbId), [77]);
+    });
+
+    test('drops downloads older than the recency window', () async {
+      final now = DateTime.now();
+      await insertRow('/tv/recent.mkv',
+          tmdbId: 1, addedAt: now.subtract(const Duration(days: 10)));
+      await insertRow('/tv/old.mkv',
+          tmdbId: 2, addedAt: now.subtract(const Duration(days: 90)));
+
+      final rows = await repo
+          .watchRecentlyDownloaded(maxAge: const Duration(days: 60))
+          .first;
+      expect(rows.map((r) => r.filePath), ['/tv/recent.mkv']);
+    });
+
+    test('excludes a title watched since it was downloaded', () async {
+      await insertRow('/tv/seen.mkv', tmdbId: 1, addedAt: t0);
+      await insertRow('/tv/unseen.mkv',
+          tmdbId: 2, addedAt: t0.add(const Duration(hours: 1)));
+      // Watched after it was downloaded → drops off "recently downloaded".
+      await watchedAt('/tv/seen.mkv', t0.add(const Duration(hours: 2)));
+
+      final rows = await repo.watchRecentlyDownloaded().first;
+      expect(rows.map((r) => r.tmdbId), [2]);
+    });
+
+    test('a re-download of a since-watched title reappears (old history)',
+        () async {
+      // Watched a while ago, then reaped and freshly re-downloaded now: the old
+      // watch predates the new download, so it's a genuine new arrival again.
+      await insertRow('/tv/rewatch.mkv',
+          tmdbId: 7, addedAt: t0.add(const Duration(days: 3)));
+      await watchedAt('/tv/rewatch.mkv', t0); // watched BEFORE the re-download
+
+      final rows = await repo.watchRecentlyDownloaded().first;
+      expect(rows.map((r) => r.tmdbId), [7]);
+    });
+
+    test('a show is excluded when any of its episodes was watched since',
+        () async {
+      await insertRow('/tv/show.S01E01.mkv',
+          tmdbId: 9, season: 1, episode: 1, addedAt: t0);
+      await insertRow('/tv/show.S01E02.mkv',
+          tmdbId: 9, season: 1, episode: 2,
+          addedAt: t0.add(const Duration(hours: 1)));
+      await watchedAt('/tv/show.S01E01.mkv', t0.add(const Duration(hours: 3)));
+
+      // The whole show drops (it's on Continue Watching now), not just E01.
+      expect(await repo.watchRecentlyDownloaded().first, isEmpty);
     });
   });
 

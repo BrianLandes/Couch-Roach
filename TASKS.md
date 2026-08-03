@@ -106,6 +106,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 
 _Finished work worth a short record; prune freely — git history is the archive._
 
+### "Recently Downloaded" rail: recency window + drop watched titles · `p3`
+
+- [x] Tightened the rail from "all managed downloads" to "recent, still-unwatched new arrivals." `watchRecentlyDownloaded` gains a `maxAge` (default **60 days**) so only downloads from the last ~month or two show, and now **excludes any title watched since it was downloaded** — those live on Continue Watching / are done. Implemented as a left join on `watchHistory` (so the rail is reactive to *both* new downloads and titles getting watched); a title drops when any of its within-window downloads has `lastWatchedAt >= its addedAt`. Using "since *this* download" (not "ever watched") means a since-reaped title that's freshly re-downloaded correctly reappears — its old history predates the new file. A watched episode drops the whole show (it's on Continue Watching). Tests: window cutoff, watched-since exclusion, old-history re-download reappears, whole-show exclusion. 532 green, analyze clean.
+
 ### Media Play/Pause key leaks to background apps (Spotify/YouTube) · `p2`
 
 - [x] The hardware media Play/Pause key paused Couch Roach *and* propagated to background media apps (Spotify/YouTube would start). Root cause: Couch Roach never owned the OS media session, so Windows delivered the key both to the focused window (media_kit) and, via the System Media Transport Controls (SMTC), to whatever app owns the current session (Spotify). Fix: own the SMTC session while a video plays, so the key routes to Couch Roach only.
