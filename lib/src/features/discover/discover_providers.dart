@@ -154,10 +154,13 @@ final recommendedProvider = FutureProvider<List<DiscoverTile>>((ref) async {
   return out;
 });
 
-/// "New Episodes For You" — shows in your watch history that have episodes which
-/// have aired since the last one you watched. Cheap first pass off tvDetails (a
-/// newer season that's already airing); only fetches the current season's
-/// episodes when that misses. Empty until you've watched matched episodes.
+/// "New Episodes For You" — shows you were **caught up on** (your furthest
+/// *finished* episode was the latest aired when you watched it) that have since
+/// had a new episode air. Both conditions are checked in
+/// [hasNewEpisodeSinceCaughtUp] against the air dates of everything ranked above
+/// your furthest episode: later episodes of that season (from season details)
+/// and later seasons (their season-level air date). Empty until you've finished
+/// matched episodes.
 final newEpisodesProvider = FutureProvider<List<DiscoverTile>>((ref) async {
   final watched =
       await getIt<WatchHistoryRepository>().latestWatchedEpisodePerShow();
@@ -166,34 +169,28 @@ final newEpisodesProvider = FutureProvider<List<DiscoverTile>>((ref) async {
   final tmdb = getIt<DiscoveryClient>();
   final now = DateTime.now();
 
+  DateTime? parse(String? d) => d == null ? null : DateTime.tryParse(d);
+
   final results = await Future.wait(watched.take(12).map((show) async {
     final details = await tmdb.tvDetails(show.tmdbId);
-    final seasons = (details?.seasons ?? const [])
-        .where((s) => s.seasonNumber >= 1)
-        .map((s) => SeasonAir(
-              season: s.seasonNumber,
-              airDate:
-                  s.airDate == null ? null : DateTime.tryParse(s.airDate!),
-            ))
-        .toList();
-
-    // A whole newer season has started airing → new episodes to catch up on.
-    if (hasNewerAiredSeason(
-        watchedSeason: show.season, seasons: seasons, now: now)) {
-      return _newEpisodeTile(show);
-    }
-
-    // Else: has a later episode within the current season aired?
     final season = await tmdb.seasonDetails(show.tmdbId, show.season);
-    final eps = (season?.episodes ?? const [])
-        .map((e) => EpisodeAir(
-              episode: e.episodeNumber,
-              airDate:
-                  e.airDate == null ? null : DateTime.tryParse(e.airDate!),
-            ))
-        .toList();
-    return hasLaterAiredEpisode(
-            watchedEpisode: show.episode, episodes: eps, now: now)
+
+    // Air dates of everything ranked above the furthest-finished episode: later
+    // episodes of the same season, plus later seasons (season-level date stands
+    // in for their episodes).
+    final higher = <DateTime?>[
+      for (final e in season?.episodes ?? const [])
+        if (e.episodeNumber > show.episode) parse(e.airDate),
+      for (final s in details?.seasons ?? const [])
+        if (s.seasonNumber >= 1 && s.seasonNumber > show.season)
+          parse(s.airDate),
+    ];
+
+    return hasNewEpisodeSinceCaughtUp(
+      higherRankedAirDates: higher,
+      lastWatchedAt: show.lastWatchedAt,
+      now: now,
+    )
         ? _newEpisodeTile(show)
         : null;
   }));

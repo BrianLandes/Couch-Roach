@@ -44,14 +44,16 @@ class ReapCandidate {
   final DateTime lastWatchedAt;
 }
 
-/// The furthest-watched episode of a matched TV show — the seed for the "New
-/// Episodes For You" rail (compare against what's since aired on TMDB).
+/// The furthest **finished** episode of a matched TV show, plus when it was
+/// finished — the seed for the "New Episodes For You" rail (was the user caught
+/// up then, and has anything aired since — see [hasNewEpisodeSinceCaughtUp]).
 class WatchedShow {
   const WatchedShow({
     required this.tmdbId,
     required this.name,
     required this.season,
     required this.episode,
+    required this.lastWatchedAt,
     this.posterPath,
   });
 
@@ -59,6 +61,10 @@ class WatchedShow {
   final String name;
   final int season;
   final int episode;
+
+  /// When the furthest-finished episode was watched — the reference instant for
+  /// the "caught up then / new since" check.
+  final DateTime lastWatchedAt;
   final String? posterPath;
 }
 
@@ -79,8 +85,11 @@ class WatchSignal {
 abstract class WatchHistoryRepository {
   Future<WatchHistoryData?> forItem(int libraryItemId);
 
-  /// The furthest-watched episode of each matched TV show in watch history,
-  /// most-recently-watched show first — seeds the "New Episodes" check.
+  /// The furthest **finished** (`completed`) episode of each matched TV show,
+  /// most-recently-watched show first — seeds the "New Episodes" check. Only
+  /// completed episodes count (an in-progress episode, or a next-episode seeded
+  /// by [advanceToNextEpisode], isn't "finished"), and each carries its
+  /// `lastWatchedAt` so the rail can tell whether the user was caught up then.
   Future<List<WatchedShow>> latestWatchedEpisodePerShow();
 
   /// In-progress, still-present titles, most-recently-watched first — the
@@ -290,7 +299,8 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
       ),
     ])
-      ..where(_db.libraryItems.mediaType.equals('tv') &
+      ..where(_db.watchHistory.completed.equals(true) &
+          _db.libraryItems.mediaType.equals('tv') &
           _db.libraryItems.tmdbId.isNotNull() &
           _db.libraryItems.season.isNotNull() &
           _db.libraryItems.episode.isNotNull())
@@ -301,8 +311,8 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         ),
       ]);
 
-    // Keep the furthest-watched episode per show; insertion order (newest watch
-    // first, from the query) is preserved for the rail.
+    // Keep the furthest-finished episode per show (with that row's lastWatchedAt);
+    // insertion order (newest watch first, from the query) is preserved.
     int rank(int s, int e) => s * 1000 + e;
     final byShow = <int, WatchedShow>{};
     for (final row in await query.get()) {
@@ -317,6 +327,7 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
           name: item.tmdbName ?? item.title,
           season: s,
           episode: e,
+          lastWatchedAt: row.readTable(_db.watchHistory).lastWatchedAt,
           posterPath: item.tmdbPosterPath,
         );
       }
