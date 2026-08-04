@@ -106,6 +106,15 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 
 _Finished work worth a short record; prune freely — git history is the archive._
 
+### Four new recommendation rails on the landing page · `p2`
+
+- [x] Added four single-signal (no-ensemble) discovery rails, each reusing `_DiscoverRail` (so they honor the owned filter + "Not interested"):
+  - **More like \<favorite\>** (`moreLikeFavoriteProvider`) — TMDB recommendations seeded from your newest favorite alone, as a named/legible rail (vs. the blended "Recommended For You").
+  - **Because you watch \<Actor\>** (`favoriteActorProvider`) — the actor recurring across the most of your watched+favorited titles (pure `topRecurringPerson` over `tvCast`/`movieCast`), then their `personCredits` ranked by popularity.
+  - **Acclaimed in \<genre\>** (`acclaimedInGenreProvider`) — top-rated in your #1 inferred genre via `discover` (`sort_by=vote_average.desc`, `vote_count.gte=300`), a quality axis next to the popularity genre rows. `discoverMovies/discoverTv` gained `sortBy`/`minVotes`.
+  - **Finish the Franchise** (`finishFranchiseProvider`) — for owned/favorited movies in a TMDB collection, the other released films of that collection you don't own. New client calls `movieCollectionId` + `movieCollection`.
+- All filter out owned titles (`ownedTmdbIdsProvider`) and the seeds themselves; each returns null/empty until there's enough signal, so no empty rows. Tests: `topRecurringPerson` (recurrence/cutoff/ties), the acclaimed discover params, and collection parsing. 544 green, analyze clean. Device-verify the rails populate as expected.
+
 ### Rework "New Episodes" — only truly-new episodes for caught-up shows · `p2`
 
 - [x] The rail used to surface any show with a later aired episode than the one you watched — so a half-watched season showed your *backlog* as "new." Now a show qualifies only when **(1)** your furthest *finished* episode was the latest aired when you finished it (you were caught up) **and (2)** a new episode has aired since. **No new persisted metadata** — computed from data we already had: `LibraryItems.season/episode` + `WatchHistory.lastWatchedAt`/`completed` + TMDB air dates (live). `latestWatchedEpisodePerShow` now filters to `completed = true` (so in-progress and `advanceToNextEpisode`-seeded rows don't inflate "furthest") and carries `lastWatchedAt` on `WatchedShow`. New pure helper `hasNewEpisodeSinceCaughtUp({higherRankedAirDates, lastWatchedAt, now})` replaces `hasNewerAiredSeason`/`hasLaterAiredEpisode`: caught-up = nothing ranked above aired by `lastWatchedAt`; new-since = something ranked above aired after. `newEpisodesProvider` feeds it the air dates of later episodes of the watched season (season details) + later seasons (season-level dates). Caveat: judged from *current* TMDB air dates (assumes they're historically stable — bulletproofing would need a `wasCaughtUp` snapshot on completion; deemed not worth it). Tests: helper (caught-up/backlog/new-since/undated/empty/equal-instant), completed-filter + lastWatchedAt on the query. 536 green, analyze clean.

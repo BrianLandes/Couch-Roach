@@ -135,6 +135,58 @@ void main() {
     expect(captured!.url.queryParameters['sort_by'], 'popularity.desc');
   });
 
+  test('discoverMovies passes an acclaimed sort + vote floor', () async {
+    http.Request? captured;
+    final client = TmdbClient(
+      MockClient((req) async {
+        captured = req;
+        return http.Response(jsonEncode({'results': const []}), 200,
+            headers: {'content-type': 'application/json'});
+      }),
+      ErrorLogService(),
+    );
+
+    await client.discoverMovies(
+        genreId: 18, sortBy: 'vote_average.desc', minVotes: 300);
+    expect(captured!.url.queryParameters['sort_by'], 'vote_average.desc');
+    expect(captured!.url.queryParameters['vote_count.gte'], '300');
+    expect(captured!.url.queryParameters['with_genres'], '18');
+  });
+
+  test('movieCollectionId reads belongs_to_collection, null when absent',
+      () async {
+    final withColl = clientFor({
+      '/movie/9': {
+        'id': 9,
+        'title': 'Part One',
+        'belongs_to_collection': {'id': 555, 'name': 'The Saga'},
+      },
+    });
+    expect(await withColl.movieCollectionId(9), 555);
+
+    final without = clientFor({
+      '/movie/9': {'id': 9, 'title': 'Standalone'},
+    });
+    expect(await without.movieCollectionId(9), isNull);
+  });
+
+  test('movieCollection parses the name and its parts', () async {
+    final client = clientFor({
+      '/collection/555': {
+        'id': 555,
+        'name': 'The Saga',
+        'parts': [
+          {'id': 9, 'title': 'Part One', 'release_date': '2001-01-01'},
+          {'id': 10, 'title': 'Part Two', 'release_date': '2004-01-01'},
+        ],
+      },
+    });
+    final coll = await client.movieCollection(555);
+    expect(coll, isNotNull);
+    expect(coll!.name, 'The Saga');
+    expect(coll.parts.map((p) => p.tmdbId), [9, 10]);
+  });
+
   test('videos hits the tv or movie endpoint by media type', () async {
     final client = clientFor({
       '/tv/1399/videos': {

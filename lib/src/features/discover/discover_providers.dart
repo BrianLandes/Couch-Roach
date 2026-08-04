@@ -12,6 +12,8 @@ import '../../injection.dart';
 import '../../services/discovery/tmdb_client.dart';
 import 'discover_tile.dart';
 import 'new_episodes.dart';
+import 'recommendation_helpers.dart';
+import 'taste_providers.dart';
 
 /// Trending TV this week — the "What to Watch Next" rail.
 final trendingTvProvider = FutureProvider<List<TvShowSummary>>(
@@ -149,6 +151,151 @@ final recommendedProvider = FutureProvider<List<DiscoverTile>>((ref) async {
           out.add(DiscoverTile.fromMovie(rec));
         }
       }
+    }
+  }
+  return out;
+});
+
+/// A named recommendation rail's payload: the seed's display name (for the row
+/// label) and the tiles to show. Null from a provider means "don't render it."
+typedef NamedRail = ({String name, List<DiscoverTile> tiles});
+
+/// "More like <favorite>" — recommendations seeded from your most-recent
+/// favorite alone, as its own legible rail (vs. the blended "Recommended For
+/// You"). Null when you have no favorites or nothing comes back.
+final moreLikeFavoriteProvider = FutureProvider<NamedRail?>((ref) async {
+  final favs = await getIt<SavedTitlesRepository>().watchFavorites().first;
+  if (favs.isEmpty) return null;
+  final seed = favs.first; // newest-favorited
+  final owned = await ref.watch(ownedTmdbIdsProvider.future);
+  final tmdb = getIt<DiscoveryClient>();
+  final tiles = <DiscoverTile>[];
+  final seen = <int>{seed.tmdbId};
+  if (seed.mediaType == 'tv') {
+    for (final r in await tmdb.recommendedTv(seed.tmdbId)) {
+      if (!owned.contains(r.tmdbId) && seen.add(r.tmdbId)) {
+        tiles.add(DiscoverTile.fromTv(r));
+      }
+    }
+  } else {
+    for (final r in await tmdb.recommendedMovies(seed.tmdbId)) {
+      if (!owned.contains(r.tmdbId) && seen.add(r.tmdbId)) {
+        tiles.add(DiscoverTile.fromMovie(r));
+      }
+    }
+  }
+  return tiles.isEmpty ? null : (name: seed.name, tiles: tiles);
+});
+
+/// "Acclaimed in <genre>" — top-rated titles (with a vote-count floor so they're
+/// genuinely vetted, not a handful of 10/10s) in your #1 inferred genre: a
+/// quality axis next to the popularity-based genre rows. Null until there's a
+/// taste profile.
+final acclaimedInGenreProvider = FutureProvider<NamedRail?>((ref) async {
+  final ranked = await ref.watch(tasteProfileProvider.future);
+  if (ranked.isEmpty) return null;
+  final top = ranked.first;
+  final owned = await ref.watch(ownedTmdbIdsProvider.future);
+  final tmdb = getIt<DiscoveryClient>();
+  const sortBy = 'vote_average.desc';
+  const minVotes = 300;
+  final tiles = <DiscoverTile>[];
+  if (top.mediaType == 'tv') {
+    for (final s in await tmdb.discoverTv(
+        genreId: top.genreId, sortBy: sortBy, minVotes: minVotes)) {
+      if (!owned.contains(s.tmdbId)) tiles.add(DiscoverTile.fromTv(s));
+    }
+  } else {
+    for (final m in await tmdb.discoverMovies(
+        genreId: top.genreId, sortBy: sortBy, minVotes: minVotes)) {
+      if (!owned.contains(m.tmdbId)) tiles.add(DiscoverTile.fromMovie(m));
+    }
+  }
+  return tiles.isEmpty ? null : (name: top.name, tiles: tiles);
+});
+
+/// "Because you watch <Actor>" — the actor recurring across the most titles you
+/// watch + favorite, then more of their work (ranked by popularity, minus what
+/// you own or seeded it). Null when no actor recurs across your titles.
+final favoriteActorProvider = FutureProvider<NamedRail?>((ref) async {
+  final seeds = <({int tmdbId, String mediaType})>[];
+  final seedIds = <int>{};
+  void add(int id, String type) {
+    if (seedIds.add(id)) seeds.add((tmdbId: id, mediaType: type));
+  }
+
+  for (final w in await getIt<WatchHistoryRepository>().watchSignals(limit: 8)) {
+    add(w.tmdbId, w.mediaType);
+  }
+  for (final f
+      in (await getIt<SavedTitlesRepository>().watchFavorites().first).take(6)) {
+    add(f.tmdbId, f.mediaType);
+  }
+  if (seeds.length < 2) return null; // need overlap potential
+
+  final tmdb = getIt<DiscoveryClient>();
+  final casts = await Future.wait(seeds.take(10).map((s) =>
+      s.mediaType == 'tv' ? tmdb.tvCast(s.tmdbId) : tmdb.movieCast(s.tmdbId)));
+  final person = topRecurringPerson(casts);
+  if (person == null) return null;
+
+  final owned = await ref.watch(ownedTmdbIdsProvider.future);
+  final credits = [...await tmdb.personCredits(person.personId)]
+    ..sort((a, b) => b.popularity.compareTo(a.popularity));
+  final tiles = <DiscoverTile>[];
+  final emitted = <int>{};
+  for (final c in credits) {
+    if (c.mediaType != 'tv' && c.mediaType != 'movie') continue;
+    if (owned.contains(c.tmdbId) || seedIds.contains(c.tmdbId)) continue;
+    if (c.displayTitle.isEmpty || !emitted.add(c.tmdbId)) continue;
+    tiles.add(DiscoverTile(
+      tmdbId: c.tmdbId,
+      title: c.displayTitle,
+      mediaType: c.mediaType,
+      posterPath: c.posterPath,
+      year: int.tryParse(c.year ?? ''),
+    ));
+    if (tiles.length >= 20) break;
+  }
+  return tiles.isEmpty ? null : (name: person.name, tiles: tiles);
+});
+
+/// "Finish the Franchise" — for movies you own or favorited that belong to a
+/// TMDB collection, the *other* released films in those collections you don't
+/// have yet. Empty when none apply.
+final finishFranchiseProvider = FutureProvider<List<DiscoverTile>>((ref) async {
+  // Movies the user has a stake in: owned movies + favorited movies.
+  final seedMovieIds = <int>{};
+  for (final i in await getIt<LibraryRepository>().getAll()) {
+    if (i.mediaType == 'movie' && i.tmdbId != null) seedMovieIds.add(i.tmdbId!);
+  }
+  for (final f in await getIt<SavedTitlesRepository>().watchFavorites().first) {
+    if (f.mediaType == 'movie') seedMovieIds.add(f.tmdbId);
+  }
+  if (seedMovieIds.isEmpty) return const [];
+
+  final tmdb = getIt<DiscoveryClient>();
+  final collectionIds = <int>{};
+  for (final id in seedMovieIds.take(12)) {
+    final cid = await tmdb.movieCollectionId(id);
+    if (cid != null) collectionIds.add(cid);
+  }
+  if (collectionIds.isEmpty) return const [];
+
+  final owned = await ref.watch(ownedTmdbIdsProvider.future);
+  final now = DateTime.now();
+  final out = <DiscoverTile>[];
+  final emitted = <int>{};
+  for (final cid in collectionIds) {
+    final coll = await tmdb.movieCollection(cid);
+    if (coll == null) continue;
+    for (final m in coll.parts) {
+      if (seedMovieIds.contains(m.tmdbId) || owned.contains(m.tmdbId)) continue;
+      if (!emitted.add(m.tmdbId)) continue;
+      final released = isAired(
+          m.releaseDate == null ? null : DateTime.tryParse(m.releaseDate!), now);
+      if (!released) continue;
+      out.add(DiscoverTile.fromMovie(m));
     }
   }
   return out;

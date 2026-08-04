@@ -118,6 +118,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with RouteAware {
         : const <ArchiveItem>[];
     final newEpisodes =
         ref.watch(newEpisodesProvider).asData?.value ?? const [];
+    // Recommendation rails (each null/empty until there's enough signal).
+    final moreLikeFav = ref.watch(moreLikeFavoriteProvider).asData?.value;
+    final byActor = ref.watch(favoriteActorProvider).asData?.value;
+    final acclaimed = ref.watch(acclaimedInGenreProvider).asData?.value;
+    final franchise =
+        ref.watch(finishFranchiseProvider).asData?.value ?? const [];
     final favorites =
         ref.watch(favoritesProvider).asData?.value ?? const <SavedTitle>[];
     final wantToWatch =
@@ -187,12 +193,40 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with RouteAware {
                         tiles: recommended,
                       ),
                     ),
+                  if (moreLikeFav != null && moreLikeFav.tiles.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DiscoverRail(
+                        label: 'More like ${moreLikeFav.name}',
+                        tiles: moreLikeFav.tiles,
+                      ),
+                    ),
+                  if (byActor != null && byActor.tiles.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DiscoverRail(
+                        label: 'Because you watch ${byActor.name}',
+                        tiles: byActor.tiles,
+                      ),
+                    ),
                   // Personalized genre rows, inferred from what you watch/save.
                   for (final g in personalGenres)
                     SliverToBoxAdapter(
                       child: _PersonalGenreRail(
                         genre: g,
                         onHide: () => _hideGenre(g.key),
+                      ),
+                    ),
+                  if (acclaimed != null && acclaimed.tiles.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DiscoverRail(
+                        label: 'Acclaimed in ${acclaimed.name}',
+                        tiles: acclaimed.tiles,
+                      ),
+                    ),
+                  if (franchise.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: _DiscoverRail(
+                        label: 'Finish the Franchise',
+                        tiles: franchise,
                       ),
                     ),
                   // The user's own library sits above the generic discovery

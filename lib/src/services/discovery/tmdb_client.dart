@@ -29,13 +29,22 @@ abstract class DiscoveryClient {
   Future<List<TvShowSummary>> trendingTv();
   Future<List<MovieSummary>> trendingMovies();
 
-  /// Discover movies, optionally within a genre (e.g. 99 = Documentary), sorted
-  /// by popularity — the source for the category rails.
-  Future<List<MovieSummary>> discoverMovies({int? genreId});
+  /// Discover movies, optionally within a genre (e.g. 99 = Documentary). Sorted
+  /// by popularity by default; pass [sortBy] `'vote_average.desc'` with a higher
+  /// [minVotes] for the "acclaimed" rail. [minVotes] trims obscure entries.
+  Future<List<MovieSummary>> discoverMovies({
+    int? genreId,
+    String sortBy,
+    int minVotes,
+  });
 
   /// Discover TV, optionally within a genre — the TV counterpart of
-  /// [discoverMovies] for the personalized category rails.
-  Future<List<TvShowSummary>> discoverTv({int? genreId});
+  /// [discoverMovies] (same [sortBy] / [minVotes] knobs).
+  Future<List<TvShowSummary>> discoverTv({
+    int? genreId,
+    String sortBy,
+    int minVotes,
+  });
 
   /// Recommendations for a show — the "similar to what you watched" feed.
   Future<List<TvShowSummary>> recommendedTv(int tmdbId);
@@ -73,6 +82,14 @@ abstract class DiscoveryClient {
 
   /// A person's combined film/TV credits — the "known for" feed for an actor.
   Future<List<PersonCredit>> personCredits(int personId);
+
+  /// The id of the collection (franchise) a movie belongs to, or null — from the
+  /// movie's `belongs_to_collection`. Drives the "Finish the franchise" rail.
+  Future<int?> movieCollectionId(int tmdbId);
+
+  /// A collection's name and its films (`/collection/{id}`), or null.
+  Future<({String name, List<MovieSummary> parts})?> movieCollection(
+      int collectionId);
 }
 
 @LazySingleton(as: DiscoveryClient)
@@ -165,20 +182,30 @@ class TmdbClient implements DiscoveryClient {
       _results(await _get('/trending/movie/week'), MovieSummary.fromJson);
 
   @override
-  Future<List<MovieSummary>> discoverMovies({int? genreId}) async => _results(
+  Future<List<MovieSummary>> discoverMovies({
+    int? genreId,
+    String sortBy = 'popularity.desc',
+    int minVotes = 50,
+  }) async =>
+      _results(
         await _get('/discover/movie', {
-          'sort_by': 'popularity.desc',
-          'vote_count.gte': '50', // trim obscure/noise entries
+          'sort_by': sortBy,
+          'vote_count.gte': '$minVotes', // trim obscure/noise entries
           if (genreId != null) 'with_genres': '$genreId',
         }),
         MovieSummary.fromJson,
       );
 
   @override
-  Future<List<TvShowSummary>> discoverTv({int? genreId}) async => _results(
+  Future<List<TvShowSummary>> discoverTv({
+    int? genreId,
+    String sortBy = 'popularity.desc',
+    int minVotes = 50,
+  }) async =>
+      _results(
         await _get('/discover/tv', {
-          'sort_by': 'popularity.desc',
-          'vote_count.gte': '50',
+          'sort_by': sortBy,
+          'vote_count.gte': '$minVotes',
           if (genreId != null) 'with_genres': '$genreId',
         }),
         TvShowSummary.fromJson,
@@ -251,6 +278,24 @@ class TmdbClient implements DiscoveryClient {
         'cast',
         PersonCredit.fromJson,
       );
+
+  @override
+  Future<int?> movieCollectionId(int tmdbId) async {
+    final json = await _get('/movie/$tmdbId');
+    final coll = json?['belongs_to_collection'];
+    return coll is Map<String, dynamic> ? coll['id'] as int? : null;
+  }
+
+  @override
+  Future<({String name, List<MovieSummary> parts})?> movieCollection(
+      int collectionId) async {
+    final json = await _get('/collection/$collectionId');
+    if (json == null) return null;
+    return (
+      name: (json['name'] as String?)?.trim() ?? '',
+      parts: _list(json, 'parts', MovieSummary.fromJson),
+    );
+  }
 
   /// Like [_results] but reads an arbitrary array [key] (credits use
   /// `cast`/`guest_stars`, not `results`).
