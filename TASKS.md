@@ -106,6 +106,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 
 _Finished work worth a short record; prune freely — git history is the archive._
 
+### Watched indicator on episodes (show detail) · `p3`
+
+- [x] Each episode row on the show detail page now shows a green `check_circle` (and dims the title) when the episode has been watched. New `WatchHistoryRepository.watchCompletedEpisodes(tmdbId)` — a live left/inner join returning the show's `completed` `(season, episode)` pairs, **including episodes whose file was since reaped** (the row is flagged missing but history is kept), so the mark survives auto-cleanup. `completedEpisodesProvider` (family, live) feeds `_EpisodeList`, which passes `watched` to each `_EpisodeRow`. Watched = watch history `completed` (an in-progress episode isn't marked — it's on Continue Watching). Repo tests: completed-only, show-scoping, reaped-survival. Widget test omitted (drift stream doesn't emit reliably under the widget tester's fake clock; logic is unit-tested). 535 green, analyze clean.
+
 ### "Recently Downloaded" rail: recency window + drop watched titles · `p3`
 
 - [x] Tightened the rail from "all managed downloads" to "recent, still-unwatched new arrivals." `watchRecentlyDownloaded` gains a `maxAge` (default **60 days**) so only downloads from the last ~month or two show, and now **excludes any title watched since it was downloaded** — those live on Continue Watching / are done. Implemented as a left join on `watchHistory` (so the rail is reactive to *both* new downloads and titles getting watched); a title drops when any of its within-window downloads has `lastWatchedAt >= its addedAt`. Using "since *this* download" (not "ever watched") means a since-reaped title that's freshly re-downloaded correctly reappears — its old history predates the new file. A watched episode drops the whole show (it's on Continue Watching). Tests: window cutoff, watched-since exclusion, old-history re-download reappears, whole-show exclusion. 532 green, analyze clean.

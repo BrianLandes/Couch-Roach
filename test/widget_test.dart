@@ -285,4 +285,10 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 1));
   });
+
+  // Note: the per-episode "watched" check mark's logic lives in
+  // WatchHistoryRepository.watchCompletedEpisodes (unit-tested in
+  // watch_history_repository_test.dart); a widget test of the mark is omitted
+  // because seeding watch history under the widget tester's fake clock doesn't
+  // let drift's stream emit reliably.
 }

@@ -228,6 +228,12 @@ final localEpisodesProvider =
   };
 });
 
+/// The watched (completed) episodes of a show, as `(season, episode)` pairs —
+/// drives the per-episode "watched" mark on the show detail page. Live.
+final completedEpisodesProvider =
+    StreamProvider.family<Set<(int, int)>, int>((ref, tmdbId) =>
+        getIt<WatchHistoryRepository>().watchCompletedEpisodes(tmdbId));
+
 /// Every local file matched to a show (tmdbId), season/episode order — the
 /// fallback the show detail page lists when TMDB details won't load, so the
 /// user can still play what's on disk. Unlike [localEpisodesProvider] it keeps

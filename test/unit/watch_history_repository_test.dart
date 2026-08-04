@@ -255,4 +255,54 @@ void main() {
     expect(row, isNotNull);
     expect(row!.resumePositionSec, 300);
   });
+
+  group('watchCompletedEpisodes', () {
+    Future<int> seedEpisode(String path,
+        {required int tmdbId, required int season, required int episode}) async {
+      await library.upsert(ScannedFile(
+        filePath: path,
+        title: 'Show S${season}E$episode',
+        mediaType: 'tv',
+        tmdbId: tmdbId,
+        season: season,
+        episode: episode,
+      ));
+      return (await library.findByPath(path))!.id;
+    }
+
+    test('returns only completed episodes, as (season, episode)', () async {
+      final e1 = await seedEpisode('/tv/s1e1.mkv', tmdbId: 9, season: 1, episode: 1);
+      final e2 = await seedEpisode('/tv/s1e2.mkv', tmdbId: 9, season: 1, episode: 2);
+      await seedEpisode('/tv/s1e3.mkv', tmdbId: 9, season: 1, episode: 3);
+
+      await history.record(
+          libraryItemId: e1, position: Duration.zero, completed: true);
+      await history.record(
+          libraryItemId: e2, position: const Duration(seconds: 90)); // in progress
+
+      final watched = await history.watchCompletedEpisodes(9).first;
+      expect(watched, {(1, 1)});
+    });
+
+    test('scopes to the requested show', () async {
+      final a = await seedEpisode('/tv/a.mkv', tmdbId: 1, season: 2, episode: 4);
+      final b = await seedEpisode('/tv/b.mkv', tmdbId: 2, season: 1, episode: 1);
+      await history.record(libraryItemId: a, position: Duration.zero, completed: true);
+      await history.record(libraryItemId: b, position: Duration.zero, completed: true);
+
+      expect(await history.watchCompletedEpisodes(1).first, {(2, 4)});
+      expect(await history.watchCompletedEpisodes(2).first, {(1, 1)});
+    });
+
+    test('a watched episode stays marked after its file is reaped', () async {
+      final id = await seedEpisode('/tv/reaped.mkv', tmdbId: 5, season: 1, episode: 7);
+      await history.record(
+          libraryItemId: id, position: Duration.zero, completed: true);
+
+      // File cleaned up — row flagged missing, history kept.
+      await library.markMissing(id);
+
+      expect(await history.watchCompletedEpisodes(5).first, {(1, 7)});
+    });
+  });
 }

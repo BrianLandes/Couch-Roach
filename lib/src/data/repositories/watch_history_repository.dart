@@ -88,6 +88,12 @@ abstract class WatchHistoryRepository {
   /// and files flagged missing.
   Stream<List<ContinueWatchingEntry>> watchContinueWatching({int limit = 20});
 
+  /// The `(season, episode)` pairs of show [tmdbId] that have been **watched**
+  /// (watch history `completed`), for the show detail page's per-episode watched
+  /// mark. Includes episodes whose file was since reaped (so the mark survives
+  /// auto-cleanup — the row stays, flagged missing). Live.
+  Stream<Set<(int, int)>> watchCompletedEpisodes(int tmdbId);
+
   /// Remove a title from the Continue Watching rail without deleting its history
   /// or marking it watched: clears the resume position so it drops out of the
   /// rail (the feed filters on `resumePositionSec > 0`) and simply restarts from
@@ -184,6 +190,27 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         ),
       );
     }
+  }
+
+  @override
+  Stream<Set<(int, int)>> watchCompletedEpisodes(int tmdbId) {
+    final query = _db.select(_db.watchHistory).join([
+      innerJoin(
+        _db.libraryItems,
+        _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
+      ),
+    ])
+      ..where(_db.watchHistory.completed.equals(true) &
+          _db.libraryItems.tmdbId.equals(tmdbId) &
+          _db.libraryItems.season.isNotNull() &
+          _db.libraryItems.episode.isNotNull());
+    return query.watch().map((rows) => {
+          for (final row in rows)
+            (
+              row.readTable(_db.libraryItems).season!,
+              row.readTable(_db.libraryItems).episode!,
+            ),
+        });
   }
 
   @override

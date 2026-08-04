@@ -666,6 +666,8 @@ class _EpisodeList extends ConsumerWidget {
     final seasonAsync = ref.watch(seasonProvider((tmdbId, seasonNumber)));
     final localAsync = ref.watch(localEpisodesProvider(tmdbId));
     final local = localAsync.asData?.value ?? const {};
+    final watched = ref.watch(completedEpisodesProvider(tmdbId)).asData?.value ??
+        const <(int, int)>{};
 
     return seasonAsync.when(
       loading: () => const Padding(
@@ -691,6 +693,7 @@ class _EpisodeList extends ConsumerWidget {
                 child: _EpisodeRow(
                   episode: ep,
                   local: local[(seasonNumber, ep.episodeNumber)],
+                  watched: watched.contains((seasonNumber, ep.episodeNumber)),
                   tmdbId: tmdbId,
                   seasonNumber: seasonNumber,
                   showName: showName,
@@ -710,12 +713,16 @@ class _EpisodeRow extends StatelessWidget {
     required this.seasonNumber,
     required this.showName,
     this.local,
+    this.watched = false,
   });
   final EpisodeSummary episode;
   final int tmdbId;
   final int seasonNumber;
   final String showName;
   final LibraryItem? local;
+
+  /// Whether this episode has been watched (played to completion) — shows a check.
+  final bool watched;
 
   @override
   Widget build(BuildContext context) {
@@ -752,9 +759,22 @@ class _EpisodeRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '${episode.episodeNumber}. ${episode.name}',
-                  style: text.titleMedium,
+                Row(
+                  children: [
+                    if (watched) ...[
+                      const Icon(Icons.check_circle_rounded,
+                          size: 18, color: AppColors.success),
+                      const SizedBox(width: AppSpacing.xs),
+                    ],
+                    Expanded(
+                      child: Text(
+                        '${episode.episodeNumber}. ${episode.name}',
+                        style: text.titleMedium?.copyWith(
+                          color: watched ? AppColors.textSecondary : null,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 if (episode.runtime != null) ...[
                   const SizedBox(height: AppSpacing.xs),
