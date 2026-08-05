@@ -298,7 +298,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _subs.add(_player.stream.completed.listen((done) {
         if (done) {
           _markCompleted();
-          _maybeAutoAdvance();
+          unawaited(_maybeAutoAdvance());
         }
       }));
       // Track play state so the overlay stays up while paused/ended.
@@ -811,13 +811,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// Fires at most once, only for a local TV episode, and only when the setting
   /// is on and the next episode is actually on disk (else the button stands in,
   /// offering to download it).
-  void _maybeAutoAdvance() {
+  Future<void> _maybeAutoAdvance() async {
     if (_autoAdvanced || _isNetworkSource || !_isTvEpisode) return;
     if (!getIt<SettingsService>().autoPlayNextEpisode) return;
-    final next = _nextLocalItem;
-    if (next == null) return;
+    // The next episode may have finished downloading *during* playback — after
+    // _resolveNextEpisode ran at open with it still missing. Re-check the library
+    // before giving up, so a just-arrived episode still auto-plays.
+    final next = _nextLocalItem ?? await _resolveNextLocalNow();
+    if (next == null || !mounted || _autoAdvanced) return;
     _autoAdvanced = true;
     _openEpisode(next);
+  }
+
+  /// Re-query the library for the already-resolved next episode's file — it may
+  /// have landed mid-playback. Null when the next episode is unknown or still not
+  /// on disk.
+  Future<LibraryItem?> _resolveNextLocalNow() async {
+    final next = _nextEpisode;
+    final tmdbId = _nextTmdbId;
+    if (next == null || tmdbId == null) return null;
+    final (nextSeason, nextEp) = next;
+    for (final e in await _library.localEpisodes(tmdbId)) {
+      if (e.season == nextSeason && e.episode == nextEp) return e;
+    }
+    return null;
   }
 
   /// Resolve the episode that follows the current one — and whether it's already

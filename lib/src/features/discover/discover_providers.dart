@@ -378,6 +378,12 @@ final completedEpisodesProvider =
     StreamProvider.family<Set<(int, int)>, int>((ref, tmdbId) =>
         getIt<WatchHistoryRepository>().watchCompletedEpisodes(tmdbId));
 
+/// The season of the show's most-recently-watched episode (null when none) — the
+/// show detail opens on it instead of always season 1.
+final lastWatchedSeasonProvider = FutureProvider.family<int?, int>(
+    (ref, tmdbId) =>
+        getIt<WatchHistoryRepository>().lastWatchedSeason(tmdbId));
+
 /// Every local file matched to a show (tmdbId), season/episode order — the
 /// fallback the show detail page lists when TMDB details won't load, so the
 /// user can still play what's on disk. Unlike [localEpisodesProvider] it keeps

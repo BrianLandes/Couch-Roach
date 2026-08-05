@@ -103,6 +103,11 @@ abstract class WatchHistoryRepository {
   /// auto-cleanup — the row stays, flagged missing). Live.
   Stream<Set<(int, int)>> watchCompletedEpisodes(int tmdbId);
 
+  /// The season of the most-recently-watched episode of show [tmdbId] — any
+  /// watch history, in-progress or finished — or null when there's none. Lets
+  /// the show detail open on the season you were last watching.
+  Future<int?> lastWatchedSeason(int tmdbId);
+
   /// Remove a title from the Continue Watching rail without deleting its history
   /// or marking it watched: clears the resume position so it drops out of the
   /// rail (the feed filters on `resumePositionSec > 0`) and simply restarts from
@@ -220,6 +225,28 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
               row.readTable(_db.libraryItems).episode!,
             ),
         });
+  }
+
+  @override
+  Future<int?> lastWatchedSeason(int tmdbId) async {
+    final query = _db.select(_db.watchHistory).join([
+      innerJoin(
+        _db.libraryItems,
+        _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
+      ),
+    ])
+      ..where(_db.libraryItems.tmdbId.equals(tmdbId) &
+          _db.libraryItems.mediaType.equals('tv') &
+          _db.libraryItems.season.isNotNull())
+      ..orderBy([
+        OrderingTerm(
+          expression: _db.watchHistory.lastWatchedAt,
+          mode: OrderingMode.desc,
+        ),
+      ])
+      ..limit(1);
+    final row = await query.getSingleOrNull();
+    return row?.readTable(_db.libraryItems).season;
   }
 
   @override

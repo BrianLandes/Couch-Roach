@@ -43,17 +43,6 @@ Follow-up (not done): requires `ALEXA_INBOX_TOKEN` in `dart_define.json` before 
 
 _Queued and ready to pick up._
 
-### Auto-play next doesn't fire when the next episode downloaded mid-playback · `p2`
-
-- [ ] If the next episode finishes downloading *while* you're watching the current one, auto-play-next doesn't trigger at the end — even though it's now ready to play.
-- **Cause:** `_maybeAutoAdvance` (player_screen.dart:814) reads `_nextLocalItem`, which is resolved **once at open** by `_resolveNextEpisode` (line 826, kicked at line 362). If the next episode wasn't local when the current one started, `_nextLocalItem` stays null, so `stream.completed` → `_maybeAutoAdvance` bails.
-- **Fix:** at completion, if `_nextLocalItem` is null, re-query the library for the next episode (it may have just landed) before deciding — or keep `_nextLocalItem` fresh as downloads land (watch the library / re-resolve on a prefetch-complete signal). Simplest: make `_maybeAutoAdvance` async and re-check `localEpisodes(tmdbId)` for `(season, episode+1)` when the cached one is null. Reuse the same next-episode resolution `_resolveNextEpisode` uses.
-
-### Show detail should open on the season you were last watching · `p3`
-
-- [ ] Opening a TV show detail page always starts on season 1 (`_season` defaults to `seasons.first`, show_detail_screen.dart:102); it should open on the season of your resume / Continue-Watching episode for that show.
-- **Fix:** initialize `_season` from the most-recently-watched episode of this `tmdbId` (watch history → its `season`). Add a small repo/provider lookup (e.g. reuse the by-show watch-history join used for `watchCompletedEpisodes`, but pick the newest `lastWatchedAt` regardless of completed) and seed `_season` from it in `initState`/first build; fall back to `seasons.first` when there's no history.
-
 ### Player overlay still strands sometimes after a while · `p2`
 
 - [ ] The title / back / Next Episode overlay still **sometimes** fails to come up after long playback — a recurrence of the bug the paused-persistence + global-key reveal fix (commit 32ef09d) was meant to close.
@@ -116,6 +105,14 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Auto-play next when the next episode downloaded mid-playback · `p2`
+
+- [x] Auto-play-next didn't fire if the next episode finished downloading *during* the current one: `_maybeAutoAdvance` read `_nextLocalItem`, resolved once at open by `_resolveNextEpisode` — null if the next episode wasn't on disk then, and never refreshed. Now `_maybeAutoAdvance` is async and, when the cached item is null, re-queries the library (`_resolveNextLocalNow` → `localEpisodes(tmdbId)` for the already-resolved next `(season, ep)`) so a just-arrived episode still auto-plays. Guarded on `_autoAdvanced` after the await. (Verified via CI — no Flutter SDK in this container instance.)
+
+### Show detail opens on the season you were last watching · `p3`
+
+- [x] The show detail always opened on season 1 (`_season` defaulted to `seasons.first`). New `WatchHistoryRepository.lastWatchedSeason(tmdbId)` (newest watch-history row for the show — in-progress or finished — its season) + `lastWatchedSeasonProvider`; `_contentChildren` defaults the selected season to it when it's a real season of the show, else the first. A chip tap still sets `_season`, which wins. Repo tests: newest-wins, null-when-none, show-scoped. (Verified via CI.)
 
 ### Four new recommendation rails on the landing page · `p2`
 

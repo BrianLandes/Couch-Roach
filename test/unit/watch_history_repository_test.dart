@@ -305,4 +305,49 @@ void main() {
       expect(await history.watchCompletedEpisodes(5).first, {(1, 7)});
     });
   });
+
+  group('lastWatchedSeason', () {
+    Future<void> watchedAt({
+      required int tmdbId,
+      required int season,
+      required int episode,
+      required DateTime at,
+    }) async {
+      final id = await db.into(db.libraryItems).insert(
+            LibraryItemsCompanion.insert(
+              mediaType: 'tv',
+              title: 't',
+              filePath: '/f/$tmdbId-$season-$episode',
+              tmdbId: Value(tmdbId),
+              season: Value(season),
+              episode: Value(episode),
+            ),
+          );
+      await db.into(db.watchHistory).insert(
+            WatchHistoryCompanion.insert(
+              libraryItemId: id,
+              lastWatchedAt: Value(at),
+            ),
+          );
+    }
+
+    test('returns the season of the most-recently-watched episode', () async {
+      await watchedAt(tmdbId: 1, season: 1, episode: 3, at: DateTime(2026, 1, 1));
+      await watchedAt(tmdbId: 1, season: 2, episode: 1, at: DateTime(2026, 1, 5));
+      await watchedAt(tmdbId: 1, season: 1, episode: 4, at: DateTime(2026, 1, 3));
+
+      expect(await history.lastWatchedSeason(1), 2); // newest is S2
+    });
+
+    test('null when the show has no watch history', () async {
+      expect(await history.lastWatchedSeason(999), isNull);
+    });
+
+    test('scoped to the requested show', () async {
+      await watchedAt(tmdbId: 1, season: 5, episode: 1, at: DateTime(2026, 1, 1));
+      await watchedAt(tmdbId: 2, season: 3, episode: 1, at: DateTime(2026, 1, 2));
+
+      expect(await history.lastWatchedSeason(1), 5);
+    });
+  });
 }

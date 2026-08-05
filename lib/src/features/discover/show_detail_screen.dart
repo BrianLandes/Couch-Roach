@@ -98,8 +98,16 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
     final seasons = details.seasons
         .where((s) => s.seasonNumber >= 1)
         .toList(growable: false);
-    final selected =
-        _season ?? (seasons.isNotEmpty ? seasons.first.seasonNumber : null);
+    // Default to the season you were last watching (resume / continue-watching),
+    // when it's a real season of this show — else the first. A user tap on a
+    // chip sets [_season], which then wins.
+    final lastWatched =
+        ref.watch(lastWatchedSeasonProvider(details.tmdbId)).asData?.value;
+    final hasSeason = seasons.any((s) => s.seasonNumber == lastWatched);
+    final selected = _season ??
+        (hasSeason
+            ? lastWatched
+            : (seasons.isNotEmpty ? seasons.first.seasonNumber : null));
     final trailerUrl =
         ref.watch(trailerUrlProvider((details.tmdbId, true))).asData?.value;
     // Own any episodes of this show? If so, offer a show-level "Keep" that pins
