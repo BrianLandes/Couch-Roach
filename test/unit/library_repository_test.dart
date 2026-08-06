@@ -125,8 +125,8 @@ void main() {
   });
 
   group('watchRecentlyDownloaded', () {
-    // Anchor within the default recency window (relative to real now).
-    final t0 = DateTime.now().subtract(const Duration(days: 5));
+    // A base instant for relative addedAt / lastWatchedAt offsets in these tests.
+    final t0 = DateTime(2026, 6, 1);
 
     // Record that a file was watched at [lastWatchedAt].
     Future<void> watchedAt(String filePath, DateTime lastWatchedAt) async {
@@ -212,17 +212,13 @@ void main() {
       expect(rows.map((r) => r.tmdbId), [77]);
     });
 
-    test('drops downloads older than the recency window', () async {
-      final now = DateTime.now();
-      await insertRow('/tv/recent.mkv',
-          tmdbId: 1, addedAt: now.subtract(const Duration(days: 10)));
-      await insertRow('/tv/old.mkv',
-          tmdbId: 2, addedAt: now.subtract(const Duration(days: 90)));
+    test('keeps old downloads (no time window) until they are watched',
+        () async {
+      await insertRow('/tv/ancient.mkv',
+          tmdbId: 1, addedAt: DateTime(2020, 1, 1));
 
-      final rows = await repo
-          .watchRecentlyDownloaded(maxAge: const Duration(days: 60))
-          .first;
-      expect(rows.map((r) => r.filePath), ['/tv/recent.mkv']);
+      final rows = await repo.watchRecentlyDownloaded().first;
+      expect(rows.map((r) => r.tmdbId), [1]); // still shown despite its age
     });
 
     test('excludes a title watched since it was downloaded', () async {

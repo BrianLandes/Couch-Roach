@@ -62,17 +62,14 @@ abstract class LibraryRepository {
   /// Present (non-missing) items, for the library grid. Live.
   Stream<List<LibraryItem>> watchPresent();
 
-  /// Recently-downloaded titles for the landing "Recently Downloaded" rail:
-  /// app-acquired (`managed`), present files downloaded within [maxAge], collapsed
-  /// to one entry per show (matched `tmdbId` + media type, else the clean title)
-  /// keeping each show's most-recent file, ordered by `addedAt` newest-first, and
-  /// **excluding titles watched since they were downloaded** (those live on
-  /// Continue Watching / are done). Live — updates as downloads land and as titles
-  /// get watched. [limit] caps how many distinct titles are returned.
-  Stream<List<LibraryItem>> watchRecentlyDownloaded({
-    int limit,
-    Duration maxAge,
-  });
+  /// Recently-downloaded titles for the landing "Recently Downloaded" rail: the
+  /// newest [limit] app-acquired (`managed`), present titles — collapsed to one
+  /// entry per show (matched `tmdbId` + media type, else the clean title) keeping
+  /// each show's most-recent file, ordered by `addedAt` newest-first — with
+  /// **titles watched since they were downloaded excluded** (those live on
+  /// Continue Watching / are done). No time limit: a title stays until it's
+  /// watched. Live — updates as downloads land and as titles get watched.
+  Stream<List<LibraryItem>> watchRecentlyDownloaded({int limit});
 
   /// Every row including missing ones. Live.
   Stream<List<LibraryItem>> watchAll();
@@ -218,13 +215,10 @@ class DriftLibraryRepository implements LibraryRepository {
   }
 
   @override
-  Stream<List<LibraryItem>> watchRecentlyDownloaded({
-    int limit = 20,
-    Duration maxAge = const Duration(days: 60),
-  }) {
-    final cutoff = DateTime.now().subtract(maxAge);
+  Stream<List<LibraryItem>> watchRecentlyDownloaded({int limit = 20}) {
     // Join watch history so the query is reactive to *both* new downloads and
-    // titles getting watched (a left join keeps not-yet-watched downloads).
+    // titles getting watched (a left join keeps not-yet-watched downloads). No
+    // time window — the newest [limit] unwatched downloads stay until watched.
     final query = _db.select(_db.libraryItems).join([
       leftOuterJoin(
         _db.watchHistory,
@@ -232,8 +226,7 @@ class DriftLibraryRepository implements LibraryRepository {
       ),
     ])
       ..where(_db.libraryItems.managed.equals(true) &
-          _db.libraryItems.missing.equals(false) &
-          _db.libraryItems.addedAt.isBiggerOrEqualValue(cutoff))
+          _db.libraryItems.missing.equals(false))
       ..orderBy([
         OrderingTerm(
             expression: _db.libraryItems.addedAt, mode: OrderingMode.desc),
