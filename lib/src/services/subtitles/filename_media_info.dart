@@ -103,6 +103,34 @@ class FilenameMediaInfo {
     return true;
   }
 
+  /// Whether [release] names the same **series** as [query] — the TV counterpart
+  /// of [titleMatchesStrict]. Like [titleMatches], a release may append region /
+  /// edition qualifier words the canonical name lacks ("The Office" → "The Office
+  /// US"), so the query's parsed title tokens must be a **prefix** of the
+  /// release's. But it's **sequel-number aware**: a bare number right after the
+  /// matched query tokens is a series marker the query lacks, so "Planet Earth"
+  /// does NOT match "Planet Earth II"/"III" (and searching "Planet Earth III"
+  /// won't match the original, which has fewer tokens). Roman-numeral sequels
+  /// fold to digits ("Planet Earth II" ↔ "Planet Earth 2"). Falls back to
+  /// [titleMatches] when the query parses to no tokens (e.g. a bare year). Pure +
+  /// tested.
+  static bool titleMatchesSeriesAware(String release, String query) {
+    final q = _titleTokens(parse(query).title);
+    if (q.isEmpty) return titleMatches(release, query);
+    final r = _titleTokens(parse(release).title);
+    if (r.length < q.length) return false;
+    for (var i = 0; i < q.length; i++) {
+      if (r[i] != q[i]) return false;
+    }
+    // A bare number immediately after the matched query tokens is a sequel
+    // marker the query doesn't have → a different series in the franchise.
+    if (r.length > q.length && _isSeriesNumber(r[q.length])) return false;
+    return true;
+  }
+
+  static bool _isSeriesNumber(String token) =>
+      RegExp(r'^[0-9]+$').hasMatch(token);
+
   // A title split into comparable tokens: lowercased alphanumeric words, `&`
   // folded to "and", and unambiguous roman-numeral sequels folded to digits
   // (ii→2 … ix→9). The single letters i/v/x are deliberately left alone — they

@@ -437,7 +437,9 @@ List<TorznabResult> verifiedEpisodeResults(
     }
     if (excludeUrls.contains(r.downloadUrl)) return false;
     if (r.sizeBytes > 0 && r.sizeBytes < _minEpisodeBytes) return false;
-    if (!FilenameMediaInfo.titleMatches(r.title, meta.title)) return false;
+    if (!FilenameMediaInfo.titleMatchesSeriesAware(r.title, meta.title)) {
+      return false;
+    }
     final parsed = FilenameMediaInfo.parse(r.title);
     return parsed.season == season && parsed.episode == episode;
   }).toList();
@@ -486,7 +488,9 @@ List<TorznabResult> seasonPackResults(
       return false;
     }
     if (excludeUrls.contains(r.downloadUrl)) return false;
-    if (!FilenameMediaInfo.titleMatches(r.title, meta.title)) return false;
+    if (!FilenameMediaInfo.titleMatchesSeriesAware(r.title, meta.title)) {
+      return false;
+    }
     return FilenameMediaInfo.seasonPackNumber(r.title) == season;
   }).toList();
 }
@@ -509,7 +513,9 @@ List<TorznabResult> showPackResults(
       return false;
     }
     if (excludeUrls.contains(r.downloadUrl)) return false;
-    if (!FilenameMediaInfo.titleMatches(r.title, meta.title)) return false;
+    if (!FilenameMediaInfo.titleMatchesSeriesAware(r.title, meta.title)) {
+      return false;
+    }
     return FilenameMediaInfo.isShowPack(r.title);
   }).toList();
 }

@@ -132,6 +132,47 @@ void main() {
     });
   });
 
+  group('titleMatchesSeriesAware', () {
+    bool m(String release, String query) =>
+        FilenameMediaInfo.titleMatchesSeriesAware(release, query);
+
+    test('matches the base series but not its numbered sequels', () {
+      expect(m('Planet.Earth.S01E01.1080p', 'Planet Earth'), isTrue);
+      // The bug this fixes: loose containment let "Planet Earth" pick up the
+      // sequels because "planetearthii".contains("planetearth").
+      expect(m('Planet.Earth.II.S01E01.1080p', 'Planet Earth'), isFalse);
+      expect(m('Planet.Earth.III.S01E01.1080p', 'Planet Earth'), isFalse);
+    });
+
+    test('a numbered sequel query matches only its own release', () {
+      expect(m('Planet.Earth.II.S01E01.1080p', 'Planet Earth II'), isTrue);
+      // Fewer tokens than the query can't be the sequel.
+      expect(m('Planet.Earth.S01E01.1080p', 'Planet Earth II'), isFalse);
+      // A different sequel number is a different series.
+      expect(m('Planet.Earth.III.S01E01.1080p', 'Planet Earth II'), isFalse);
+    });
+
+    test('folds roman numerals and digits both ways', () {
+      expect(m('Planet.Earth.2.S01E01.1080p', 'Planet Earth II'), isTrue);
+      expect(m('Planet.Earth.II.S01E01.1080p', 'Planet Earth 2'), isTrue);
+    });
+
+    test('still allows a region/edition qualifier the canonical name lacks', () {
+      // The reason TV stays prefix-based rather than exact like movies.
+      expect(m('The.Office.US.S01E01.720p', 'The Office'), isTrue);
+      expect(m('Shameless.US.S02E03', 'Shameless'), isTrue);
+    });
+
+    test('rejects a shorter or unrelated release', () {
+      expect(m('Earth.S01E01', 'Planet Earth'), isFalse);
+      expect(m('Blue.Planet.S01E01', 'Planet Earth'), isFalse);
+    });
+
+    test('a query with no parseable tokens falls back to loose match', () {
+      expect(m('2012.S01E01.1080p', '2012'), isTrue);
+    });
+  });
+
   group('seasonPackNumber', () {
     test('reads S01 / Season 1 / Series 1 as a pack', () {
       expect(FilenameMediaInfo.seasonPackNumber('Game.of.Thrones.S01.1080p'), 1);
