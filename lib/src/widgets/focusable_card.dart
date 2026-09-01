@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../core/input/input_mode.dart';
 import '../theme/theme.dart';
 
 /// The standard interactive surface for the 10-foot UI. Works with **both**
 /// input modes (the remote acts like a mouse) and keeps a **single** selection
 /// across them: hovering a card moves keyboard focus onto it, so the mouse and
-/// the D-pad share one highlight. Mousing over a card overrides whatever the
-/// arrow keys had selected, and the arrows then pick up from where the mouse
-/// last was. Fires [onPressed] on Enter/Space **or** click, and scrolls a
-/// keyboard-focused card into view. See docs/STYLE.md.
+/// the D-pad share one highlight. Fires [onPressed] on Enter/Space **or** click,
+/// and scrolls a keyboard-focused card into view. See docs/STYLE.md.
+///
+/// Hover moves the selection **only in pointer mode** ([InputMode]). Once the
+/// user starts arrow-navigating (keyboard mode), incidental cursor drift — the
+/// remote is an air-mouse — is ignored, so the highlight isn't yanked away; a
+/// deliberate click switches back to pointer mode (and selects the card).
 class FocusableCard extends StatefulWidget {
   const FocusableCard({
     super.key,
@@ -50,9 +54,12 @@ class _FocusableCardState extends State<FocusableCard> {
   void _onFocusHighlight(bool value) {
     if (!mounted) return;
     // Scroll a *keyboard*-focused card fully into view (focus follows scroll).
-    // Skip it when the focus came from the mouse hovering the card — it's
-    // already under the cursor, and centering it would yank it away.
-    if (value && !_hovered && Scrollable.maybeOf(context) != null) {
+    // Skip it only when the focus came from the mouse hovering the card (pointer
+    // mode) — it's already under the cursor, and centering it would yank it
+    // away. In keyboard mode always center it, even if the cursor happens to
+    // rest over it.
+    final fromHover = _hovered && inputMode.isPointer;
+    if (value && !fromHover && Scrollable.maybeOf(context) != null) {
       Scrollable.ensureVisible(
         context,
         alignment: 0.5,
@@ -65,11 +72,18 @@ class _FocusableCardState extends State<FocusableCard> {
 
   void _onHoverHighlight(bool value) {
     _hovered = value;
-    // Hovering makes this card the one selection: pull keyboard focus here so
-    // the mouse and arrow keys share a single highlight, and the arrows then
-    // continue from where the mouse last was. Focus stays put when the pointer
-    // leaves, so moving the mouse off a card doesn't clear the selection.
-    if (value && !_node.hasFocus) _node.requestFocus();
+    // Hovering makes this card the one selection — but only in pointer mode.
+    // In keyboard mode the cursor may be resting over (or drifting across)
+    // cards while the user arrow-navigates; letting that steal focus is exactly
+    // the erratic behavior we're fixing. A click flips back to pointer mode.
+    if (value && inputMode.isPointer && !_node.hasFocus) _node.requestFocus();
+  }
+
+  void _onTap() {
+    // A click is a deliberate select: the app-level pointer listener has already
+    // flipped to pointer mode, so move the highlight here, then activate.
+    _node.requestFocus();
+    widget.onPressed?.call();
   }
 
   @override
@@ -89,7 +103,7 @@ class _FocusableCardState extends State<FocusableCard> {
         ),
       },
       child: GestureDetector(
-        onTap: widget.onPressed,
+        onTap: widget.onPressed == null ? null : _onTap,
         onLongPress: widget.onContextAction,
         onSecondaryTap: widget.onContextAction,
         child: AnimatedContainer(

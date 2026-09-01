@@ -1,6 +1,8 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import 'core/app_scroll_behavior.dart';
+import 'core/input/input_mode.dart';
 import 'router/app_router.dart';
 import 'theme/theme.dart';
 
@@ -18,6 +20,19 @@ class CouchRoachApp extends StatelessWidget {
       theme: AppTheme.dark,
       scrollBehavior: const AppScrollBehavior(),
       routerConfig: appRouter,
+      // Flip to pointer mode on a deliberate pointer action — a click or a
+      // scroll, never mere movement — so cursor drift while arrow-navigating
+      // can't switch modes. Keyboard mode is set by the global key handler
+      // (main.dart). This ancestor Listener sees descendant pointer-downs
+      // regardless of which gesture wins the arena.
+      builder: (context, child) => Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => inputMode.onPointerAction(),
+        onPointerSignal: (event) {
+          if (event is PointerScrollEvent) inputMode.onPointerAction();
+        },
+        child: child ?? const SizedBox.shrink(),
+      ),
     );
   }
 }

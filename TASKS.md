@@ -65,9 +65,11 @@ _Queued and ready to pick up._
 
 ### Large videos (7–8 GB) play at a poor frame rate · `p2`
 
-- [ ] Big files stutter / drop frames in Couch Roach, but the *same file* plays smoothly in PotPlayer on the same machine — so it's not raw hardware capacity. PotPlayer is almost certainly using **GPU hardware decoding** (DXVA2/D3D11VA) where our mpv is falling back to software decode.
-- Investigate media_kit/mpv config: enable hardware decoding (`hwdec=auto`/`auto-safe`/`d3d11va`) and confirm it actually engages for these codecs (likely HEVC/10-bit). media_kit exposes mpv properties via `player.platform` (`NativePlayer`) `setProperty`; check the version's supported API. Verify with an on-screen decode check (mpv's `hwdec-current`).
-- Secondary levers if hwdec isn't enough: cache/demuxer buffer sizes, and the "pause torrents while watching" backlog item (CPU/disk contention). Note this is NOT transcoding — PotPlayer isn't transcoding either; it's hardware decode. [windows]
+- [ ] Big files stutter / drop frames in Couch Roach, but the *same file* plays smoothly in PotPlayer on the same machine — so it's not raw hardware capacity.
+- **Note: the existing "Hardware video acceleration" setting IS hwdec** — it maps to media_kit's `enableHardwareAcceleration` (libmpv `hwdec`), and the user confirms it's ON. So the easy lever is already pulled; the stutter is deeper. Investigate:
+  - **Which hwdec mode.** media_kit's `enableHardwareAcceleration: true` sets mpv `hwdec` to the conservative `auto-safe`, which only offloads whitelisted-safe codecs — it may be *silently falling back to software* for these files (likely HEVC/10-bit) while PotPlayer's DXVA/D3D11VA still hardware-decodes them. Try forcing a stronger mode (`hwdec=auto` or `d3d11va`/`d3d11va-copy`) via the mpv `NativePlayer` (`player.platform` → `setProperty('hwdec', …)`), and **verify it actually engaged** by reading mpv's `hwdec-current` (if it's `no`, that's the smoking gun).
+  - **Non-decode bottlenecks** if hwdec is genuinely active: demuxer/cache buffer sizes for large files, video-output/rendering path, and disk/CPU contention from the torrent daemon seeding while playing (see the "pause torrents while watching" backlog item).
+- NOT transcoding — PotPlayer isn't transcoding either; it's hardware decode. [windows]
 
 ### Paused video + PC sleep → "cannot play the file" on wake · `p2`
 
@@ -78,11 +80,6 @@ _Queued and ready to pick up._
 
 - [ ] While downloading a whole season, when a single episode finishes and becomes playable, the show detail page should update that episode's row to show the Play button without a manual refresh.
 - We already have live watched-state on episode rows (`completedEpisodesProvider`) and reactive local-episode queries elsewhere. Make the per-episode "is it on disk / playable" state a live drift `.watch()` provider (family by tmdbId) that the episode rows read, so a newly-completed download flips the row from "downloading/queued" to "Play" reactively. Ties into the mid-playback auto-play-next work (`localEpisodes`) — reuse that query shape.
-
-### Focus is erratic when mixing arrow keys and mouse; make it input-mode based · `p2`
-
-- [ ] On most pages a selected UI element can be moved by arrow keys **or** mouse, but it behaves erratically: while arrow-key navigating, any mouse movement crossing (or even just moving over) an element hijacks the selection. Want it **mode-based**: keyboard input → keyboard mode (mouse *movement* is ignored, selection only moves via arrows); stays there until a deliberate mouse action (a click, or a real hover-select gesture) switches to mouse mode. Hover-follow-focus should NOT fire on incidental cursor movement.
-- Design sketch: a small app-level `InputMode` (keyboard | pointer) notifier. Any key nav sets keyboard mode; a pointer-*down*/click sets pointer mode. `FocusableCard`'s hover-to-focus should only take focus when in pointer mode (gate the `onEnter`/hover handler on `InputMode == pointer`), so cursor drift during arrow nav is inert. A click always works (it sets pointer mode then activates). This is the shared-widget seam — fixing `FocusableCard` (and any hand-rolled hover-focus) covers most screens at once. Add to the style showcase. Watch the interaction with "focus follows scroll" (`Scrollable.ensureVisible`).
 
 ### Trailer / YouTube playback stopped working (regression) · `p2`
 
@@ -143,6 +140,10 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Input-mode based focus: mouse drift no longer hijacks arrow-key selection · `p2`
+
+- [x] While arrow-navigating, any mouse movement (the remote is an air-mouse, so a resting hand jitters the cursor) would hover-hijack the selection. Now selection is **mode-based**. New `lib/src/core/input/input_mode.dart`: an app-wide `InputModeController extends ValueNotifier<InputMode>` (`keyboard`|`pointer`, defaults pointer) + a global `inputMode` instance. A global `HardwareKeyboard` handler (`inputModeKeyHandler`, registered in `main()`, never consumes) flips to **keyboard** mode on a nav key (arrows/Tab); an app-level `Listener` in `app.dart` (`MaterialApp.router` `builder`) flips to **pointer** mode on a deliberate `onPointerDown`/scroll (`PointerScrollEvent`) — never on movement. `FocusableCard._onHoverHighlight` now requests focus only when `inputMode.isPointer`, so cursor drift in keyboard mode is inert; a click (`_onTap`) requests focus + activates (pointer mode already set by the ancestor Listener). `_onFocusHighlight` skips the scroll-into-view only for pointer-mode hover, so keyboard nav always centers. `FocusableCard` is the single shared seam (the only hand-rolled hover-focus; `ContinueWatchingCard`'s MouseRegion only reveals overlay buttons, doesn't move selection). Tests: `input_mode_test.dart` (controller transitions + notify-on-change; handler switches on nav-key-down only, never consumes) and `focusable_card_input_mode_test.dart` (hover selects in pointer mode, not in keyboard mode). (Validated via CI — no Flutter SDK in this container.) On-device: confirm arrow nav ignores cursor jitter and a click still selects.
 
 ### Fix episode/pack search mixing up numbered-sequel series (Planet Earth I/II/III) · `p2`
 

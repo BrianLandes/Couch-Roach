@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'src/app.dart';
+import 'src/core/input/input_mode.dart';
 import 'src/core/logging/error_log_service.dart';
 import 'src/core/settings/settings_service.dart';
 import 'src/core/storage/storage_manager.dart';
@@ -32,6 +33,12 @@ void main() {
       // onto a card — rather than being suppressed in Flutter's "touch" mode.
       FocusManager.instance.highlightStrategy =
           FocusHighlightStrategy.alwaysTraditional;
+
+      // Track keyboard vs pointer input mode so cursor drift (the remote is an
+      // air-mouse) can't hijack arrow-key selection. This handler flips to
+      // keyboard mode on a nav key; the app-level pointer listener (app.dart)
+      // flips back on a deliberate click/scroll. Never consumes the event.
+      HardwareKeyboard.instance.addHandler(inputModeKeyHandler);
 
       // Bound the decoded-image (poster/still) cache. The TV box is low on RAM,
       // and the landing page shows many rows of artwork at once — without a cap
