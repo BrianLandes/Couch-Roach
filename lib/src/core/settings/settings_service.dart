@@ -27,6 +27,7 @@ class SettingsService extends ChangeNotifier {
   static const _kExcludeSignLanguage = 'excludeSignLanguage';
   static const _kPreferredAudioLanguage = 'preferredAudioLanguage';
   static const _kHardwareVideo = 'hardwareVideoAcceleration';
+  static const _kHwdecMode = 'hwdecMode';
   static const _kLowPowerVideo = 'lowPowerVideo';
   static const _kInternetArchive = 'internetArchiveEnabled';
   static const _kPersonalizedCategories = 'personalizedCategories';
@@ -72,10 +73,27 @@ class SettingsService extends ChangeNotifier {
   /// the rest.
   String get preferredAudioLanguage => _cache[_kPreferredAudioLanguage] ?? '';
 
-  /// Use GPU hardware video decoding (libmpv `hwdec`). Off by default: some
-  /// setups decode fine but render a solid-color frame. A box with a working
-  /// iGPU should turn this ON — it offloads decoding from a weak CPU.
+  /// Use the GPU for video **rendering** — media_kit's
+  /// `enableHardwareAcceleration`, which picks the hardware vs software
+  /// video-output/texture path. Off by default: some setups render a
+  /// solid-color frame with it on.
+  ///
+  /// NOTE: despite the name, this is **not** libmpv `hwdec` — hardware
+  /// *decoding* is [hwdecMode], and media_kit sets `hwdec` on desktop
+  /// regardless of this flag. The two are independent knobs.
   bool get hardwareVideoAcceleration => _boolOr(_kHardwareVideo, false);
+
+  /// libmpv [`hwdec`](https://mpv.io/manual/stable/#options-hwdec) — which
+  /// hardware video **decoder** to use. `auto` is what media_kit already
+  /// applies on desktop, so that's the default and changing nothing preserves
+  /// today's behaviour.
+  ///
+  /// Exposed because `auto` can silently fall back to software decoding for a
+  /// given codec (large HEVC/10-bit files are the usual victims) — pinning a
+  /// specific backend (`d3d11va` on Windows) or comparing against `no` is how
+  /// you tell. The player logs the *actual* selection (`hwdec-current`) so the
+  /// fallback is visible.
+  String get hwdecMode => _cache[_kHwdecMode] ?? 'auto';
 
   /// Trade a little video quality for much lower CPU use (skip the deblocking
   /// loop filter, cheap scaling). For underpowered boxes that stutter.
@@ -111,6 +129,7 @@ class SettingsService extends ChangeNotifier {
       _setString(_kPreferredAudioLanguage, v);
   Future<void> setHardwareVideoAcceleration(bool v) =>
       _setBool(_kHardwareVideo, v);
+  Future<void> setHwdecMode(String v) => _setString(_kHwdecMode, v);
   Future<void> setLowPowerVideo(bool v) => _setBool(_kLowPowerVideo, v);
   Future<void> setInternetArchiveEnabled(bool v) =>
       _setBool(_kInternetArchive, v);

@@ -23,6 +23,22 @@ void main() {
     expect(settings.preferSurroundAudio, isTrue);
     expect(settings.excludeSignLanguage, isTrue);
     expect(settings.internetArchiveEnabled, isFalse); // deprecated → off
+    // 'auto' is what media_kit already applies on desktop, so the default
+    // leaves decoding exactly as it was.
+    expect(settings.hwdecMode, 'auto');
+    // Hardware *rendering* is a separate knob and stays off by default.
+    expect(settings.hardwareVideoAcceleration, isFalse);
+  });
+
+  test('hwdec mode persists and is independent of hardware rendering',
+      () async {
+    await settings.setHwdecMode('d3d11va');
+    expect(settings.hwdecMode, 'd3d11va');
+    expect(settings.hardwareVideoAcceleration, isFalse); // untouched
+
+    final reloaded = SettingsService(db);
+    await reloaded.load();
+    expect(reloaded.hwdecMode, 'd3d11va');
   });
 
   test('Internet Archive toggle flips and persists', () async {

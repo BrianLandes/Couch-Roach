@@ -98,15 +98,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
     ),
   );
 
-  // Hardware video decoding (libmpv `hwdec`) is user-controlled: it offloads a
-  // weak CPU when the box has a working iGPU, but on some setups it decodes fine
-  // yet renders a solid-color (e.g. blue) frame — so it defaults OFF and is a
-  // Settings toggle the user can flip on to try it on their hardware.
+  // Two independent knobs, both user-controlled from Settings → Video
+  // performance:
+  //
+  // * `enableHardwareAcceleration` — hardware **rendering** (the video-output
+  //   texture path). Defaults OFF because some setups render a solid-color
+  //   (e.g. blue) frame with it on.
+  // * `hwdec` — hardware **decoding**. media_kit applies `auto` on desktop no
+  //   matter what the flag above says, so passing the setting through (default
+  //   `auto`) preserves that while letting a box that silently falls back to
+  //   software decode be pinned to a specific backend (`d3d11va`) or compared
+  //   against `no`. What libmpv *actually* chose is logged by
+  //   [_logDecodeDiagnostics].
   late final VideoController _controller = VideoController(
     _player,
     configuration: VideoControllerConfiguration(
       enableHardwareAcceleration:
           getIt<SettingsService>().hardwareVideoAcceleration,
+      hwdec: getIt<SettingsService>().hwdecMode,
     ),
   );
 
@@ -159,6 +168,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _nextDownloadRequested = false;
   // Guards the on-completion auto-advance so it fires at most once per player.
   bool _autoAdvanced = false;
+
+  // Decode diagnostics (see _scheduleDecodeDiagnostics): sampled on delays, so
+  // the timers have to be cancelled if the player closes first.
+  bool _decodeDiagnosticsScheduled = false;
+  final List<Timer> _decodeTimers = [];
 
   // Mirror the media_kit controls' auto-hide so the "Next Episode" button fades
   // in and out together with them: any pointer activity reveals it, and 3s of
@@ -348,6 +362,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // this video, not a background media app. No-op on other platforms.
       unawaited(_mediaSession.enable(title: _effectiveTitle ?? widget.title));
 
+      // Record which decoder libmpv actually picked (and, a minute in, how many
+      // frames we dropped). Diagnostic only — this is how a silent software
+      // fallback on a big file becomes visible in the log.
+      _scheduleDecodeDiagnostics();
+
       // Re-apply the saved subtitle timing offset for this title (no-op at 0).
       if (_subtitleOffsetMs != 0) unawaited(_applySubtitleDelay(_subtitleOffsetMs));
 
@@ -370,6 +389,69 @@ class _PlayerScreenState extends State<PlayerScreen> {
   static bool _isNetworkUrl(String path) {
     final uri = Uri.tryParse(path);
     return uri != null && (uri.isScheme('http') || uri.isScheme('https'));
+  }
+
+  /// mpv properties describing what the decoder actually ended up doing.
+  /// `hwdec-current` is the one that matters: it's libmpv's *real* selection,
+  /// and it can read `no` (a silent software fallback) even when `hwdec` was
+  /// requested as `auto` — which is exactly the case where a big file stutters
+  /// here but plays fine in another player.
+  static const _decodeProps = <String>[
+    'hwdec',
+    'hwdec-current',
+    'hwdec-interop',
+    'video-codec',
+    'video-params/pixelformat',
+    'width',
+    'height',
+    'container-fps',
+  ];
+
+  /// Sampled later, once playback has run a while: how badly we're actually
+  /// keeping up. Non-zero drop counts confirm the stutter is real (and, paired
+  /// with `hwdec-current=no`, say why).
+  static const _dropProps = <String>[
+    'hwdec-current',
+    'frame-drop-count',
+    'decoder-frame-drop-count',
+    'estimated-vf-fps',
+  ];
+
+  /// Read [props] off libmpv and append one line to the log. Best-effort and
+  /// purely diagnostic — never blocks or fails playback.
+  Future<void> _logDecodeDiagnostics(String phase, List<String> props) async {
+    final platform = _player.platform;
+    if (platform is! NativePlayer) return;
+    try {
+      final parts = <String>[];
+      for (final p in props) {
+        final v = await platform.getProperty(p);
+        parts.add('$p=${v.isEmpty ? '-' : v}');
+      }
+      getIt<ErrorLogService>().info(
+        '$phase ${parts.join(' ')}',
+        source: 'PlayerScreen.decode',
+      );
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.decode');
+    }
+  }
+
+  /// Schedule the two decode samples: one just after the decoder has been
+  /// selected, one a minute in so the drop counters mean something. Fires once
+  /// per player; the timers are cancelled on dispose.
+  void _scheduleDecodeDiagnostics() {
+    if (_decodeDiagnosticsScheduled) return;
+    _decodeDiagnosticsScheduled = true;
+    _decodeTimers.add(Timer(
+      const Duration(seconds: 3),
+      () => unawaited(_logDecodeDiagnostics('selected', _decodeProps)),
+    ));
+    _decodeTimers.add(Timer(
+      const Duration(seconds: 63),
+      () => unawaited(_logDecodeDiagnostics('after 60s', _dropProps)),
+    ));
   }
 
   /// Low-power decode tuning for underpowered boxes (Settings → Playback):
@@ -1255,6 +1337,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _mediaSession.dispose();
     _persistFinal();
     _controlsHideTimer?.cancel();
+    // Pending decode samples would read properties off a disposed player.
+    for (final t in _decodeTimers) {
+      t.cancel();
+    }
     // Best-effort: remove the trailer's downloaded caption sidecar.
     _trailerSubDir?.delete(recursive: true).ignore();
     for (final s in _subs) {

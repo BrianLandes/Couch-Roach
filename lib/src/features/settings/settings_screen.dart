@@ -143,13 +143,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const SizedBox(height: AppSpacing.xl),
               _SectionLabel('Video performance', text: text),
               _ToggleRow(
-                title: 'Hardware video acceleration',
+                title: 'Hardware video rendering',
                 subtitle:
-                    'Use the GPU to decode — try turning this on to reduce '
-                    'stutter. If video shows blank or a solid color, turn it off.',
+                    'Use the GPU to draw the video. If video shows blank or a '
+                    'solid color, turn it off. (This is rendering, not '
+                    'decoding — see below.)',
                 value: _settings.hardwareVideoAcceleration,
                 onChanged: (v) =>
                     _set(_settings.setHardwareVideoAcceleration(v)),
+              ),
+              _DropdownRow(
+                title: 'Hardware decoder',
+                subtitle:
+                    'Which GPU decoder to use for video. Leave on Automatic '
+                    'unless large files stutter — then try forcing one, or '
+                    '"Software" to compare. (Applies on the next video.)',
+                value: _settings.hwdecMode,
+                options: _hwdecOptions,
+                onChanged: (v) => _set(_settings.setHwdecMode(v)),
               ),
               _ToggleRow(
                 title: 'Low-power mode',
@@ -503,6 +514,22 @@ class _IndexerService extends ConsumerWidget {
 
 /// Audio-language choices for the resolver preference. The value is the
 /// canonical key FilenameMediaInfo.audioLanguageScore understands; '' = none.
+/// libmpv `hwdec` values. `auto` is first so it's the fallback when the stored
+/// value is unknown — and it's what media_kit uses on desktop anyway, so the
+/// default changes nothing. The `-copy` variants decode on the GPU then read
+/// frames back to system memory: slower, but they work where the zero-copy
+/// path can't hand its surface to the renderer.
+const _hwdecOptions = <(String, String)>[
+  ('auto', 'Automatic (default)'),
+  ('auto-copy', 'Automatic (copy back)'),
+  ('auto-safe', 'Automatic (safe only)'),
+  ('d3d11va', 'Direct3D 11 — Windows'),
+  ('d3d11va-copy', 'Direct3D 11, copy back — Windows'),
+  ('vaapi', 'VA-API — Linux'),
+  ('nvdec', 'NVDEC — NVIDIA'),
+  ('no', 'Software (no hardware decoding)'),
+];
+
 const _audioLanguageOptions = <(String, String)>[
   ('', 'None (English)'),
   ('portuguese', 'Portuguese'),

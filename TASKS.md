@@ -65,11 +65,17 @@ _Queued and ready to pick up._
 
 ### Large videos (7–8 GB) play at a poor frame rate · `p2`
 
-- [ ] Big files stutter / drop frames in Couch Roach, but the *same file* plays smoothly in PotPlayer on the same machine — so it's not raw hardware capacity.
-- **Note: the existing "Hardware video acceleration" setting IS hwdec** — it maps to media_kit's `enableHardwareAcceleration` (libmpv `hwdec`), and the user confirms it's ON. So the easy lever is already pulled; the stutter is deeper. Investigate:
-  - **Which hwdec mode.** media_kit's `enableHardwareAcceleration: true` sets mpv `hwdec` to the conservative `auto-safe`, which only offloads whitelisted-safe codecs — it may be *silently falling back to software* for these files (likely HEVC/10-bit) while PotPlayer's DXVA/D3D11VA still hardware-decodes them. Try forcing a stronger mode (`hwdec=auto` or `d3d11va`/`d3d11va-copy`) via the mpv `NativePlayer` (`player.platform` → `setProperty('hwdec', …)`), and **verify it actually engaged** by reading mpv's `hwdec-current` (if it's `no`, that's the smoking gun).
-  - **Non-decode bottlenecks** if hwdec is genuinely active: demuxer/cache buffer sizes for large files, video-output/rendering path, and disk/CPU contention from the torrent daemon seeding while playing (see the "pause torrents while watching" backlog item).
-- NOT transcoding — PotPlayer isn't transcoding either; it's hardware decode. [windows]
+- [ ] Big files stutter / drop frames in Couch Roach, but the *same file* plays smoothly in PotPlayer on the same machine — so it's not raw hardware capacity. NOT transcoding — PotPlayer isn't transcoding either; it's hardware decode.
+
+**Correction on what the existing setting does** (read the media_kit 1.2.6 / media_kit_video 1.3.1 source to confirm): the "Hardware video acceleration" toggle is **not** hwdec. It's media_kit's `enableHardwareAcceleration`, which is passed to the native `VideoOutputManager.Create` and selects the hardware vs software **rendering / video-output texture** path. Hardware **decoding** is a separate knob: `NativeVideoController.create` sets `hwdec: configuration.hwdec ?? 'auto'` **unconditionally on desktop**, regardless of that toggle. So hwdec has been `auto` all along, and the toggle the user flipped only ever changed rendering.
+
+**First cut shipped (diagnostic, not yet a fix):**
+- New `SettingsService.hwdecMode` (default `'auto'` — exactly what media_kit already applied, so no behaviour change) passed through as `VideoControllerConfiguration.hwdec`. Settings → Video performance gets a "Hardware decoder" dropdown (`auto`, `auto-copy`, `auto-safe`, `d3d11va`, `d3d11va-copy`, `vaapi`, `nvdec`, `no`). The old toggle is relabelled "Hardware video **rendering**" so the two stop being confused.
+- The player now logs what libmpv *actually* chose: `_logDecodeDiagnostics` samples mpv properties 3s in (`hwdec`, `hwdec-current`, `hwdec-interop`, `video-codec`, `video-params/pixelformat`, `width`/`height`, `container-fps`) and again at 63s (`frame-drop-count`, `decoder-frame-drop-count`, `estimated-vf-fps`). Logged at info level under `PlayerScreen.decode`.
+
+**Next step — read the log while a big file stutters.** `hwdec-current` is the tell:
+- `hwdec-current=no` → silent software fallback; force `d3d11va` (or `d3d11va-copy`) from the new dropdown and re-check.
+- `hwdec-current` set but drop counts climbing → decode is fine, so the bottleneck is elsewhere: the **copy-back vs zero-copy** render path (media_kit hands frames through its own texture; `-copy` variants add a GPU→CPU readback that's expensive at 4K), demuxer/cache sizing for large files, or disk/CPU contention from the torrent daemon seeding while playing (see the "pause torrents while watching" backlog item). Also worth trying the "Hardware video rendering" toggle in both positions now that it's understood to be the *rendering* path. [windows]
 
 ### Paused video + PC sleep → "cannot play the file" on wake · `p2`
 
