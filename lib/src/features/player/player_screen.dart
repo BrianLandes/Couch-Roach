@@ -196,6 +196,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // Guards the on-completion auto-advance so it fires at most once per player.
   bool _autoAdvanced = false;
 
+  // Distinct mpv log lines already written this session — mpv repeats some
+  // lines every frame, and they'd otherwise flood the log (and the errors-only
+  // file). Cleared wholesale if it grows large rather than tracked precisely;
+  // this is flood control, not bookkeeping.
+  final Set<String> _seenMpvLines = {};
+  static const _maxDistinctMpvLines = 500;
+
   // Decode diagnostics (see _scheduleDecodeDiagnostics): sampled on delays, so
   // the timers have to be cancelled if the player closes first.
   bool _decodeDiagnosticsScheduled = false;
@@ -365,6 +372,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
           return;
         }
         final line = '[mpv ${l.level}] ${l.prefix}: ${l.text.trim()}';
+        // Collapse repeats. Some mpv lines fire *per frame* — a Dolby Vision
+        // file with a malformed RPU emits "Error parsing DOVI NAL unit" and its
+        // ffmpeg error for every single frame. Those go through logError, which
+        // always writes, so without this one file would bury the errors log.
+        // The first occurrence is the informative one.
+        if (!_seenMpvLines.add(line)) return;
+        if (_seenMpvLines.length > _maxDistinctMpvLines) _seenMpvLines.clear();
         // mpv's own error/fatal lines are the payload here — surface them at
         // error level so they always land in the log (and the errors-only
         // file) even with verbose logging off. The rest is trace chatter.
