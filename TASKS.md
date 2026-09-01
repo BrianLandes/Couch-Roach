@@ -296,6 +296,43 @@ drop counters this is guesswork. If `hwdec-current` is a real decoder and drops 
 climbing, decode isn't the bottleneck and the next suspect is the **render path**: media_kit's
 `vo=libmpv` texture hand-off, and the "Hardware video rendering" toggle in both positions.
 
+**VERDICT (2026-09-01): this box cannot play 4K through the Flutter texture pipeline.**
+Evidence from mpv's own render log, both decode modes:
+
+- **The zero-copy interop exists but will not load.** mpv tries `d3d11-egl`, `dxva2-egl`
+  (→ "Failed to create EGL surface"), `d3d11va`, `dxva2-dxgi`, `dxva2-dxinterop`, `cuda` —
+  **all fail**, then falls back to `d3d11va-copy`. So it isn't a missing feature in the bundled
+  libmpv; it fails to initialize. media_kit creates its ANGLE display with `EGL_DEFAULT_DISPLAY`
+  (ANGLE makes its own D3D11 device), and mpv's `d3d11-egl` needs EGL extensions
+  (`EGL_ANGLE_device_d3d`, the `EGL_KHR_stream` family) to reach it. Blocker is ANGLE's
+  capabilities, **not** media_kit's wiring — so patching media_kit may not even be sufficient.
+- **ANGLE is on real D3D11 hardware** (`ANGLE (Intel, Intel(R) UHD Graphics Direct3D11…)`), not
+  WARP or D3D9. That earlier theory is dead. The GPU is an **Intel UHD iGPU**.
+- **The upload is sized by the source, not the output.** Even with the output at 1920x1080, the
+  log shows `Texture for plane 0: 3840x1920` — mpv uploads full 4K planes and scales when
+  drawing. That is why the output cap could never fix this, only shave the draw. (The log also
+  shows the output reverting to 3840x1920 ~200ms in, so the cap may not even stick — moot,
+  given the above.)
+- **Software decode (`hwdec=no`) removes the readback and is measurably smoother, still choppy.**
+  ~22 MB/frame of `yuv420p10` planes still has to be uploaded every frame (~530 MB/s at 24fps)
+  on top of CPU-decoding 4K HEVC 10-bit.
+
+Remaining options are only: **(C)** play in a native window with direct D3D11 presentation
+(PotPlayer's architecture — bypasses the texture upload entirely; 1–3 days, and the player
+overlay can no longer be Flutter widgets over the video), or **(D)** don't play 4K — the
+download cap now avoids it, and a one-time ffmpeg downscale would handle the 4K-only case.
+**Recommended: D.** Not worth C's cost for a rare case.
+
+Two unrelated errors this surfaced, both worth their own look:
+- `mkv: Failed to create file cache.` — a real error on every open; possible I/O stalls.
+- The test file is **Dolby Vision with a malformed RPU**: `RPU validation failed:
+  0 <= el_bit_depth_minus8 = 32 <= 8` / `Error parsing DOVI NAL unit`, **every frame**. Not the
+  cause of the drops (the decoder keeps up), but it exposed a real bug — mpv error lines route
+  through `logError`, which always writes, so one DV file would bury the errors-only log. Fixed
+  by de-duplicating mpv log lines (commit 21cf709).
+
+**Superseded investigation notes below.**
+
 **Next step — read the log while a big file stutters.** `hwdec-current` is the tell:
 - `hwdec-current=no` → silent software fallback; force `d3d11va` (or `d3d11va-copy`) from the new dropdown and re-check.
 - `hwdec-current` set but drop counts climbing → decode is fine, so the bottleneck is elsewhere: the **copy-back vs zero-copy** render path (media_kit hands frames through its own texture; `-copy` variants add a GPU→CPU readback that's expensive at 4K), demuxer/cache sizing for large files, or disk/CPU contention from the torrent daemon seeding while playing (see the "pause torrents while watching" backlog item). Also worth trying the "Hardware video rendering" toggle in both positions now that it's understood to be the *rendering* path. [windows]
