@@ -30,6 +30,17 @@ void main() {
     expect(settings.hardwareVideoAcceleration, isFalse);
     // Routine log chatter is opt-in.
     expect(settings.verboseLogging, isFalse);
+    // Video output is uncapped unless the user opts in.
+    expect(settings.maxVideoHeight, 0);
+  });
+
+  test('max video height persists', () async {
+    await settings.setMaxVideoHeight(1080);
+    expect(settings.maxVideoHeight, 1080);
+
+    final reloaded = SettingsService(db);
+    await reloaded.load();
+    expect(reloaded.maxVideoHeight, 1080);
   });
 
   test('verbose logging persists', () async {

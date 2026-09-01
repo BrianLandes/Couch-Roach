@@ -29,6 +29,7 @@ class SettingsService extends ChangeNotifier {
   static const _kHardwareVideo = 'hardwareVideoAcceleration';
   static const _kHwdecMode = 'hwdecMode';
   static const _kVerboseLogging = 'verboseLogging';
+  static const _kMaxVideoHeight = 'maxVideoHeight';
   static const _kLowPowerVideo = 'lowPowerVideo';
   static const _kInternetArchive = 'internetArchiveEnabled';
   static const _kPersonalizedCategories = 'personalizedCategories';
@@ -96,6 +97,14 @@ class SettingsService extends ChangeNotifier {
   /// fallback is visible.
   String get hwdecMode => _cache[_kHwdecMode] ?? 'auto';
 
+  /// Cap the height of the video output texture (0 = uncapped, the default).
+  ///
+  /// For a box that can't do zero-copy hardware decoding: every frame is read
+  /// back to system memory and re-uploaded, and at 4K that saturates the output
+  /// stage. Rendering into a smaller texture cuts the upload-and-draw cost. Off
+  /// by default because it also upscales a source *smaller* than the cap.
+  int get maxVideoHeight => _intOr(_kMaxVideoHeight, 0);
+
   /// Trade a little video quality for much lower CPU use (skip the deblocking
   /// loop filter, cheap scaling). For underpowered boxes that stutter.
   bool get lowPowerVideo => _boolOr(_kLowPowerVideo, false);
@@ -138,6 +147,7 @@ class SettingsService extends ChangeNotifier {
       _setBool(_kHardwareVideo, v);
   Future<void> setHwdecMode(String v) => _setString(_kHwdecMode, v);
   Future<void> setVerboseLogging(bool v) => _setBool(_kVerboseLogging, v);
+  Future<void> setMaxVideoHeight(int v) => _setString(_kMaxVideoHeight, '$v');
   Future<void> setLowPowerVideo(bool v) => _setBool(_kLowPowerVideo, v);
   Future<void> setInternetArchiveEnabled(bool v) =>
       _setBool(_kInternetArchive, v);

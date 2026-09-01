@@ -238,7 +238,39 @@ _Queued and ready to pick up._
 - New `SettingsService.hwdecMode` (default `'auto'` — exactly what media_kit already applied, so no behaviour change) passed through as `VideoControllerConfiguration.hwdec`. Settings → Video performance gets a "Hardware decoder" dropdown (`auto`, `auto-copy`, `auto-safe`, `d3d11va`, `d3d11va-copy`, `vaapi`, `nvdec`, `no`). The old toggle is relabelled "Hardware video **rendering**" so the two stop being confused.
 - The player now logs what libmpv *actually* chose: `_logDecodeDiagnostics` samples mpv properties 3s in (`hwdec`, `hwdec-current`, `hwdec-interop`, `video-codec`, `video-params/pixelformat`, `width`/`height`, `container-fps`) and again at 63s (`frame-drop-count`, `decoder-frame-drop-count`, `estimated-vf-fps`). Logged at info level under `PlayerScreen.decode`.
 
-**Device test (2026-09-01): still unwatchable.** User tried several Hardware decoder values;
+**DIAGNOSED (2026-09-01) — it's the render path, not decode.** Decode log from a stuttering
+4K file:
+
+```
+selected  hwdec=auto hwdec-current=d3d11va-copy hwdec-interop=- video-codec=hevc
+          video-params/pixelformat=p010 width=3840 height=1920 container-fps=23.976
+after 60s hwdec-current=d3d11va-copy frame-drop-count=791 decoder-frame-drop-count=0
+```
+
+`decoder-frame-drop-count=0` with `frame-drop-count=791` (≈55% of ~1440 frames in 60s) means
+the **decoder keeps up and the video output drops the frames**. `hwdec-interop` is empty, so
+libmpv can't hand GPU surfaces to media_kit's renderer and falls back to `d3d11va-**copy**`:
+every frame is read back to system memory and re-uploaded. At 4K 10-bit (p010) that's ~12 MB
+per frame, ~290 MB/s each way — the wall. Explains why swapping decoders barely moved it:
+decode was never the problem.
+
+Ruled out on-device: "Hardware video rendering" was already ON (turning it OFF was somewhat
+smoother but introduced artifacts), so zero-copy isn't reachable through that toggle on this
+GPU. Nothing else was running/downloading, so contention is out too.
+
+**Mitigation shipped: output-size cap.** New `maxVideoHeight` setting (0 = uncapped default;
+1080p / 720p) → pure `videoOutputCap()` → `VideoControllerConfiguration.width/height`. mpv
+letterboxes into the box preserving aspect, so a 16:9 box bounds any ratio: the 2:1 4K film
+renders 1920x960 instead of 3840x1920 — a quarter of the pixels for the output stage. Opt-in
+because it also upscales a source *smaller* than the cap.
+
+**Honest limitation:** this cuts the upload-and-draw half only. The GPU→CPU readback still
+happens at the decoded resolution, so it reduces the bottleneck rather than removing it.
+**If 1080p/720p isn't enough, the decisive fix is to stop fetching 4K for this box** —
+a max-download-resolution preference (prefer 1080p releases over 2160p) in the resolver, which
+sidesteps the readback entirely. Queue that if the cap underdelivers.
+
+**Earlier device test (superseded):** User tried several Hardware decoder values;
 Direct3D 11 seemed *slightly* better but nowhere near watchable, the rest made no difference.
 Confirmed nothing else was running or downloading, so daemon/CPU contention is ruled out —
 which also rules out the "pause torrents while watching" lever for this. **Still need the

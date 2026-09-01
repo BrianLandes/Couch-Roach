@@ -33,6 +33,7 @@ import '../../widgets/fullscreen_toggle_button.dart';
 import '../acquire/acquire_play.dart';
 import '../cast/cast_dialog.dart';
 import 'audio_selection.dart';
+import 'video_output_cap.dart';
 import 'next_episode.dart';
 import 'player_controls_visibility.dart';
 import 'player_input.dart';
@@ -114,14 +115,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
   //   software decode be pinned to a specific backend (`d3d11va`) or compared
   //   against `no`. What libmpv *actually* chose is logged by
   //   [_logDecodeDiagnostics].
-  late final VideoController _controller = VideoController(
-    _player,
-    configuration: VideoControllerConfiguration(
-      enableHardwareAcceleration:
-          getIt<SettingsService>().hardwareVideoAcceleration,
-      hwdec: getIt<SettingsService>().hwdecMode,
-    ),
-  );
+  late final VideoController _controller = _buildController();
+
+  VideoController _buildController() {
+    final settings = getIt<SettingsService>();
+    // Optional output-size cap. This box can't do zero-copy hardware decode
+    // (`hwdec-interop` comes back empty, so mpv uses a `-copy` variant), which
+    // means every frame is read back to system memory and re-uploaded — at 4K
+    // that saturates the output stage and frames drop at presentation. A
+    // smaller texture cuts the upload-and-draw half of that.
+    final cap = videoOutputCap(settings.maxVideoHeight);
+    return VideoController(
+      _player,
+      configuration: VideoControllerConfiguration(
+        enableHardwareAcceleration: settings.hardwareVideoAcceleration,
+        hwdec: settings.hwdecMode,
+        width: cap?.width,
+        height: cap?.height,
+      ),
+    );
+  }
 
   WatchHistoryRepository get _history => getIt<WatchHistoryRepository>();
   LibraryRepository get _library => getIt<LibraryRepository>();
@@ -434,7 +447,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       getIt<ErrorLogService>().info(
         '$phase ${parts.join(' ')} '
         'setting:hwRendering=${settings.hardwareVideoAcceleration} '
-        'setting:hwdecMode=${settings.hwdecMode}',
+        'setting:hwdecMode=${settings.hwdecMode} '
+        'setting:maxVideoHeight=${settings.maxVideoHeight}',
         source: 'PlayerScreen.decode',
       );
     } catch (e, st) {

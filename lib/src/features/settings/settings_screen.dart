@@ -162,6 +162,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 options: _hwdecOptions,
                 onChanged: (v) => _set(_settings.setHwdecMode(v)),
               ),
+              _DropdownRow(
+                title: 'Limit video output',
+                subtitle:
+                    'Draw video at a smaller size. Helps most on 4K files that '
+                    'stutter on this box — it cuts how much work the display '
+                    'stage does per frame. (Applies on the next video.)',
+                value: _settings.maxVideoHeight.toString(),
+                options: _videoOutputCapOptions,
+                onChanged: (v) =>
+                    _set(_settings.setMaxVideoHeight(int.tryParse(v) ?? 0)),
+              ),
               _ToggleRow(
                 title: 'Low-power mode',
                 subtitle:
@@ -557,6 +568,14 @@ const _hwdecOptions = <(String, String)>[
   ('vaapi', 'VA-API — Linux'),
   ('nvdec', 'NVDEC — NVIDIA'),
   ('no', 'Software (no hardware decoding)'),
+];
+
+/// Output-size caps. '0' (uncapped) is first so it's the fallback for an
+/// unknown stored value, and matches the default.
+const _videoOutputCapOptions = <(String, String)>[
+  ('0', 'Full size (default)'),
+  ('1080', 'Up to 1080p'),
+  ('720', 'Up to 720p'),
 ];
 
 const _audioLanguageOptions = <(String, String)>[
