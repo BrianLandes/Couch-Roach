@@ -33,6 +33,7 @@ import '../../widgets/fullscreen_toggle_button.dart';
 import '../acquire/acquire_play.dart';
 import '../cast/cast_dialog.dart';
 import 'audio_selection.dart';
+import 'mpv_log_filter.dart';
 import 'video_output_cap.dart';
 import 'next_episode.dart';
 import 'player_controls_visibility.dart';
@@ -99,7 +100,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // survives the crash) is the only trail we get. `v` over `debug` on
       // purpose: our log writer appends asynchronously, and debug's flood would
       // leave the crash-adjacent lines queued (unwritten) when the process dies.
-      logLevel: _isNetworkSource ? MPVLogLevel.v : MPVLogLevel.error,
+      // Verbose logging also raises mpv's own level for *local* files, so the
+      // decode/render handshake (which hwdec was tried, whether a GPU-surface
+      // interop loaded) shows up in the log. Filtered on the way out — see
+      // [isRenderPipelineLogLine] — so it isn't a firehose.
+      logLevel: (_isNetworkSource || getIt<SettingsService>().verboseLogging)
+          ? MPVLogLevel.v
+          : MPVLogLevel.error,
     ),
   );
 
@@ -347,19 +354,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // Mirror libmpv's own log into our file log for network/trailer playback.
       // A crash in the yt-dlp/ytdl_hook resolve pipeline is native and leaves
       // nothing in the Dart error stream, so these lines are the trail up to it.
-      if (_isNetworkSource) {
-        _subs.add(_player.stream.log.listen((l) {
-          final line = '[mpv ${l.level}] ${l.prefix}: ${l.text.trim()}';
-          // mpv's own error/fatal lines are the payload here — surface them at
-          // error level so they always land in the log (and the errors-only
-          // file) even with verbose logging off. The rest is trace chatter.
-          if (l.level == 'error' || l.level == 'fatal') {
-            getIt<ErrorLogService>().logError(line, source: 'PlayerScreen.mpv');
-          } else {
-            getIt<ErrorLogService>().info(line, source: 'PlayerScreen.mpv');
-          }
-        }));
-      }
+      // A trailer keeps the whole stream (the yt-dlp resolve pipeline crashes
+      // natively, so every line up to it is the only trail we get). A local
+      // file keeps only the decode/render handshake, which is what answers the
+      // 4K-stutter question without flooding the log.
+      _subs.add(_player.stream.log.listen((l) {
+        if (!_isNetworkSource &&
+            !isRenderPipelineLogLine(
+                level: l.level, prefix: l.prefix, text: l.text)) {
+          return;
+        }
+        final line = '[mpv ${l.level}] ${l.prefix}: ${l.text.trim()}';
+        // mpv's own error/fatal lines are the payload here — surface them at
+        // error level so they always land in the log (and the errors-only
+        // file) even with verbose logging off. The rest is trace chatter.
+        if (l.level == 'error' || l.level == 'fatal') {
+          getIt<ErrorLogService>().logError(line, source: 'PlayerScreen.mpv');
+        } else {
+          getIt<ErrorLogService>().info(line, source: 'PlayerScreen.mpv');
+        }
+      }));
 
       // Configure the fallback ytdl_hook path (see _configureYtdlp) in case
       // self-resolution below fails but a Lua-enabled libmpv is present.
@@ -413,6 +427,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     'hwdec',
     'hwdec-current',
     'hwdec-interop',
+    'gpu-hwdec-interop',
     'video-codec',
     'video-params/pixelformat',
     'width',
