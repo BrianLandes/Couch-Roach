@@ -13,6 +13,7 @@ import 'package:media_kit_video/media_kit_video.dart' hide toggleFullscreen;
 
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
+import '../../core/media/playback_activity.dart';
 import '../../core/media/ytdlp.dart';
 import '../../core/platform/media_session.dart';
 import '../../core/platform/open_url.dart';
@@ -260,6 +261,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // the overlay without stealing focus or key handling from the media_kit
     // controls (Space / media-key play-pause, arrow-seek).
     HardwareKeyboard.instance.addHandler(_onHardwareKey);
+    // Tell background work to stand down — the downscale job encodes on the
+    // same GPU that's drawing this video.
+    playbackActive.value = true;
     _mediaSession = MediaSessionController()..onButton = _onMediaButton;
     _open();
   }
@@ -1368,6 +1372,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    playbackActive.value = false;
     HardwareKeyboard.instance.removeHandler(_onHardwareKey);
     // Release the OS media session so the media key falls back to other apps
     // once we're no longer playing.

@@ -1,0 +1,166 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+
+import '../../core/logging/error_log_service.dart';
+import '../../core/media/ffmpeg.dart';
+import '../../core/media/playback_activity.dart';
+import '../../core/media/video_extensions.dart';
+import '../../core/settings/settings_service.dart';
+import '../../data/repositories/library_repository.dart';
+import '../subtitles/subtitle_skip_check.dart';
+import 'downscale_command.dart';
+
+/// Re-encodes a downloaded file that's too large for this machine to play
+/// smoothly down to the user's resolution cap.
+///
+/// Why: on a box that can't do zero-copy hardware decoding, every frame is
+/// hauled between GPU and system memory at the *decoded* resolution — so 4K
+/// stutters no matter how small it's drawn (see TASKS.md). The download cap
+/// avoids fetching 4K in the common case; this handles the rest, where 4K was
+/// the only release available.
+///
+/// **State is the file itself.** A downscaled file measures at the cap, so the
+/// next sweep sees nothing to do — idempotent and self-terminating, with no
+/// schema change and no bookkeeping to drift out of sync. Failures are
+/// remembered in memory only, so a transient failure gets one more chance on
+/// the next launch rather than looping.
+///
+/// Not an `@LazySingleton` for the same reason as `DownloadedEpisodeRegistrar`:
+/// `injection.config.dart` can't be regenerated in the container this was
+/// written in. Convert it when codegen next runs.
+class DownscaleService {
+  DownscaleService(this._library, this._settings, this._log);
+
+  final LibraryRepository _library;
+  final SettingsService _settings;
+  final ErrorLogService _log;
+
+  bool _busy = false;
+
+  /// Paths we've measured this session, so a sweep doesn't re-probe the whole
+  /// library every time. Cleared only by restarting.
+  final Map<String, int?> _heightCache = {};
+
+  /// Paths whose downscale failed this session — not retried until restart.
+  final Set<String> _failed = {};
+
+  /// Resolved once: the hardware encoder to use, or null when the build has
+  /// none (feature stays off).
+  String? _encoder;
+  bool _encoderResolved = false;
+
+  /// Downscale at most one file. Returns the path it processed, or null when
+  /// there was nothing to do.
+  ///
+  /// One file per sweep on purpose: this is a long, GPU-heavy job and finishing
+  /// one title is more useful than making progress on several.
+  Future<String?> sweep() async {
+    final cap = _settings.maxDownloadHeight;
+    if (cap <= 0) return null; // feature is keyed off the download cap
+    if (playbackActive.value) return null; // never compete with the player
+    if (_busy) return null;
+
+    _busy = true;
+    try {
+      final encoder = await _resolveEncoder();
+      if (encoder == null) return null;
+
+      for (final item in await _library.getAll()) {
+        if (item.missing || !item.managed) continue;
+        if (!kVideoExtensions.contains(p.extension(item.filePath).toLowerCase())) {
+          continue;
+        }
+        if (_failed.contains(item.filePath)) continue;
+        if (!File(item.filePath).existsSync()) continue;
+
+        final height = await _heightOf(item.filePath);
+        if (!needsDownscale(height: height, maxHeight: cap)) continue;
+
+        // Re-check: probing and encoding both take time, and the user may have
+        // started watching something in between.
+        if (playbackActive.value) return null;
+        await _downscale(item.filePath, encoder: encoder, maxHeight: cap);
+        return item.filePath;
+      }
+    } catch (e, st) {
+      _log.logError(e, stackTrace: st, source: 'DownscaleService.sweep');
+    } finally {
+      _busy = false;
+    }
+    return null;
+  }
+
+  Future<String?> _resolveEncoder() async {
+    if (_encoderResolved) return _encoder;
+    _encoderResolved = true;
+    try {
+      if (!await ffmpegAvailable()) {
+        _log.warn('downscale unavailable: no ffmpeg in the sidecar bundle',
+            source: 'DownscaleService');
+        return null;
+      }
+      final res = await Process.run(ffmpegCommand(), ['-hide_banner', '-encoders']);
+      _encoder = pickHardwareEncoder('${res.stdout}');
+      if (_encoder == null) {
+        _log.warn(
+            'downscale unavailable: this ffmpeg build has no hardware HEVC '
+            'encoder (LGPL builds carry no x264/x265, and software encoding 4K '
+            'is not viable here)',
+            source: 'DownscaleService');
+      } else {
+        _log.info('downscale will use $_encoder', source: 'DownscaleService');
+      }
+    } catch (e, st) {
+      _log.logError(e, stackTrace: st, source: 'DownscaleService.resolveEncoder');
+    }
+    return _encoder;
+  }
+
+  Future<int?> _heightOf(String path) async {
+    if (_heightCache.containsKey(path)) return _heightCache[path];
+    int? height;
+    try {
+      final res = await Process.run(
+          SubtitleSkipCheck.ffprobeCommand(), probeVideoStreamArgs(path));
+      height = parseFfprobeVideoHeight('${res.stdout}');
+    } catch (e, st) {
+      _log.logError(e, stackTrace: st, source: 'DownscaleService.probe');
+    }
+    _heightCache[path] = height;
+    return height;
+  }
+
+  /// Encode to a temp file beside the original, then swap. The original is only
+  /// removed once a plausible output exists, so a crashed or killed encode
+  /// leaves the watchable file untouched.
+  Future<void> _downscale(String path,
+      {required String encoder, required int maxHeight}) async {
+    final temp = '$path.downscaling.mkv';
+    _log.info('downscaling to ${maxHeight}p: $path', source: 'DownscaleService');
+    try {
+      final res = await Process.run(
+        ffmpegCommand(),
+        downscaleArgs(
+            input: path, output: temp, encoder: encoder, maxHeight: maxHeight),
+      );
+      final out = File(temp);
+      if (res.exitCode != 0 || !out.existsSync() || out.lengthSync() <= 0) {
+        _failed.add(path);
+        if (out.existsSync()) out.deleteSync();
+        _log.warn('downscale failed (exit ${res.exitCode}): $path',
+            source: 'DownscaleService');
+        return;
+      }
+      // Swap in place: the library row's path is unchanged, so watch history,
+      // subtitles and the cleanup lifecycle all still point at the right file.
+      File(path).deleteSync();
+      out.renameSync(path);
+      _heightCache[path] = maxHeight;
+      _log.info('downscaled $path', source: 'DownscaleService');
+    } catch (e, st) {
+      _failed.add(path);
+      _log.logError(e, stackTrace: st, source: 'DownscaleService.downscale');
+    }
+  }
+}

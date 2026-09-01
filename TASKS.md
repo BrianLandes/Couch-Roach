@@ -331,6 +331,36 @@ Two unrelated errors this surfaced, both worth their own look:
   through `logError`, which always writes, so one DV file would bury the errors-only log. Fixed
   by de-duplicating mpv log lines (commit 21cf709).
 
+**Fix (D) shipped: downscale a too-large file after download.**
+- **ffmpeg was already being downloaded and discarded.** `fetch_ffprobe_*` pulls BtbN's full
+  static archive and extracted only ffprobe; it now vendors ffmpeg too — same download, same
+  pin, same SHA, same LGPL posture and `LICENSE-ffmpeg.txt` already shipped. The launcher stages
+  `ffmpeg.exe` and folds it into the sidecar content hash so existing bundles re-download.
+  `ffmpegCommand()`/`ffmpegAvailable()` resolve it exactly like ffprobe.
+- **`DownscaleService`** sweeps every 5 min, one file per sweep. Keyed off `maxDownloadHeight`
+  (off when the cap is off), skipped entirely while `playbackActive` — it encodes on the same
+  GPU that's drawing video. Encodes to a temp file beside the original and only swaps on a
+  plausible non-empty result, so a crash leaves the watchable file intact. The path is unchanged
+  by the swap, so watch history, subtitles and the cleanup lifecycle all still line up.
+- **No schema change, deliberately.** State *is* the file: a downscaled file measures at the cap,
+  so the next sweep sees nothing to do — idempotent and self-terminating. Failures are remembered
+  in memory only, so a transient failure gets one retry next launch instead of looping. (This
+  also sidesteps needing `build_runner`, which the authoring container has no SDK for.)
+- **Hardware encoder only.** The LGPL build ships no x264/x265, and software-encoding 4K on this
+  box would take hours — so `pickHardwareEncoder` picks `hevc_qsv`/`nvenc`/`amf`/`vaapi` and the
+  feature stays **off** if none exist, rather than falling back to something that never finishes.
+- **HDR is preserved, not tone-mapped.** Output stays HEVC 10-bit (`p010le`); only the video is
+  re-encoded (`-map 0 -c copy -c:v <enc>`), so the Atmos track and subtitles are copied
+  bit-for-bit. Tone-mapping to SDR needs filters the LGPL build may lack, is slow, and looks
+  washed-out when wrong — and the entire win is the 4× pixel drop, which survives keeping HDR.
+- Tests: encoder pick (preference order, substring guard, none-available), arg construction
+  (stream mapping, even-width scale, 10-bit, no stdin), ffprobe height parsing, and the
+  needs-downscale margin (never re-encode to shave 8 pixels; unknown height means leave alone).
+
+**On-device to verify:** `ffmpeg -encoders | findstr qsv` actually lists `hevc_qsv`; that a
+downscaled file still looks HDR-correct (colour metadata should carry, but that's the part most
+worth eyeballing); and how long an episode takes.
+
 **Superseded investigation notes below.**
 
 **Next step — read the log while a big file stutters.** `hwdec-current` is the tell:

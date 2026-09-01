@@ -23,6 +23,7 @@ import 'src/services/acquisition/downloaded_episode_registrar.dart';
 import 'src/services/acquisition/jackett_process.dart';
 import 'src/services/acquisition/qbittorrent_process.dart';
 import 'src/services/cleanup/completed_torrent_reaper.dart';
+import 'src/services/transcode/downscale_service.dart';
 import 'src/services/cleanup/watched_reaper.dart';
 
 void main() {
@@ -161,6 +162,20 @@ void main() {
       Timer.periodic(
         const Duration(seconds: 10),
         (_) => unawaited(episodeRegistrar.sweep()),
+      );
+
+      // Downscale anything that landed above the resolution cap — the 4K-only
+      // case the download preference can't avoid. One file per sweep, skipped
+      // entirely while a video is playing (it encodes on the same GPU), and a
+      // no-op when the cap is off or the build has no hardware encoder.
+      final downscaler = DownscaleService(
+        getIt<LibraryRepository>(),
+        settings,
+        log,
+      );
+      Timer.periodic(
+        const Duration(minutes: 5),
+        (_) => unawaited(downscaler.sweep()),
       );
 
       // Clear finished torrents from the client (keeping their files) so it
