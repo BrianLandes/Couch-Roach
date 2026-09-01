@@ -51,6 +51,32 @@ _Queued and ready to pick up._
 
 - [ ] Add the app icon to the Windows launcher.
 
+### Large videos (7–8 GB) play at a poor frame rate · `p2`
+
+- [ ] Big files stutter / drop frames in Couch Roach, but the *same file* plays smoothly in PotPlayer on the same machine — so it's not raw hardware capacity. PotPlayer is almost certainly using **GPU hardware decoding** (DXVA2/D3D11VA) where our mpv is falling back to software decode.
+- Investigate media_kit/mpv config: enable hardware decoding (`hwdec=auto`/`auto-safe`/`d3d11va`) and confirm it actually engages for these codecs (likely HEVC/10-bit). media_kit exposes mpv properties via `player.platform` (`NativePlayer`) `setProperty`; check the version's supported API. Verify with an on-screen decode check (mpv's `hwdec-current`).
+- Secondary levers if hwdec isn't enough: cache/demuxer buffer sizes, and the "pause torrents while watching" backlog item (CPU/disk contention). Note this is NOT transcoding — PotPlayer isn't transcoding either; it's hardware decode. [windows]
+
+### Paused video + PC sleep → "cannot play the file" on wake · `p2`
+
+- [ ] Pause a video, let the PC sleep, come back → the player says it can't play the file that was playing; have to back out and replay it to recover.
+- Likely the mpv/media_kit pipeline (or the file handle / GPU context / the localhost stream if it was an archive_play) doesn't survive suspend/resume. Investigate: does the OS `WM_POWERBROADCAST` resume event reach us? On resume, re-open the current media at the saved position instead of leaving the dead handle. Consider listening for the player's error state and auto-recovering (reload at last position) rather than requiring a manual back+replay. Repro with both a local file and an archive/stream source. [windows]
+
+### Show detail: reflect a just-ready episode's Play button live (season download) · `p3`
+
+- [ ] While downloading a whole season, when a single episode finishes and becomes playable, the show detail page should update that episode's row to show the Play button without a manual refresh.
+- We already have live watched-state on episode rows (`completedEpisodesProvider`) and reactive local-episode queries elsewhere. Make the per-episode "is it on disk / playable" state a live drift `.watch()` provider (family by tmdbId) that the episode rows read, so a newly-completed download flips the row from "downloading/queued" to "Play" reactively. Ties into the mid-playback auto-play-next work (`localEpisodes`) — reuse that query shape.
+
+### Focus is erratic when mixing arrow keys and mouse; make it input-mode based · `p2`
+
+- [ ] On most pages a selected UI element can be moved by arrow keys **or** mouse, but it behaves erratically: while arrow-key navigating, any mouse movement crossing (or even just moving over) an element hijacks the selection. Want it **mode-based**: keyboard input → keyboard mode (mouse *movement* is ignored, selection only moves via arrows); stays there until a deliberate mouse action (a click, or a real hover-select gesture) switches to mouse mode. Hover-follow-focus should NOT fire on incidental cursor movement.
+- Design sketch: a small app-level `InputMode` (keyboard | pointer) notifier. Any key nav sets keyboard mode; a pointer-*down*/click sets pointer mode. `FocusableCard`'s hover-to-focus should only take focus when in pointer mode (gate the `onEnter`/hover handler on `InputMode == pointer`), so cursor drift during arrow nav is inert. A click always works (it sets pointer mode then activates). This is the shared-widget seam — fixing `FocusableCard` (and any hand-rolled hover-focus) covers most screens at once. Add to the style showcase. Watch the interaction with "focus follows scroll" (`Scrollable.ensureVisible`).
+
+### Trailer / YouTube playback stopped working (regression) · `p2`
+
+- [ ] Playing trailers / YouTube videos fails now — was working before, unclear when it broke; no error captured yet, but nearly everything tried recently fails.
+- First step: reproduce and **capture the actual error** (ErrorLogService log + the player/network error). Likely causes to check: the YouTube extraction path (an `explode`/yt-dlp-style resolver whose API/endpoints drifted — YouTube changes break these often), a changed trailer URL/key from TMDB (`videos` endpoint → YouTube key), or the embed/stream handoff to mpv. Confirm where in the chain it dies (no trailer key? extraction fails? mpv can't open the resolved URL?) before fixing. [windows]
+
 ### Disable "Download next" when the next episode hasn't aired · `p4`
 
 - [ ] The Download-next button should know whether the next episode has aired, and be disabled with a message if it hasn't aired yet.
