@@ -87,8 +87,8 @@ jobs:
         run: ./tool/fetch_jackett_windows.ps1
 
       # Assemble a flat bin layout (qbittorrent.exe, yt-dlp.exe, ffprobe.exe,
-      # jackett/) and name the zip by a content hash of the four binaries — so
-      # the launcher only re-downloads when a sidecar actually changes.
+      # ffmpeg.exe, jackett/) and name the zip by a content hash of the five
+      # binaries — so the launcher only re-downloads when a sidecar changes.
       - name: Package sidecars
         shell: pwsh
         run: |
@@ -97,6 +97,7 @@ jobs:
           Copy-Item third_party/qbittorrent/win-x64/qbittorrent.exe $stage/
           Copy-Item third_party/yt-dlp/win-x64/yt-dlp.exe $stage/
           Copy-Item third_party/ffprobe/win-x64/ffprobe.exe $stage/
+          Copy-Item third_party/ffprobe/win-x64/ffmpeg.exe $stage/
           Copy-Item third_party/jackett/win-x64/* "$stage/jackett/" -Recurse -Force
           Copy-Item third_party/qbittorrent/LICENSE-qbittorrent.txt $stage/ -ErrorAction SilentlyContinue
           Copy-Item third_party/yt-dlp/LICENSE-yt-dlp.txt $stage/ -ErrorAction SilentlyContinue
@@ -107,6 +108,7 @@ jobs:
             (Get-FileHash "$stage/qbittorrent.exe").Hash,
             (Get-FileHash "$stage/yt-dlp.exe").Hash,
             (Get-FileHash "$stage/ffprobe.exe").Hash,
+            (Get-FileHash "$stage/ffmpeg.exe").Hash,
             (Get-FileHash "$stage/jackett/JackettConsole.exe").Hash
           ) -join ''
           $sha = [System.Security.Cryptography.SHA256]::Create()

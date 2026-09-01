@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 #
-# Vendors the ffprobe binary for the Linux build bundle.
+# Vendors the ffprobe + ffmpeg binaries for the Linux build bundle.
 #
 # ffprobe is the fast path in SubtitleSkipCheck (read a file's subtitle streams
 # without spinning up a Player). media_kit ships libmpv with ffmpeg linked as a
 # LIBRARY, NOT the ffprobe command-line tool, so a clean release has none. This
-# extracts ffprobe from BtbN's self-contained static FFmpeg build and drops it at
-# third_party/ffprobe/linux-x64/ffprobe, from where the linux/ CMake install rule
-# copies it next to the app executable. SubtitleSkipCheck invokes it by absolute
-# path (Linux Process.run doesn't search the executable's own directory).
+# extracts ffprobe AND ffmpeg from BtbN's self-contained static FFmpeg build into
+# third_party/ffprobe/linux-x64/, from where the linux/ CMake install rule copies
+# them next to the app executable. Callers invoke them by absolute path (Linux
+# Process.run doesn't search the executable's own directory).
+#
+# ffmpeg rides along because the archive already contains it -- the download and
+# checksum are shared, so the only cost is bundle size. It backs the downscale of
+# a 4K file a weak box can't play smoothly (see TASKS.md). The vendor directory
+# keeps the `ffprobe` name for continuity with existing references.
 #
 # Source: BtbN/FFmpeg-Builds — the LGPL variant (no GPL-only encoders), the
 # cleanest license posture for redistribution. These are big all-codec static
@@ -35,12 +40,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR_ROOT="${FFPROBE_VENDOR_DIR:-$ROOT/third_party/ffprobe}"
 DEST_DIR="$VENDOR_ROOT/linux-x64"
 DEST="$DEST_DIR/ffprobe"
+DEST_FFMPEG="$DEST_DIR/ffmpeg"
 LICENSE_DEST="$VENDOR_ROOT/LICENSE-ffmpeg.txt"
 
 mkdir -p "$DEST_DIR"
 
-if [[ -f "$DEST" ]] && [[ -f "$LICENSE_DEST" ]]; then
-  echo "✓ ffprobe already vendored: $DEST"
+if [[ -f "$DEST" ]] && [[ -f "$DEST_FFMPEG" ]] && [[ -f "$LICENSE_DEST" ]]; then
+  echo "✓ ffprobe + ffmpeg already vendored: $DEST_DIR"
   echo "Done."
   exit 0
 fi
@@ -54,14 +60,18 @@ curl -fSL --retry 3 -o "$archive" "$URL"
 echo "${EXPECTED_SHA256}  ${archive}" | sha256sum -c -
 
 # Extract just bin/ffprobe and the LICENSE from the single top-level folder.
-echo "Extracting ffprobe ..."
-tar -xf "$archive" --wildcards -C "$tmp" '*/bin/ffprobe' '*/LICENSE.txt'
+echo "Extracting ffprobe + ffmpeg ..."
+tar -xf "$archive" --wildcards -C "$tmp" '*/bin/ffprobe' '*/bin/ffmpeg' '*/LICENSE.txt'
 found_probe="$(find "$tmp" -type f -name ffprobe -path '*/bin/*' | head -1)"
+found_ffmpeg="$(find "$tmp" -type f -name ffmpeg -path '*/bin/*' | head -1)"
 found_license="$(find "$tmp" -type f -name 'LICENSE.txt' | head -1)"
 [[ -n "$found_probe" ]] || { echo "ffprobe not found in archive" >&2; exit 1; }
+[[ -n "$found_ffmpeg" ]] || { echo "ffmpeg not found in archive" >&2; exit 1; }
 
 install -m 0755 "$found_probe" "$DEST"
+install -m 0755 "$found_ffmpeg" "$DEST_FFMPEG"
 echo "✓ Vendored: $DEST"
+echo "✓ Vendored: $DEST_FFMPEG"
 if [[ -n "$found_license" ]]; then
   cp "$found_license" "$LICENSE_DEST"
   echo "✓ License: $LICENSE_DEST"

@@ -1,15 +1,22 @@
 <#
 .SYNOPSIS
-  Vendors the ffprobe binary for the Windows build bundle.
+  Vendors the ffprobe + ffmpeg binaries for the Windows build bundle.
 
 .DESCRIPTION
   ffprobe is the fast path in SubtitleSkipCheck (read a file's subtitle streams
   without spinning up a Player). media_kit ships libmpv with ffmpeg linked as a
   LIBRARY, NOT the ffprobe command-line tool, so a clean release has none. This
   downloads BtbN's self-contained static FFmpeg build, verifies its SHA-256, and
-  extracts just ffprobe.exe to third_party/ffprobe/win-x64/ffprobe.exe. The
-  windows/ CMake install rule copies it next to the app exe; SubtitleSkipCheck
-  invokes it by absolute path.
+  extracts ffprobe.exe AND ffmpeg.exe to third_party/ffprobe/win-x64/. The
+  windows/ CMake install rule copies them next to the app exe; callers invoke
+  them by absolute path.
+
+  ffmpeg.exe rides along because the archive already contains it -- the download
+  and hash check are shared, so the only cost is bundle size. It backs the
+  downscale of a 4K file this box can't play smoothly (see TASKS.md).
+
+  NOTE the vendor directory is still named `ffprobe/` for continuity with the
+  existing CI references; it holds both tools.
 
   Source: BtbN/FFmpeg-Builds — the LGPL variant (no GPL-only encoders), the
   cleanest license posture for redistribution. These are big all-codec static
@@ -37,12 +44,13 @@ $Root        = Split-Path -Parent $PSScriptRoot
 $VendorRoot  = Join-Path $Root 'third_party\ffprobe'
 $DestDir     = Join-Path $VendorRoot 'win-x64'
 $Dest        = Join-Path $DestDir 'ffprobe.exe'
+$DestFfmpeg  = Join-Path $DestDir 'ffmpeg.exe'
 $LicenseDest = Join-Path $VendorRoot 'LICENSE-ffmpeg.txt'
 
 New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
 
-if ((Test-Path $Dest) -and (Test-Path $LicenseDest)) {
-  Write-Host "OK ffprobe.exe already vendored: $Dest"
+if ((Test-Path $Dest) -and (Test-Path $DestFfmpeg) -and (Test-Path $LicenseDest)) {
+  Write-Host "OK ffprobe.exe + ffmpeg.exe already vendored: $DestDir"
   exit 0
 }
 
@@ -57,14 +65,18 @@ try {
     throw "SHA-256 mismatch: expected $ExpectedSha256 but got $hash"
   }
 
-  Write-Host "Extracting ffprobe.exe ..."
+  Write-Host "Extracting ffprobe.exe + ffmpeg.exe ..."
   Expand-Archive -Path $archive -DestinationPath $tmp -Force
   $probe   = Get-ChildItem -Path $tmp -Recurse -Filter 'ffprobe.exe' | Select-Object -First 1
+  $ffmpeg  = Get-ChildItem -Path $tmp -Recurse -Filter 'ffmpeg.exe'  | Select-Object -First 1
   $license = Get-ChildItem -Path $tmp -Recurse -Filter 'LICENSE.txt'  | Select-Object -First 1
-  if (-not $probe) { throw "ffprobe.exe not found in archive" }
+  if (-not $probe)  { throw "ffprobe.exe not found in archive" }
+  if (-not $ffmpeg) { throw "ffmpeg.exe not found in archive" }
 
-  Copy-Item -Path $probe.FullName -Destination $Dest -Force
+  Copy-Item -Path $probe.FullName  -Destination $Dest       -Force
+  Copy-Item -Path $ffmpeg.FullName -Destination $DestFfmpeg -Force
   Write-Host "OK Vendored: $Dest"
+  Write-Host "OK Vendored: $DestFfmpeg"
   if ($license) {
     Copy-Item -Path $license.FullName -Destination $LicenseDest -Force
     Write-Host "OK License: $LicenseDest"
