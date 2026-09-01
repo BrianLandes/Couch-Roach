@@ -122,7 +122,40 @@ retry on the next pass, so it fails soft).
 
 ### Show detail: reflect a just-ready episode's Play button live (season download) · `p3`
 
-- [x] While a season downloads, an episode that finishes now flips its row to Play with no
+**Device test FAILED — reopened.** Episodes still don't flip to Play during a season
+download, even after navigating away and back. The provider fix below was correct but
+insufficient: it made the *query* live, while nothing ever **creates the rows**.
+
+**Actual root cause (two, both from a season pack being invisible to per-episode UI):**
+1. `_tryPack` queues the pack fire-and-forget, and the acquire flow only writes a library
+   row for the **one** episode it was asked to prepare (`_finishPrepared`). Every other
+   episode in the pack stays unknown to the library — and so to the live query — until
+   someone plays it or the next launch's disk scan picks it up.
+2. Each episode's `AcquireButton` adopts a running download via `downloadForTagProvider(tag)`
+   keyed on the **episode** dedupe key, but a pack is tagged with the **season** key. So the
+   button can't see the pack either — which is why there's no progress meter.
+
+**Fix for (1) — shipped:** new `DownloadedEpisodeRegistrar` reads finished files straight off
+the daemon and registers a library row for each. Sweeps every 10s from `main()`. Only our
+tagged torrents, only numeric-tmdb-id keys, only fully-downloaded playable video whose name
+parses to a season+episode (the filename is authoritative — a pack's key names one season but
+its files are what actually landed). A path already in the library is skipped entirely, so
+sweeps are idempotent and can never clobber an existing row. Supporting changes:
+`TorrentStatus.savePath` (parsed from `/torrents/info`, needed to build absolute paths),
+`torrentFiles` promoted onto the `TorrentDaemon` interface, and a pure `parseAcquisitionKey`
+that recovers tmdbId/season/episode from a tag — refusing to guess on title-keyed fallbacks,
+since a title can contain the key's own separators. 11 registrar tests + 5 parser tests.
+
+Not an `@LazySingleton`: constructed in `main()` instead, because this container has no
+Flutter SDK to re-run `build_runner` with and `injection.config.dart` must never be
+hand-edited. **Follow-up:** convert it to an annotated service next time codegen runs.
+
+**Fix for (2) — still TO DO:** per-episode progress meter, so a downloading episode shows
+progress instead of a Download button. Needs a provider mapping (season, episode) → progress
+from the in-flight pack's per-file progress (`torrentFiles` now exposes it) and the show
+detail row rendering it.
+
+- [x] (superseded detail) While a season downloads, an episode that finishes now flips its row to Play with no
   manual refresh.
 
 Root cause was one word: `localEpisodesProvider` was a `FutureProvider`, so "what's on disk"
@@ -199,6 +232,15 @@ _Queued and ready to pick up._
 **First cut shipped (diagnostic, not yet a fix):**
 - New `SettingsService.hwdecMode` (default `'auto'` — exactly what media_kit already applied, so no behaviour change) passed through as `VideoControllerConfiguration.hwdec`. Settings → Video performance gets a "Hardware decoder" dropdown (`auto`, `auto-copy`, `auto-safe`, `d3d11va`, `d3d11va-copy`, `vaapi`, `nvdec`, `no`). The old toggle is relabelled "Hardware video **rendering**" so the two stop being confused.
 - The player now logs what libmpv *actually* chose: `_logDecodeDiagnostics` samples mpv properties 3s in (`hwdec`, `hwdec-current`, `hwdec-interop`, `video-codec`, `video-params/pixelformat`, `width`/`height`, `container-fps`) and again at 63s (`frame-drop-count`, `decoder-frame-drop-count`, `estimated-vf-fps`). Logged at info level under `PlayerScreen.decode`.
+
+**Device test (2026-09-01): still unwatchable.** User tried several Hardware decoder values;
+Direct3D 11 seemed *slightly* better but nowhere near watchable, the rest made no difference.
+Confirmed nothing else was running or downloading, so daemon/CPU contention is ruled out —
+which also rules out the "pause torrents while watching" lever for this. **Still need the
+`PlayerScreen.decode` log lines** (verbose logging is now on) — without `hwdec-current` and the
+drop counters this is guesswork. If `hwdec-current` is a real decoder and drops are still
+climbing, decode isn't the bottleneck and the next suspect is the **render path**: media_kit's
+`vo=libmpv` texture hand-off, and the "Hardware video rendering" toggle in both positions.
 
 **Next step — read the log while a big file stutters.** `hwdec-current` is the tell:
 - `hwdec-current=no` → silent software fallback; force `d3d11va` (or `d3d11va-copy`) from the new dropdown and re-check.
@@ -382,7 +424,7 @@ Coverage landed: `discover_tile` 100%, `movie_detail_screen` 0% → 84.4%,
 - **Native (windows/runner):** new `MediaSession` (C++/WinRT) gets `SystemMediaTransportControls` for the window (interop `GetForWindow`), enables Play/Pause, marshals `ButtonPressed` to the UI thread via `PostMessage` → a `couch_roach/media_session` method channel (`onButton`). Methods: `enable`(title)/`setPlaybackStatus`(playing)/`disable`. Wired in `flutter_window`; CMake adds the source, links `windowsapp.lib`, and disables `/WX` (+ explicit `/EHsc`) for that TU since the WinRT headers aren't warning-clean.
 - **Dart:** `MediaSessionController` (Windows-only; no-op elsewhere) — the player `enable`s on open, `setPlaying` on every play-state change, `disable` on dispose, and routes `onButton` → play/pause. `_onHardwareKey` now swallows the raw media Play/Pause key **on Windows** so media_kit doesn't *also* toggle (double-toggle) — SMTC's `onButton` is the single driver (verified media_kit uses `CallbackShortcuts`, which a `HardwareKeyboard` handler returning true preempts).
 - **Windows CI build: green** (after a follow-up fix — the C++/WinRT headers pull in `<experimental/coroutine>` under C++17, so the runner needed `_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS`). Compiles clean; release published. Dart analyze + 528 tests green.
-- ⏳ **On-device test still pending:** confirm the remote's Play/Pause pauses Couch Roach only (Spotify/YouTube no longer start), with no double-toggle. If a double-toggle shows up, the follow-up is tightening how media_kit's own key handling is suppressed.
+- ✅ **Device-verified (mostly):** the remote's Play/Pause now drives Couch Roach and Spotify/YouTube no longer react. **Residual:** occasionally the button does nothing, or still reaches a background app. User is gathering instances to characterise when/why — likely a window-focus or SMTC-session-ownership gap (we claim the session on play and release it on dispose, so a paused/backgrounded player may be handing it back). Revisit with concrete repro steps.
 
 ### "Cancel download" in the inline acquire menu · `p3`
 

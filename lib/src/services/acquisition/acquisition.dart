@@ -125,6 +125,29 @@ String acquisitionDedupeKey({
 String acquisitionTag(String dedupeKey) =>
     'cr-src-${dedupeKey.replaceAll(',', '_')}';
 
+// A whole key produced by [acquisitionDedupeKey], optionally still wrapped in
+// its [acquisitionTag] prefix. Anchored so a *title*-keyed fallback never
+// matches: a title can itself contain `-s12`, and guessing at it would attach
+// files to the wrong show.
+final _acquisitionKeyPattern =
+    RegExp(r'^(?:cr-src-)?cr-tmdb-(\d+)(?:-s(\d+)(?:e(\d+))?)?$');
+
+/// The identity encoded in an [acquisitionDedupeKey] or its [acquisitionTag].
+///
+/// Only keys carrying a **numeric TMDB id** resolve; a title-keyed fallback
+/// (used when the caller had no id) reports `tmdbId: null`, since the title can
+/// contain the separators the key is built from. [season] is null for a
+/// movie/whole-show key, [episode] null for a season-pack key. Pure + tested.
+({int? tmdbId, int? season, int? episode}) parseAcquisitionKey(String key) {
+  final m = _acquisitionKeyPattern.firstMatch(key.trim());
+  if (m == null) return (tmdbId: null, season: null, episode: null);
+  return (
+    tmdbId: int.tryParse(m.group(1)!),
+    season: m.group(2) == null ? null : int.tryParse(m.group(2)!),
+    episode: m.group(3) == null ? null : int.tryParse(m.group(3)!),
+  );
+}
+
 /// The dedupe key encoded in an [acquisitionTag], or null if [tag] isn't one of
 /// ours — lets the Downloads screen map a torrent back to its acquisition
 /// context. Dedupe keys never contain commas, so the reverse is exact. Pure.
@@ -231,6 +254,12 @@ abstract class TorrentDaemon {
   /// activity screen. Returns [] if the daemon isn't reachable.
   Future<List<TorrentStatus>> listTorrents();
 
+  /// The file list for one torrent — each entry carries at least `name` (path
+  /// relative to the torrent's save path) and `progress` (0.0–1.0). Returns []
+  /// on error or before the daemon has metadata. Lets a caller see which files
+  /// of a multi-file torrent (a season pack) have finished.
+  Future<List<Map<String, dynamic>>> torrentFiles(String hash);
+
   /// Whether the daemon's Web API is reachable right now (a health ping) — drives
   /// the online/offline indicator. Never throws.
   Future<bool> isAlive();
@@ -262,10 +291,16 @@ class TorrentStatus {
     required this.downloadedBytes,
     this.etaSeconds,
     this.tags = const [],
+    this.savePath = '',
   });
 
   final String hash;
   final String name;
+
+  /// The daemon's download directory for this torrent. Joined with a file's
+  /// listed name to get its absolute path. Empty when the daemon didn't report
+  /// one.
+  final String savePath;
 
   /// The torrent's qBittorrent tags — includes the [acquisitionTag] we stamped
   /// at add time, which maps it back to the title/episode that requested it.

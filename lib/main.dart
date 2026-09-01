@@ -17,6 +17,9 @@ import 'src/features/library/library_match_service.dart';
 import 'src/features/library/library_service.dart';
 import 'src/injection.dart';
 import 'src/services/alexa/alexa_inbox_service.dart';
+import 'src/data/repositories/library_repository.dart';
+import 'src/services/acquisition/acquisition.dart';
+import 'src/services/acquisition/downloaded_episode_registrar.dart';
 import 'src/services/acquisition/jackett_process.dart';
 import 'src/services/acquisition/qbittorrent_process.dart';
 import 'src/services/cleanup/completed_torrent_reaper.dart';
@@ -143,6 +146,22 @@ void main() {
       // Independent of the local scan (it resolves against TMDB, not disk);
       // drain() self-guards when the inbox isn't configured and swallows blips.
       unawaited(getIt<AlexaInboxService>().drain());
+
+      // Register each episode of a multi-file download (a season pack) as its
+      // file finishes, so the show detail page flips that episode to "Play"
+      // straight away. Without this the acquire flow only writes a row for the
+      // one episode it was asked to prepare, and the rest stay invisible to the
+      // library until the next launch's disk scan. Cheap localhost poll; the
+      // sweep does nothing when no torrent of ours is running.
+      final episodeRegistrar = DownloadedEpisodeRegistrar(
+        getIt<TorrentDaemon>(),
+        getIt<LibraryRepository>(),
+        log,
+      );
+      Timer.periodic(
+        const Duration(seconds: 10),
+        (_) => unawaited(episodeRegistrar.sweep()),
+      );
 
       // Clear finished torrents from the client (keeping their files) so it
       // doesn't accumulate completed torrents seeding forever. isAlive() guards

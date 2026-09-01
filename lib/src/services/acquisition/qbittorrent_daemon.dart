@@ -343,6 +343,7 @@ class QbittorrentDaemon implements TorrentDaemon {
 
   /// `GET /torrents/files?hash=` — the file list for a torrent. Returns [] on
   /// error or before metadata is available.
+  @override
   Future<List<Map<String, dynamic>>> torrentFiles(String hash) async {
     final uri = Uri.parse('$_api/torrents/files')
         .replace(queryParameters: {'hash': hash});
@@ -838,6 +839,7 @@ TorrentStatus parseTorrentStatus(Map<String, dynamic> json) {
     etaSeconds:
         (eta <= 0 || eta >= _qbEtaUnknown || progress >= 1.0) ? null : eta,
     tags: tags,
+    savePath: json['save_path'] as String? ?? '',
   );
 }
 

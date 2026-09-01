@@ -63,6 +63,44 @@ void main() {
     });
   });
 
+  group('parseAcquisitionKey', () {
+    test('reads tmdb id, season and episode off an episode key', () {
+      final key = acquisitionDedupeKey(
+          tmdbId: 7, title: 'The Show', season: 2, episode: 5);
+      expect(parseAcquisitionKey(key), (tmdbId: 7, season: 2, episode: 5));
+      // The tag wrapping the same key parses identically.
+      expect(parseAcquisitionKey(acquisitionTag(key)),
+          (tmdbId: 7, season: 2, episode: 5));
+    });
+
+    test('a season-pack key has no episode', () {
+      final key =
+          acquisitionDedupeKey(tmdbId: 42, title: 'The Show', season: 1);
+      expect(parseAcquisitionKey(key), (tmdbId: 42, season: 1, episode: null));
+    });
+
+    test('a movie / whole-show key has neither season nor episode', () {
+      final key = acquisitionDedupeKey(tmdbId: 99, title: 'A Film');
+      expect(
+          parseAcquisitionKey(key), (tmdbId: 99, season: null, episode: null));
+    });
+
+    test('a title-keyed fallback resolves to no id, never a guess', () {
+      // No tmdb id → the key embeds the title, which can itself contain the
+      // separators the key is built from. Refusing to guess is the point:
+      // attributing files to the wrong show would be worse than skipping them.
+      final key =
+          acquisitionDedupeKey(title: 'Weird-Show-s2', season: 1, episode: 3);
+      expect(parseAcquisitionKey(key).tmdbId, isNull);
+    });
+
+    test('returns nulls for anything that is not one of our keys', () {
+      for (final s in ['', 'some-other-tag', 'cr-tmdb-', 'cr-tmdb-abc']) {
+        expect(parseAcquisitionKey(s).tmdbId, isNull, reason: s);
+      }
+    });
+  });
+
   group('AcquisitionSession', () {
     test('accumulates tried URLs per dedupe key', () {
       final session = AcquisitionSession();
