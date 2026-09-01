@@ -428,8 +428,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final v = await platform.getProperty(p);
         parts.add('$p=${v.isEmpty ? '-' : v}');
       }
+      // Record the two settings that shape this, so a decode log is readable
+      // without also having to ask what the toggles were set to.
+      final settings = getIt<SettingsService>();
       getIt<ErrorLogService>().info(
-        '$phase ${parts.join(' ')}',
+        '$phase ${parts.join(' ')} '
+        'setting:hwRendering=${settings.hardwareVideoAcceleration} '
+        'setting:hwdecMode=${settings.hwdecMode}',
         source: 'PlayerScreen.decode',
       );
     } catch (e, st) {
