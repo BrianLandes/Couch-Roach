@@ -150,10 +150,15 @@ Not an `@LazySingleton`: constructed in `main()` instead, because this container
 Flutter SDK to re-run `build_runner` with and `injection.config.dart` must never be
 hand-edited. **Follow-up:** convert it to an annotated service next time codegen runs.
 
-**Fix for (2) — still TO DO:** per-episode progress meter, so a downloading episode shows
-progress instead of a Download button. Needs a provider mapping (season, episode) → progress
-from the in-flight pack's per-file progress (`torrentFiles` now exposes it) and the show
-detail row rendering it.
+**Fix for (2) — shipped:** each episode covered by an in-flight pack now shows its own
+progress meter instead of a Download button. New pure `episodeFileProgress(files)` maps a
+torrent's file list to `(season, episode) → progress` (filename authoritative, non-video and
+marker-less files ignored, furthest-along file wins so a sample can't drag progress
+backwards), and `packEpisodeProgressProvider` polls it on the existing 1.5s cadence,
+autoDispose so the extra per-file polling stops with the page. It considers **pack torrents
+only** (key with `episode == null`): episode-tagged downloads stay with `AcquireButton`, which
+already drives them with retry/cancel — so the two can never double-render the same download.
+`_EpisodeDownloading` mirrors the acquire button's own progress styling. 6 helper tests.
 
 - [x] (superseded detail) While a season downloads, an episode that finishes now flips its row to Play with no
   manual refresh.

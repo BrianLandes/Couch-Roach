@@ -20,6 +20,7 @@ import '../library/save_title_buttons.dart';
 import '../library/saved_titles_providers.dart';
 import '../acquire/acquire_button.dart';
 import '../acquire/acquire_play.dart';
+import '../downloads/downloads_providers.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
 import 'new_episodes.dart';
@@ -894,6 +895,18 @@ class _Availability extends ConsumerWidget {
       return _UnreleasedBadge(airDate: airDate);
     }
 
+    // Covered by an in-flight season pack → show this episode's own progress.
+    // The pack is tagged with the season key, so the AcquireButton below (which
+    // watches the *episode* tag) can't see it and would offer a Download that
+    // starts a second, redundant fetch for a file already on its way.
+    final packProgress = ref
+        .watch(packEpisodeProgressProvider(tmdbId))
+        .asData
+        ?.value[(seasonNumber, episode.episodeNumber)];
+    if (packProgress != null) {
+      return _EpisodeDownloading(progress: packProgress);
+    }
+
     // Aired but not local → inline Download → progress → Play.
     final s = seasonNumber.toString().padLeft(2, '0');
     final e = episode.episodeNumber.toString().padLeft(2, '0');
@@ -903,6 +916,44 @@ class _Availability extends ConsumerWidget {
       meta: ShowMeta(title: showName, tmdbId: tmdbId, mediaType: 'tv'),
       season: seasonNumber,
       episode: episode.episodeNumber,
+    );
+  }
+}
+
+/// Shown in place of the Download button while this episode's file is being
+/// downloaded as part of a season pack. Mirrors the acquire button's own
+/// progress state so a pack and a single-episode fetch read the same.
+class _EpisodeDownloading extends StatelessWidget {
+  const _EpisodeDownloading({required this.progress});
+
+  /// 0.0–1.0 for this episode's file within the pack.
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return SizedBox(
+      width: 176,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: AppRadii.rSm,
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: AppColors.glassFill,
+              valueColor: const AlwaysStoppedAnimation(AppColors.secondary),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Downloading ${(progress * 100).round()}%',
+            style: text.labelMedium?.copyWith(color: AppColors.textSecondary),
+          ),
+        ],
+      ),
     );
   }
 }
