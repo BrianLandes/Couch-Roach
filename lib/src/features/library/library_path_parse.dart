@@ -129,8 +129,28 @@ ParsedMedia parseLibraryPath(String filePath) {
   );
 }
 
+/// A TMDB search query plus the release year that was stripped off it, when the
+/// source named one. The year sharpens the search (TMDB's `year=` filter), which
+/// is the whole reason it's carried separately rather than discarded — a bare
+/// "Dune" matches three films, "Dune" + 2021 matches one.
+typedef SearchCandidate = ({String query, int? year});
+
+/// [cleanShowName], plus the four-digit year it removed.
+///
+/// The query is byte-for-byte what [cleanShowName] returns, so nothing about the
+/// search text changes — the year is recovered from the tail that was trimmed,
+/// which keeps the two permanently in step.
+(String, int?) splitShowNameYear(String raw) {
+  final cleaned = cleanShowName(raw);
+  final spaced = _spaced(raw);
+  final tail = spaced.startsWith(cleaned) ? spaced.substring(cleaned.length) : '';
+  final match = RegExp(r'(?:19|20)\d{2}').firstMatch(tail);
+  return (cleaned, match == null ? null : int.tryParse(match.group(0)!));
+}
+
 /// Ordered TMDB search queries for [filePath], best-first: the parsed/stored
-/// [storedTitle], then the show/containing folder. Deduped; empties dropped.
+/// [storedTitle], then the show/containing folder. Deduped by query; empties
+/// dropped.
 ///
 /// The folder candidate exists to rescue a file whose *name* is a useless
 /// release string but whose folder names the show ("/tv/The Office/xyz.mkv").
@@ -139,19 +159,27 @@ ParsedMedia parseLibraryPath(String filePath) {
 /// ("/movies/Inception.mkv" would search for "movies"), so pass [rootPaths] and
 /// the folder candidate is skipped for those. Omitting [rootPaths] keeps the old
 /// behaviour, which is only safe when the caller knows the file is foldered.
-List<String> tmdbSearchCandidates(
+List<SearchCandidate> tmdbSearchCandidates(
   String filePath,
   String storedTitle, {
   Set<String> rootPaths = const {},
 }) {
-  final out = <String>[];
-  void add(String s) {
-    final c = cleanShowName(s);
-    if (c.isNotEmpty && !out.contains(c)) out.add(c);
+  final out = <SearchCandidate>[];
+  void add(String raw) {
+    final (query, year) = splitShowNameYear(raw);
+    if (query.isEmpty) return;
+    // Dedupe on the query alone: the same title from the filename and its folder
+    // is one search, and we keep the first (best-ranked) year seen for it.
+    if (out.any((c) => c.query == query)) return;
+    out.add((query: query, year: year));
   }
 
   add(storedTitle);
-  if (!isLooseInRoot(filePath, rootPaths)) add(showFolderName(filePath));
+  if (!isLooseInRoot(filePath, rootPaths)) {
+    // The folder was already year-stripped by showFolderName, so read the year
+    // off the raw basename instead of the cleaned one.
+    add(p.basename(showFolderPath(filePath)));
+  }
   return out;
 }
 

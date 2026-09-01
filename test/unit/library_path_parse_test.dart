@@ -91,14 +91,16 @@ void main() {
     test('stored title first, then the show folder, deduped', () {
       final c = tmdbSearchCandidates(
           '/movies/The Matrix (1999)/The.Matrix.1999.1080p.mkv', 'The Matrix');
-      expect(c, ['The Matrix']); // folder resolves to the same clean name
+      // Folder resolves to the same clean name, so it's one search — but the
+      // folder's "(1999)" survives as the year to sharpen it.
+      expect(c.map((e) => e.query), ['The Matrix']);
     });
 
     test('surfaces the clean folder name when the stored title is messy', () {
       final c = tmdbSearchCandidates(
           '/tv/The Office (US)/Season 3/tos.s03e04.HDTV.mkv', 'tos');
-      expect(c.first, 'tos');
-      expect(c, contains('The Office (US)'));
+      expect(c.first.query, 'tos');
+      expect(c.map((e) => e.query), contains('The Office (US)'));
     });
   });
 
@@ -171,14 +173,21 @@ void main() {
   });
 
   group('tmdbSearchCandidates', () {
+    /// Just the query text, for the cases where the year isn't what's under test.
+    List<String> queriesOf(String path, String title,
+            {Set<String> rootPaths = const {}}) =>
+        tmdbSearchCandidates(path, title, rootPaths: rootPaths)
+            .map((c) => c.query)
+            .toList();
+
     test('offers the stored title first, then the show folder', () {
       expect(
-        tmdbSearchCandidates('/tv/The Office/xyz.release.mkv', 'The Office'),
+        queriesOf('/tv/The Office/xyz.release.mkv', 'The Office'),
         ['The Office'],
       );
       // A useless filename is rescued by the folder that names the show.
       expect(
-        tmdbSearchCandidates('/tv/The Office/xyz.release.mkv', 'xyz release'),
+        queriesOf('/tv/The Office/xyz.release.mkv', 'xyz release'),
         ['xyz release', 'The Office'],
       );
     });
@@ -187,7 +196,7 @@ void main() {
     // "folder" is just the library root, so this searched TMDB for "movies".
     test('a file loose in a library root contributes no folder candidate', () {
       expect(
-        tmdbSearchCandidates('/movies/Inception.mkv', 'Inception',
+        queriesOf('/movies/Inception.mkv', 'Inception',
             rootPaths: {'/movies'}),
         ['Inception'],
       );
@@ -195,8 +204,8 @@ void main() {
 
     test('a file inside a folder under a root still offers the folder', () {
       expect(
-        tmdbSearchCandidates('/movies/Inception (2010)/Inception.mkv',
-            'raw.release', rootPaths: {'/movies'}),
+        queriesOf('/movies/Inception (2010)/Inception.mkv', 'raw.release',
+            rootPaths: {'/movies'}),
         // cleanShowName turns release-style dots into spaces.
         ['raw release', 'Inception'],
       );
@@ -204,25 +213,68 @@ void main() {
 
     test('an unrelated root does not suppress a real show folder', () {
       expect(
-        tmdbSearchCandidates('/tv/The Office/xyz.mkv', 'xyz',
-            rootPaths: {'/movies'}),
+        queriesOf('/tv/The Office/xyz.mkv', 'xyz', rootPaths: {'/movies'}),
         ['xyz', 'The Office'],
       );
     });
 
     test('a season folder is skipped in favour of the show folder', () {
       expect(
-        tmdbSearchCandidates(
-            '/tv/The Office/Season 2/xyz.mkv', 'xyz', rootPaths: {'/tv'}),
+        queriesOf('/tv/The Office/Season 2/xyz.mkv', 'xyz',
+            rootPaths: {'/tv'}),
         ['xyz', 'The Office'],
       );
     });
 
     test('duplicate candidates are collapsed', () {
       expect(
-        tmdbSearchCandidates('/tv/The Office/The Office.mkv', 'The Office'),
+        queriesOf('/tv/The Office/The Office.mkv', 'The Office'),
         ['The Office'],
       );
+    });
+
+    group('carries the year it strips, to sharpen the search', () {
+      // The point of the record: cleanShowName removes the year from the query
+      // text, so without carrying it separately TMDB never sees a `year=`
+      // filter and "Dune" stays ambiguous across three films.
+      test('a bare trailing year', () {
+        final c = tmdbSearchCandidates('/movies/Dune 2021.mkv', 'Dune 2021',
+            rootPaths: {'/movies'});
+        expect(c.single, (query: 'Dune', year: 2021));
+      });
+
+      test('a parenthesised year', () {
+        final c = tmdbSearchCandidates(
+            '/movies/Dune (2021).mkv', 'Dune (2021)', rootPaths: {'/movies'});
+        expect(c.single, (query: 'Dune', year: 2021));
+      });
+
+      test('no year named leaves it null rather than guessing', () {
+        final c = tmdbSearchCandidates('/movies/Dune.mkv', 'Dune',
+            rootPaths: {'/movies'});
+        expect(c.single, (query: 'Dune', year: null));
+      });
+
+      test('a year in the folder is picked up for the folder candidate', () {
+        final c = tmdbSearchCandidates(
+            '/movies/Blade Runner (1982)/raw.release.mkv', 'raw release',
+            rootPaths: {'/movies'});
+        expect(c, [
+          (query: 'raw release', year: null),
+          (query: 'Blade Runner', year: 1982),
+        ]);
+      });
+
+      // A number that isn't a plausible release year is part of the title.
+      test('a title that merely ends in digits keeps them', () {
+        expect(splitShowNameYear('Apollo 13'), ('Apollo 13', null));
+        expect(splitShowNameYear('Se7en'), ('Se7en', null));
+      });
+
+      test('a year-shaped title is not mistaken for a year', () {
+        // "2012" is the whole title, not a suffix to strip.
+        expect(splitShowNameYear('2012'), ('2012', null));
+      });
     });
   });
 

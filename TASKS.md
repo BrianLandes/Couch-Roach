@@ -20,6 +20,35 @@ drop the rest._
 
 _Aim for one task here at a time._
 
+### `_splitYear` in LibraryMatchService is dead for the common path · `p4`
+
+- [x] Took the "better" option: candidates now carry the year, so it actually sharpens the
+  search instead of being silently dropped.
+
+`_splitYear` tried to pull a trailing year off a candidate to send TMDB a `year=` filter,
+but `tmdbSearchCandidates` ran `cleanShowName` first, which had already stripped it — so
+`"Dune 2021"` arrived as `"Dune"` and the filter was never sent. Dead code with a real cost:
+a bare "Dune" is ambiguous across three films, and remakes couldn't be told from originals.
+
+- `tmdbSearchCandidates` now returns `List<SearchCandidate>` — a
+  `({String query, int? year})` record — instead of `List<String>`.
+- New `splitShowNameYear(raw)` returns `cleanShowName`'s output **unchanged** plus the year
+  it removed, recovered from the trimmed tail rather than re-parsed. That's deliberate: the
+  search text is byte-for-byte what it was, so this change can only *add* a filter, never
+  alter a query. Keeps the two permanently in step.
+- The folder candidate reads its year off the raw basename, since `showFolderName` had
+  already stripped it.
+- `_splitYear` deleted.
+- Dedupe is on the query alone (the same title from filename and folder is one search,
+  keeping the first year seen).
+
+Only one lib caller, so the blast radius was the tests. **No schema change.**
+
+Tests: the year-carrying cases (bare and parenthesised, folder-sourced, none-named) plus
+guards that a title merely *ending* in digits keeps them — `Apollo 13`, `Se7en`, and `2012`
+(a year-shaped title is the title, not a suffix). The old match-service test that pinned the
+broken behaviour now asserts `year=2021` **is** sent. 728 green.
+
 ### Title matching: a very short query false-matches anything · `p3`
 
 - [x] Fixed in two places — the length floor the task described, plus the root-name
@@ -120,17 +149,6 @@ Follow-up (not done): requires `ALEXA_INBOX_TOKEN` in `dart_define.json` before 
 ## To Do
 
 _Queued and ready to pick up._
-
-### `_splitYear` in LibraryMatchService is dead for the common path · `p4`
-
-- [ ] `LibraryMatchService._splitYear` pulls a trailing year off a candidate to pass
-  TMDB a `year=` filter — but `tmdbSearchCandidates` runs `cleanShowName` first,
-  which already strips the year. So `"Dune 2021"` arrives as `"Dune"` and the year
-  filter is never sent; the search is fuzzier than intended.
-- Either drop `_splitYear` as dead code, or (better) have `tmdbSearchCandidates`
-  carry the year alongside the cleaned title so it can actually sharpen the search.
-  Pinned by a test in `library_match_service_test.dart` that asserts today's
-  behaviour, so changing it will show up there.
 
 ### Player overlay still strands sometimes after a while · `p2`
 

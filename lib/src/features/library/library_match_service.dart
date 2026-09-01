@@ -76,9 +76,11 @@ class LibraryMatchService {
       }
       // Try each search query (the stored title, then the show/containing
       // folder) against the row's own type first, then the other type — so an
-      // unmarked episode that parsed as a "movie" still finds its show. A match
-      // is only taken when it actually validates against the query
-      // (pickBestMatchIndex), which stops a noisy query grabbing the wrong title.
+      // unmarked episode that parsed as a "movie" still finds its show. Each
+      // candidate carries the year stripped off it, which TMDB uses to
+      // disambiguate remakes. A match is only taken when it actually validates
+      // against the query (pickBestMatchIndex), which stops a noisy query
+      // grabbing the wrong title.
       // Root paths so a file loose in a library root doesn't get searched by
       // the root's own name ("/movies/Inception.mkv" → a query for "movies").
       final candidates = tmdbSearchCandidates(
@@ -103,9 +105,8 @@ class LibraryMatchService {
   /// Search TMDB TV for each [candidates] query and record the first confident
   /// match, correcting the row's `mediaType` to `tv` if it wasn't already.
   /// Returns true when it matched.
-  Future<bool> _tryTv(LibraryItem item, List<String> candidates) async {
-    for (final candidate in candidates) {
-      final (query, year) = _splitYear(candidate);
+  Future<bool> _tryTv(LibraryItem item, List<SearchCandidate> candidates) async {
+    for (final (:query, :year) in candidates) {
       final results = await _tmdb.searchTv(query, year: year);
       final idx =
           pickBestMatchIndex([for (final r in results) r.name], query);
@@ -125,9 +126,9 @@ class LibraryMatchService {
   }
 
   /// Movie counterpart of [_tryTv].
-  Future<bool> _tryMovie(LibraryItem item, List<String> candidates) async {
-    for (final candidate in candidates) {
-      final (query, year) = _splitYear(candidate);
+  Future<bool> _tryMovie(
+      LibraryItem item, List<SearchCandidate> candidates) async {
+    for (final (:query, :year) in candidates) {
       final results = await _tmdb.searchMovies(query, year: year);
       final idx =
           pickBestMatchIndex([for (final r in results) r.title], query);
@@ -146,16 +147,4 @@ class LibraryMatchService {
     return false;
   }
 
-  /// Splits a trailing 4-digit year off a title ("A Movie 2021" → "A Movie",
-  /// 2021) to sharpen the TMDB search. Returns the original title if none.
-  (String, int?) _splitYear(String title) {
-    final match = RegExp(r'\b(19|20)\d{2}\b').firstMatch(title);
-    if (match == null) return (title, null);
-    final year = int.tryParse(match.group(0)!);
-    final cleaned = title
-        .replaceRange(match.start, match.end, '')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    return (cleaned.isEmpty ? title : cleaned, year);
-  }
 }

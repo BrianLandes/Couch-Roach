@@ -328,28 +328,50 @@ void main() {
       expect((await library.getAll()).single.tmdbName, 'A!');
     });
 
-    // A trailing year is stripped so the title matches TMDB's canonical name.
-    // Note it's `cleanShowName` (inside tmdbSearchCandidates) that removes it,
-    // before LibraryMatchService's own _splitYear ever sees the candidate — so
-    // the year is dropped rather than forwarded to TMDB as a `year` filter.
-    test('a trailing year is stripped from the search query', () async {
+    // A trailing year is stripped from the query so the title matches TMDB's
+    // canonical name — and is now forwarded as a `year=` filter rather than
+    // discarded, which is what disambiguates a remake from its original.
+    test('a trailing year sharpens the search instead of being thrown away',
+        () async {
       await seed(const ScannedFile(
           filePath: '/movies/Dune (2021)/Dune 2021.mkv',
           title: 'Dune 2021',
           mediaType: 'movie'));
 
       final calls = <Uri>[];
-      await serviceFor(tmdbRouter(
-        movies: [
-          {'id': 438631, 'title': 'Dune', 'poster_path': '/d.jpg'},
-        ],
-        log: calls,
-      )).matchUnmatched();
+      await serviceFor(
+        tmdbRouter(
+          movies: [
+            {'id': 438631, 'title': 'Dune', 'poster_path': '/d.jpg'},
+          ],
+          log: calls,
+        ),
+        roots: {'/movies'},
+      ).matchUnmatched();
 
       final search = calls.firstWhere((u) => u.path.endsWith('/search/movie'));
       expect(search.queryParameters['query'], 'Dune');
-      expect(search.queryParameters['year'], isNull);
+      expect(search.queryParameters['year'], '2021');
       expect((await library.getAll()).single.tmdbId, 438631);
+    });
+
+    test('no year named means no year filter', () async {
+      await seed(const ScannedFile(
+          filePath: '/movies/Dune.mkv', title: 'Dune', mediaType: 'movie'));
+
+      final calls = <Uri>[];
+      await serviceFor(
+        tmdbRouter(
+          movies: [
+            {'id': 438631, 'title': 'Dune', 'poster_path': '/d.jpg'},
+          ],
+          log: calls,
+        ),
+        roots: {'/movies'},
+      ).matchUnmatched();
+
+      final search = calls.firstWhere((u) => u.path.endsWith('/search/movie'));
+      expect(search.queryParameters['year'], isNull);
     });
 
     test('a TMDB failure is swallowed so the scan pass continues', () async {
