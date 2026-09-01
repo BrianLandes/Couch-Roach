@@ -214,8 +214,14 @@ acquisition searches the canonical title.
 Tests: `hydrate_tile_test.dart` (9 pure) + `movie_detail_screen_test.dart` (5 widget,
 including the sparse-Alexa-tile regression).
 
-Follow-up not done: the TV path is verified by reading the code, not by a test — a saved
-Alexa **show** opening `ShowDetailScreen` and hydrating has no widget test covering it.
+TV path closed too: `show_detail_screen_test.dart` (4 widget) pins that the screen hydrates
+its whole profile from just `(tmdbId, name)` — there's no sparse tile to merge on this side,
+it's hydration by construction — plus the header staying usable during the fetch and both
+degraded states (TMDB error → local-only fallback, TMDB miss → "Not found"). Guards against a
+refactor quietly starting to render off the sparse route args.
+
+Coverage landed: `discover_tile` 100%, `movie_detail_screen` 0% → 84.4%,
+`show_detail_screen` 67.4% → 69.6%. Suite 694 green, 51.2% overall.
 
 ### Logging overhaul: verbose gate, split error log, per-launch rotation · `p3`
 
