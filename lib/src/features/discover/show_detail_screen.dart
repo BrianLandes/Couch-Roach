@@ -913,18 +913,10 @@ class _UnreleasedBadge extends StatelessWidget {
   const _UnreleasedBadge({this.airDate});
   final DateTime? airDate;
 
-  static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final date = airDate;
-    final label = date == null
-        ? 'Not yet released'
-        : 'Airs ${_months[date.month - 1]} ${date.day}, ${date.year}';
+    final label = airDateLabel(airDate);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

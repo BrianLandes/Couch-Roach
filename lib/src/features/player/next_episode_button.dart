@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/db/database.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../../theme/theme.dart';
+import '../discover/new_episodes.dart';
 import '../downloads/downloads_providers.dart';
 
 /// The single "Next Episode" control for a TV episode. Shown bottom-right,
@@ -13,6 +14,7 @@ import '../downloads/downloads_providers.dart';
 ///   - downloading → progress + **Play Next when Ready** (opens the preparing
 ///     dialog, which reattaches to the download and plays when buffered)
 ///   - not fetched yet → **Download Next Episode** (starts a background fetch)
+///   - not fetched and not yet aired → disabled, showing when it airs
 ///
 /// It watches [downloadForTagProvider] for both the episode's own tag and a
 /// season-pack tag (an episode can be served from a whole-season download), so a
@@ -27,6 +29,7 @@ class NextEpisodeButton extends ConsumerWidget {
     required this.episode,
     required this.localItem,
     required this.downloadRequested,
+    this.airDate,
     required this.onPlayLocal,
     required this.onPlayWhenReady,
     required this.onDownload,
@@ -39,6 +42,13 @@ class NextEpisodeButton extends ConsumerWidget {
 
   /// The next episode's library row when it's already downloaded, else null.
   final LibraryItem? localItem;
+
+  /// The next episode's TMDB air date, when known. An episode that hasn't aired
+  /// has no release to fetch, so the download action is disabled and replaced by
+  /// when it's due — a dead Download button that always fails is worse than
+  /// saying why. Null means TMDB didn't date it *or* wasn't asked; the download
+  /// path stays enabled and [prefetchEpisode] makes the authoritative call.
+  final DateTime? airDate;
 
   /// Optimistic flag: the user tapped Download and the daemon hasn't reported
   /// the new task yet — bridges the gap to the first live poll.
@@ -99,7 +109,16 @@ class NextEpisodeButton extends ConsumerWidget {
       );
     }
 
-    // 3) Not fetched yet → start a background download.
+    // 3) Aired but not fetched → start a background download. An unaired
+    //    episode instead reports when it's due; only a date we actually have,
+    //    in the future, disables the button.
+    if (airDate != null && !isAired(airDate, DateTime.now())) {
+      return _NextEpisodePill(
+        icon: Icons.schedule_rounded,
+        label: airDateLabel(airDate),
+        onPressed: null,
+      );
+    }
     return _NextEpisodePill(
       icon: Icons.download_rounded,
       label: 'Download Next Episode',

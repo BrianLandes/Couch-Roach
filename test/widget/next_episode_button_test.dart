@@ -48,6 +48,7 @@ void main() {
   NextEpisodeButton button({
     LibraryItem? localItem,
     bool downloadRequested = false,
+    DateTime? airDate,
   }) {
     return NextEpisodeButton(
       showName: showName,
@@ -56,6 +57,7 @@ void main() {
       episode: episode,
       localItem: localItem,
       downloadRequested: downloadRequested,
+      airDate: airDate,
       onPlayLocal: (_) {},
       onPlayWhenReady: () {},
       onDownload: () {},
@@ -136,5 +138,78 @@ void main() {
     expect(find.text('Play Next Episode'), findsOneWidget);
     expect(find.textContaining('%'), findsNothing);
     expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  group('an episode that has not aired', () {
+    // A Download button for a release that doesn't exist can only fail; saying
+    // when it's due is the useful answer.
+    testWidgets('is disabled and shows when it airs', (tester) async {
+      await tester.pumpWidget(
+          host(button(airDate: DateTime(2099, 3, 4))));
+      await tester.pump();
+
+      expect(find.text('Download Next Episode'), findsNothing);
+      expect(find.text('Airs Mar 4, 2099'), findsOneWidget);
+      expect(
+        tester.widget<OutlinedButton>(find.byType(OutlinedButton)).onPressed,
+        isNull,
+      );
+    });
+
+    testWidgets('an already-aired date leaves the download available',
+        (tester) async {
+      await tester.pumpWidget(
+          host(button(airDate: DateTime(2020, 1, 1))));
+      await tester.pump();
+
+      expect(find.text('Download Next Episode'), findsOneWidget);
+      expect(
+        tester.widget<OutlinedButton>(find.byType(OutlinedButton)).onPressed,
+        isNotNull,
+      );
+    });
+
+    // Null means TMDB didn't date it or wasn't asked. Blocking on that would
+    // break downloads for every poorly-dated show; prefetchEpisode makes the
+    // authoritative call.
+    testWidgets('an unknown date does not disable the download',
+        (tester) async {
+      await tester.pumpWidget(host(button(airDate: null)));
+      await tester.pump();
+      expect(find.text('Download Next Episode'), findsOneWidget);
+    });
+
+    // The unaired state only replaces the *download* action. An episode already
+    // in hand plays regardless of what TMDB claims about its date.
+    testWidgets('a downloaded episode still plays despite a future date',
+        (tester) async {
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final library = DriftLibraryRepository(db);
+      await library.upsert(const ScannedFile(
+          filePath: '/tv/s1e3.mkv', title: 'S01E03', mediaType: 'tv'));
+      final item = await library.findByPath('/tv/s1e3.mkv');
+
+      await tester.pumpWidget(host(
+          button(localItem: item, airDate: DateTime(2099, 3, 4))));
+      await tester.pump();
+
+      expect(find.text('Play Next Episode'), findsOneWidget);
+      expect(find.textContaining('Airs'), findsNothing);
+    });
+
+    testWidgets('a download already in flight beats a future date',
+        (tester) async {
+      final nextTag = acquisitionTag(acquisitionDedupeKey(
+          tmdbId: tmdbId, title: showName, season: season, episode: episode));
+      await tester.pumpWidget(host(
+        button(airDate: DateTime(2099, 3, 4)),
+        torrents: [statusFor(tag: nextTag, progress: 0.5)],
+      ));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Play Next when Ready · 50%'), findsOneWidget);
+    });
   });
 }

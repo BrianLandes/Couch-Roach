@@ -64,4 +64,18 @@ void main() {
       expect(check([d('2026-06-10')]), isTrue);
     });
   });
+
+  group('airDateLabel', () {
+    test('names the date when TMDB has one', () {
+      expect(airDateLabel(DateTime(2026, 3, 4)), 'Airs Mar 4, 2026');
+      expect(airDateLabel(DateTime(2026, 12, 31)), 'Airs Dec 31, 2026');
+      expect(airDateLabel(DateTime(2026, 1, 1)), 'Airs Jan 1, 2026');
+    });
+
+    // An undated episode is real but unscheduled — "Not yet released" is the
+    // honest answer, not a fabricated date.
+    test('says so plainly when there is no date', () {
+      expect(airDateLabel(null), 'Not yet released');
+    });
+  });
 }

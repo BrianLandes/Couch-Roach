@@ -390,6 +390,16 @@ Future<void> prefetchEpisode({
   required int episode,
 }) async {
   final log = getIt<ErrorLogService>();
+  // Nothing to fetch for an episode that hasn't aired: no release exists, so the
+  // resolver round-trip is wasted at best and latches onto a mislabelled fake at
+  // worst. Guarded here rather than at the call sites because both the manual
+  // "Download Next Episode" button and the automatic halfway-mark prefetch come
+  // through this one function.
+  if (!await episodeHasAired(tmdbId, season, episode)) {
+    log.info('prefetch skipped: S${season}E$episode of "$showName" has not aired',
+        source: 'AcquirePrefetch');
+    return;
+  }
   if (getIt<SettingsService>().requireVpn) {
     final state = await getIt<VpnService>().ensureConnected();
     if (!state.isConnected) {
@@ -439,6 +449,36 @@ Future<void> prefetchEpisode({
   await daemon.add(handle, savePath: savePath, dedupeKey: addKey);
   log.info('prefetching next episode S${season}E$episode of "$showName"',
       source: 'AcquirePrefetch');
+}
+
+/// The TMDB air date of one episode, or null when TMDB doesn't list it.
+Future<DateTime?> episodeAirDate(int tmdbId, int season, int episode) async {
+  final details = await getIt<DiscoveryClient>().seasonDetails(tmdbId, season);
+  for (final e in details?.episodes ?? const []) {
+    if (e.episodeNumber == episode) {
+      return e.airDate == null ? null : DateTime.tryParse(e.airDate!);
+    }
+  }
+  return null;
+}
+
+/// Whether an episode has aired. **An episode TMDB doesn't list at all counts as
+/// aired** — the lookup failing (offline, rate-limited, a show TMDB dates
+/// poorly) must not block a download the user asked for. Only a date TMDB
+/// actually gives us, in the future, blocks it.
+Future<bool> episodeHasAired(int tmdbId, int season, int episode) async {
+  try {
+    final details = await getIt<DiscoveryClient>().seasonDetails(tmdbId, season);
+    final listed = (details?.episodes ?? const [])
+        .where((e) => e.episodeNumber == episode);
+    if (listed.isEmpty) return true; // unknown → don't stand in the way
+    final raw = listed.first.airDate;
+    if (raw == null) return false; // listed but undated → not out yet
+    final parsed = DateTime.tryParse(raw);
+    return parsed == null || isAired(parsed, DateTime.now());
+  } catch (_) {
+    return true; // a failed lookup must never block the user
+  }
 }
 
 /// Whether a whole-season pack is worth looking for, given a season's [episodes]:

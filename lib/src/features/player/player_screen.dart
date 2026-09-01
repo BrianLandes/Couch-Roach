@@ -168,6 +168,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   (int, int)? _nextEpisode;
   String? _nextShowName;
   int? _nextTmdbId;
+  // The next episode's air date, when TMDB lists one — drives the button's
+  // "Airs <date>" state instead of a Download that can't succeed.
+  DateTime? _nextAirDate;
   LibraryItem? _nextLocalItem;
   bool _nextDownloadRequested = false;
   // Guards the on-completion auto-advance so it fires at most once per player.
@@ -943,12 +946,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
           break;
         }
       }
+      // Only worth asking when it isn't already on disk — a downloaded episode
+      // has plainly aired.
+      final airDate = localNext != null
+          ? null
+          : await episodeAirDate(tmdbId, nextSeason, nextEp);
       if (!mounted) return;
       setState(() {
         _nextEpisode = next;
         _nextShowName = item.tmdbName ?? item.title;
         _nextTmdbId = tmdbId;
         _nextLocalItem = localNext;
+        _nextAirDate = airDate;
       });
     } catch (e, st) {
       getIt<ErrorLogService>()
@@ -1878,6 +1887,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     episode: _nextEpisode!.$2,
                     localItem: _nextLocalItem,
                     downloadRequested: _nextDownloadRequested,
+                    airDate: _nextAirDate,
                     onPlayLocal: _openEpisode,
                     onPlayWhenReady: _playNextWhenReady,
                     onDownload: _downloadNextEpisode,

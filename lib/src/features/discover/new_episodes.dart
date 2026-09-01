@@ -7,6 +7,16 @@
 bool isAired(DateTime? airDate, DateTime now) =>
     airDate != null && !airDate.isAfter(now);
 
+const _months = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// The label for something that hasn't aired yet — "Airs Mar 4, 2026", or
+/// "Not yet released" when TMDB hasn't dated it. Shared by the show detail
+/// page's episode rows and the player's Next Episode button so an unreleased
+/// episode reads the same wherever it turns up. Pure + tested.
+
 /// Whether a watched show belongs on the "New Episodes" rail, given the air
 /// dates of every episode *ranked above* the user's furthest-finished episode
 /// ([higherRankedAirDates] — later episodes of that season plus later seasons),
@@ -39,4 +49,10 @@ bool hasNewEpisodeSinceCaughtUp({
     }
   }
   return caughtUpWhenWatched && newSince;
+}
+
+String airDateLabel(DateTime? airDate) {
+  final d = airDate;
+  if (d == null) return 'Not yet released';
+  return 'Airs ${_months[d.month - 1]} ${d.day}, ${d.year}';
 }

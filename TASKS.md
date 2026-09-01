@@ -20,6 +20,38 @@ drop the rest._
 
 _Aim for one task here at a time._
 
+### Disable "Download next" when the next episode hasn't aired · `p4`
+
+- [x] The player's Next Episode button now reports when an unaired episode is due instead of
+  offering a Download that can only fail — and the automatic prefetch stops trying too.
+
+**The task's half.** `NextEpisodeButton` takes an `airDate`; in its not-yet-fetched state an
+unaired episode renders a disabled pill reading "Airs Mar 4, 2026" (or "Not yet released"
+when TMDB has no date). Only the *download* action is replaced — an episode already on disk
+or mid-download still plays, whatever TMDB claims about its date. `player_screen` resolves
+the date in `_resolveNextEpisode`, and skips the lookup when the episode is already local.
+
+**The half that wasn't in the task.** `prefetchEpisode` had no aired guard either, so the
+halfway-mark auto-prefetch would try to fetch an unaired episode — a wasted resolver
+round-trip at best, latching onto a mislabelled fake at worst. Both the button and the
+prefetch funnel through that one function, so the guard went there: one place, impossible to
+bypass.
+
+**Fails open, deliberately.** `episodeHasAired` treats an episode TMDB doesn't list, a season
+it has no details for, a throwing lookup, and an unparseable date as *aired*. The guard exists
+to avoid pointless fetches, not to become a new way for downloads to fail on a poorly-dated
+show or an offline TMDB. Only a date TMDB actually gives us, in the future, blocks anything.
+Same reasoning in the button: a null `airDate` leaves Download enabled and lets
+`prefetchEpisode` make the authoritative call.
+
+Also extracted `airDateLabel` into `new_episodes.dart` next to `isAired` and pointed the show
+detail page's `_UnreleasedBadge` at it, so an unreleased episode reads identically in both
+places instead of via a second copy of the month table.
+
+**No schema change.** Tests: 5 button states (unaired disabled, aired enabled, unknown-date
+enabled, and downloaded / downloading both beating a future date), 7 on `episodeHasAired`
+covering every fail-open route, `episodeAirDate`, and `airDateLabel`. 743 green.
+
 ### `_splitYear` in LibraryMatchService is dead for the common path · `p4`
 
 - [x] Took the "better" option: candidates now carry the year, so it actually sharpens the
@@ -181,10 +213,6 @@ _Queued and ready to pick up._
 
 - [ ] Playing trailers / YouTube videos fails now — was working before, unclear when it broke; no error captured yet, but nearly everything tried recently fails.
 - First step: reproduce and **capture the actual error** (ErrorLogService log + the player/network error). Likely causes to check: the YouTube extraction path (an `explode`/yt-dlp-style resolver whose API/endpoints drifted — YouTube changes break these often), a changed trailer URL/key from TMDB (`videos` endpoint → YouTube key), or the embed/stream handoff to mpv. Confirm where in the chain it dies (no trailer key? extraction fails? mpv can't open the resolved URL?) before fixing. [windows]
-
-### Disable "Download next" when the next episode hasn't aired · `p4`
-
-- [ ] The Download-next button should know whether the next episode has aired, and be disabled with a message if it hasn't aired yet.
 
 ---
 
