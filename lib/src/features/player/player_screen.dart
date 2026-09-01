@@ -34,6 +34,10 @@ import '../acquire/acquire_play.dart';
 import '../cast/cast_dialog.dart';
 import 'audio_selection.dart';
 import 'next_episode.dart';
+import 'player_controls_visibility.dart';
+import 'player_input.dart';
+import 'player_progress.dart';
+import 'player_sources.dart';
 import 'next_episode_button.dart';
 import 'player_title.dart';
 import 'subtitle_label.dart';
@@ -84,7 +88,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // True when the source is a network URL (a YouTube trailer resolved through
   // yt-dlp), as opposed to a local library file. Gates the ytdl_hook wiring and
   // verbose mpv logging below.
-  late final bool _isNetworkSource = _isNetworkUrl(widget.filePath);
+  late final bool _isNetworkSource = isNetworkUrl(widget.filePath);
 
   late final Player _player = Player(
     configuration: PlayerConfiguration(
@@ -178,15 +182,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // in and out together with them: any pointer activity reveals it, and 3s of
   // stillness hides it — matching the controls' default `controlsHoverDuration`
   // (3s) and `controlsTransitionDuration` (150ms) so the two move in lockstep.
-  bool _controlsVisible = false;
+  final _controls = ControlsVisibility();
   Timer? _controlsHideTimer;
-  static const _controlsHideDelay = Duration(seconds: 3);
-  static const _controlsFade = Duration(milliseconds: 150);
   // Mirrors mpv's play state. While paused/ended we keep the overlay up (as
   // media_kit does with its own controls) instead of idle-hiding it — otherwise
   // the back/next buttons vanish at the end of a show and a remote (which emits
   // key events, not pointer moves) has no way to bring them back.
-  bool _isPlaying = true;
+
 
   bool get _isTvEpisode =>
       _currentItem?.mediaType == 'tv' &&
@@ -242,16 +244,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (mounted && (event is KeyDownEvent || event is KeyRepeatEvent)) {
       _revealControls();
     }
-    if (Platform.isWindows && _isMediaPlayPauseKey(event.logicalKey)) {
-      return true;
-    }
-    return false;
+    return shouldSwallowKey(event.logicalKey,
+        hasMediaSession: Platform.isWindows);
   }
-
-  static bool _isMediaPlayPauseKey(LogicalKeyboardKey key) =>
-      key == LogicalKeyboardKey.mediaPlayPause ||
-      key == LogicalKeyboardKey.mediaPlay ||
-      key == LogicalKeyboardKey.mediaPause;
 
   /// An OS media button (from the hardware key or the Windows media flyout),
   /// routed through the SMTC session. Reveals the controls and applies the
@@ -279,16 +274,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
         // A saved manual subtitle choice that isn't a sidecar (an embedded track
         // or "off") must win over the auto-English fetch — suppress it. A sidecar
         // choice is restored by letting the auto path reload the same .en.srt.
-        final subPref = item?.preferredSubtitleTrackId;
         _suppressAutoSubtitleSelect =
-            subPref == 'no' || (subPref != null && !_isSidecarSubId(subPref));
+            suppressesAutoSubtitles(item?.preferredSubtitleTrackId);
         // Compose the fullest title from the row now (show + SxxExx, or a clean
         // movie name); the episode name is added later by _loadCreditsMeta.
         _refreshDisplayTitle();
         if (start == Duration.zero) {
           final history = await _history.forItem(id);
-          if (history != null && history.resumePositionSec > 0) {
-            start = Duration(seconds: history.resumePositionSec);
+          start = resolveStartPosition(
+            requested: start,
+            savedResumeSec: history?.resumePositionSec,
+          );
+          if (start > Duration.zero) {
             getIt<ErrorLogService>().info(
               'Resuming "${widget.title}" at ${start.inSeconds}s',
               source: 'PlayerScreen',
@@ -389,11 +386,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           .logError(e, stackTrace: st, source: 'PlayerScreen.open');
       if (mounted) setState(() => _error = '$e');
     }
-  }
-
-  static bool _isNetworkUrl(String path) {
-    final uri = Uri.tryParse(path);
-    return uri != null && (uri.isScheme('http') || uri.isScheme('https'));
   }
 
   /// mpv properties describing what the decoder actually ended up doing.
@@ -742,7 +734,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Throttle saves to roughly every 5s of progress so we don't hammer the DB.
     final id = widget.libraryItemId;
     if (id == null || _pendingSeek != null) return;
-    if ((pos.inSeconds - _lastSavedSec).abs() < 5) return;
+    if (!shouldSaveProgress(
+      positionSec: pos.inSeconds,
+      lastSavedSec: _lastSavedSec,
+    )) {
+      return;
+    }
     _lastSavedSec = pos.inSeconds;
     _history.record(
       libraryItemId: id,
@@ -756,8 +753,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (_prefetchedNext) return;
     final item = _currentItem;
     final dur = _player.state.duration;
-    if (item == null || dur <= Duration.zero) return;
-    if (pos.inSeconds < dur.inSeconds * 0.5) return;
+    if (item == null) return;
+    if (!shouldPrefetchNext(position: pos, duration: dur)) return;
     _prefetchedNext = true;
     unawaited(_prefetchNext(item));
   }
@@ -1126,7 +1123,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (_player.state.track.subtitle.id != 'no') {
           _player.setSubtitleTrack(SubtitleTrack.no());
         }
-      } else if (!_isSidecarSubId(subPref)) {
+      } else if (!isSidecarSubtitleId(subPref)) {
         final matches = tracks.subtitle.where((t) => t.id == subPref);
         if (matches.isNotEmpty) {
           _subtitleRestored = true;
@@ -1143,15 +1140,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// keys a `SubtitleTrack.uri`) rather than an embedded stream (a small
   /// integer). Sidecar paths are deterministic, so the id is stable across
   /// sessions, but the sidecar only exists once the auto path reloads it.
-  bool _isSidecarSubId(String id) =>
-      id.endsWith('.srt') ||
-      id.endsWith('.vtt') ||
-      id.contains('/') ||
-      id.contains(r'\');
-
   // Only real, selectable tracks — skip the synthetic "auto"/"no" entries.
   List<AudioTrack> _selectableAudio(List<AudioTrack> audio) => audio
-      .where((t) => t.id != 'auto' && t.id != 'no')
+      .where((t) => isSelectableTrackId(t.id))
       .toList(growable: false);
 
   AudioTrackInfo _audioInfo(AudioTrack t) => AudioTrackInfo(
@@ -1163,26 +1154,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   /// A readable label for an audio track in the picker — its title or language,
   /// plus the channel layout ("English · 5.1", "Português · Stereo", "Track 2").
-  String _audioLabel(AudioTrack t) {
-    final title = t.title?.trim();
-    final lang = t.language?.trim();
-    final bits = <String>[];
-    if (title != null && title.isNotEmpty) {
-      bits.add(title);
-      if (lang != null &&
-          lang.isNotEmpty &&
-          !title.toLowerCase().contains(lang.toLowerCase())) {
-        bits.add('(${lang.toUpperCase()})');
-      }
-    } else if (lang != null && lang.isNotEmpty) {
-      bits.add(lang.toUpperCase());
-    } else {
-      bits.add('Track ${t.id}');
-    }
-    final ch = channelLayoutLabel(_channelCount(t));
-    if (ch != null) bits.add('· $ch');
-    return bits.join(' ');
-  }
+  String _audioLabel(AudioTrack t) => audioTrackLabel(
+        id: t.id,
+        title: t.title,
+        language: t.language,
+        channels: _channelCount(t),
+      );
 
   /// Entries for the right-click "Audio" submenu: every selectable track, the
   /// active one check-marked.
@@ -1287,11 +1264,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // libmpv exposes the channel count on either field depending on the container;
   // take whichever is larger, defaulting to 0 (unknown) so it never wins a tie.
-  int _channelCount(AudioTrack t) {
-    final a = t.channelscount ?? 0;
-    final b = t.audiochannels ?? 0;
-    return a > b ? a : b;
-  }
+  int _channelCount(AudioTrack t) => audioChannelCount(
+        channelsCount: t.channelscount,
+        audioChannels: t.audiochannels,
+      );
 
   void _markCompleted() {
     final id = widget.libraryItemId;
@@ -1312,7 +1288,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (id == null) return;
     final pos = _player.state.position;
     final dur = _player.state.duration;
-    final nearEnd = dur.inSeconds > 0 && pos.inSeconds >= dur.inSeconds * 0.95;
+    final nearEnd = isWatched(position: pos, duration: dur);
     _history.record(
       libraryItemId: id,
       position: pos,
@@ -1363,32 +1339,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// (back button + Next Episode) and restarts the idle countdown that hides it,
   /// mirroring the media_kit controls. The idle-hide only arms while playing;
   /// paused/ended keeps it up so it can't get stranded off-screen.
-  void _revealControls() {
-    _controlsHideTimer?.cancel();
-    if (_isPlaying) {
-      _controlsHideTimer = Timer(_controlsHideDelay, _hideControls);
-    }
-    if (!_controlsVisible) setState(() => _controlsVisible = true);
-  }
+  void _revealControls() => _applyControls(_controls.onActivity);
 
-  void _hideControls() {
-    if (mounted && _controlsVisible) setState(() => _controlsVisible = false);
+  void _hideControls() => _applyControls(_controls.onIdleElapsed);
+
+  /// Feed one event to [ControlsVisibility] and apply its verdict: reset the
+  /// idle timer as instructed, and repaint only if the overlay's visibility
+  /// actually moved. The policy owns the rules and the state; this owns the
+  /// Timer and the setState.
+  void _applyControls(IdleHide Function() event) {
+    final wasVisible = _controls.visible;
+    final timer = event();
+    _controlsHideTimer?.cancel();
+    if (timer == IdleHide.restart) {
+      _controlsHideTimer = Timer(ControlsVisibility.hideDelay, _hideControls);
+    }
+    if (mounted && _controls.visible != wasVisible) setState(() {});
   }
 
   /// React to play/pause: while paused or ended keep the overlay up (and cancel
   /// any pending hide) so the back/next buttons stay reachable; on resume, fall
   /// back to the normal reveal-then-idle-hide behavior.
   void _onPlayingChanged(bool playing) {
-    _isPlaying = playing;
     // Keep the OS media session's status in step so its play/pause button and
     // status readout match the player (Windows; no-op elsewhere).
     unawaited(_mediaSession.setPlaying(playing));
-    if (!playing) {
-      _controlsHideTimer?.cancel();
-      if (mounted && !_controlsVisible) setState(() => _controlsVisible = true);
-    } else {
-      _revealControls();
-    }
+    _applyControls(() => _controls.onPlayingChanged(playing));
   }
 
   /// Toggle OS-window fullscreen via window_manager — the same path as the F11
@@ -1814,10 +1790,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
               left: 0,
               right: 0,
               child: IgnorePointer(
-                ignoring: !_controlsVisible,
+                ignoring: !_controls.visible,
                 child: AnimatedOpacity(
-                  opacity: _controlsVisible ? 1.0 : 0.0,
-                  duration: _controlsFade,
+                  opacity: _controls.visible ? 1.0 : 0.0,
+                  duration: ControlsVisibility.fade,
                   child: DecoratedBox(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
@@ -1891,10 +1867,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
               right: AppSpacing.xl,
               bottom: AppSpacing.xxl + AppSpacing.xl,
               child: IgnorePointer(
-                ignoring: !_controlsVisible,
+                ignoring: !_controls.visible,
                 child: AnimatedOpacity(
-                  opacity: _controlsVisible ? 1.0 : 0.0,
-                  duration: _controlsFade,
+                  opacity: _controls.visible ? 1.0 : 0.0,
+                  duration: ControlsVisibility.fade,
                   child: NextEpisodeButton(
                     showName: _nextShowName!,
                     tmdbId: _nextTmdbId!,

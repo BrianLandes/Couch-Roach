@@ -89,3 +89,48 @@ String? channelLayoutLabel(int channels) => switch (channels) {
       8 => '7.1',
       _ => '${channels}ch',
     };
+
+/// The channel count for a track, given the two fields libmpv can report it in.
+/// They don't always agree (and either can be absent), so take the wider — a
+/// track that reports 6 in one field and 0 in the other is 5.1, not unknown.
+int audioChannelCount({int? channelsCount, int? audioChannels}) {
+  final a = channelsCount ?? 0;
+  final b = audioChannels ?? 0;
+  return a > b ? a : b;
+}
+
+/// A readable label for an audio track in the right-click picker — its title or
+/// language, plus the channel layout ("English (ENG) · 5.1", "PT · Stereo",
+/// "Track 2"). Pure; the widget passes the raw libmpv fields straight through.
+///
+/// The language is only appended when the title doesn't already say it, so a
+/// track titled "English 5.1" doesn't come out as "English 5.1 (ENG)".
+String audioTrackLabel({
+  required String id,
+  String? title,
+  String? language,
+  int channels = 0,
+}) {
+  final t = title?.trim();
+  final lang = language?.trim();
+  final bits = <String>[];
+  if (t != null && t.isNotEmpty) {
+    bits.add(t);
+    if (lang != null &&
+        lang.isNotEmpty &&
+        !t.toLowerCase().contains(lang.toLowerCase())) {
+      bits.add('(${lang.toUpperCase()})');
+    }
+  } else if (lang != null && lang.isNotEmpty) {
+    bits.add(lang.toUpperCase());
+  } else {
+    bits.add('Track $id');
+  }
+  final ch = channelLayoutLabel(channels);
+  if (ch != null) bits.add('· $ch');
+  return bits.join(' ');
+}
+
+/// Whether an audio track id is a real, selectable track rather than one of
+/// libmpv's synthetic "auto"/"no" entries, which must never appear in the menu.
+bool isSelectableTrackId(String id) => id != 'auto' && id != 'no';

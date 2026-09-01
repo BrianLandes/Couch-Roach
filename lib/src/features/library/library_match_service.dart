@@ -13,14 +13,15 @@ import 'library_path_parse.dart';
 /// misses simply stay null and get retried on the next pass.
 @LazySingleton()
 class LibraryMatchService {
-  LibraryMatchService(this._library, this._tmdb, this._log);
+  LibraryMatchService(this._library, this._tmdb, this._log, this._config);
 
   final LibraryRepository _library;
   final DiscoveryClient _tmdb;
   final ErrorLogService _log;
+  final AppConfig _config;
 
   Future<void> matchUnmatched() async {
-    if (!const AppConfig().hasTmdbKey) return;
+    if (!_config.hasTmdbKey) return;
     for (final item in await _library.unmatched()) {
       await _matchRow(item);
     }
@@ -34,7 +35,7 @@ class LibraryMatchService {
   /// poster). An acquire stamps the id up front but leaves the poster null, so
   /// this still runs to back-fill the art.
   Future<void> matchItem(int id) async {
-    if (!const AppConfig().hasTmdbKey) return;
+    if (!_config.hasTmdbKey) return;
     final item = await _library.findById(id);
     if (item == null) return;
     if (item.tmdbId != null && item.tmdbPosterPath != null) return;

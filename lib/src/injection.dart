@@ -2,6 +2,7 @@ import 'package:get_it/get_it.dart';
 import 'package:http/http.dart' as http;
 import 'package:injectable/injectable.dart';
 
+import 'core/config/app_config.dart';
 import 'core/logging/error_log_service.dart';
 import 'core/storage/storage_manager.dart';
 import 'data/db/database.dart';
@@ -23,6 +24,12 @@ void configureDependencies() => getIt.init();
 abstract class RegisterModule {
   @lazySingleton
   AppDatabase get database => AppDatabase();
+
+  /// Build-time configuration (API keys, endpoints). Injected rather than
+  /// constructed inline so a test can substitute a fake and reach the code
+  /// paths gated behind a `--dart-define` key.
+  @lazySingleton
+  AppConfig get appConfig => const AppConfig();
 
   /// Shared HTTP client for the API clients (TMDB, later OpenSubtitles).
   @lazySingleton

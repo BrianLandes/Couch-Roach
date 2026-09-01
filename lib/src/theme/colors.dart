@@ -46,6 +46,15 @@ abstract final class AppColors {
   static const glassHighlight = Color(0x59FFFFFF); // top-edge sheen
   static const scrim = Color(0x9905060A); // darken behind foreground
 
+  // ── Poster scrim (bottom fade that keeps title text legible on artwork) ───
+  // Alpha ramps over [bg], so the gradient darkens without shifting hue. Use
+  // via [PosterScrim] rather than hand-rolling the gradient.
+  static const posterScrimClear = Color(0x0005060A);
+  static const posterScrim = Color(0xCC05060A);
+  /// Heavier ramp for wide, text-dense cards (Continue Watching) where the
+  /// overlay carries a title, subtitle and progress bar.
+  static const posterScrimStrong = Color(0xDD05060A);
+
   // ── Focus (10-foot / remote) ──────────────────────────────────────────────
   /// Bright ring drawn around the focused element; pair with [focusGlow].
   static const focus = secondary;

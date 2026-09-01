@@ -12,7 +12,7 @@ import '../../injection.dart';
 import '../../router/app_router.dart';
 import '../../theme/theme.dart';
 import '../../widgets/detail_scaffold.dart';
-import '../../widgets/resume_button.dart';
+import 'resume_button.dart';
 import '../../widgets/poster_art.dart';
 import '../../services/acquisition/acquisition.dart';
 import '../library/delete_actions.dart';

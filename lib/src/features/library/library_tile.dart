@@ -94,16 +94,7 @@ class _PosterTile extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             PosterArt(posterPath: posterPath, seed: seed),
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0x00000000), Color(0xCC05060A)],
-                  stops: [0.45, 1],
-                ),
-              ),
-            ),
+            const PosterScrim(),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.md),
               child: Column(

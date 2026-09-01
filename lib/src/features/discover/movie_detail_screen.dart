@@ -7,7 +7,7 @@ import '../../services/acquisition/acquisition.dart';
 import '../../theme/theme.dart';
 import '../../widgets/detail_scaffold.dart';
 import '../../widgets/poster_art.dart';
-import '../../widgets/resume_button.dart';
+import 'resume_button.dart';
 import '../library/save_title_buttons.dart';
 import '../acquire/acquire_button.dart';
 import '../player/player_screen.dart';
@@ -29,19 +29,27 @@ class MovieDetailScreen extends ConsumerWidget {
     final local = ref.watch(localTitleProvider(tile.tmdbId)).asData?.value;
     final trailerUrl =
         ref.watch(trailerUrlProvider((tile.tmdbId, false))).asData?.value;
+    // The tile we were pushed with may be sparse — a saved / Alexa-queued /
+    // recently-downloaded title carries only what its local row cached. Fetch
+    // the full profile by id and fill in the gaps; until it lands, `full` is
+    // just the tile we already have, so the page paints immediately.
+    final full = hydrateTile(
+      tile,
+      ref.watch(movieTileProvider(tile.tmdbId)).asData?.value,
+    );
 
     return DetailScaffold(
-      title: tile.title,
+      title: full.title,
       children: [
-        _Hero(tile: tile),
+        _Hero(tile: full),
         const SizedBox(height: AppSpacing.lg),
         // Resume + Play/Acquire + Trailers + Favorite + Want-to-watch share one
         // wrapping row (the save toggles live in SaveTitleButtons).
         SaveTitleButtons(
           tmdbId: tile.tmdbId,
           mediaType: 'movie',
-          name: tile.title,
-          posterPath: tile.posterPath,
+          name: full.title,
+          posterPath: full.posterPath,
           leading: [
             // Resume the in-progress movie, if any (special accent color).
             ResumeButton(tmdbId: tile.tmdbId),
@@ -62,9 +70,9 @@ class MovieDetailScreen extends ConsumerWidget {
             else
               AcquireButton(
                 autofocus: true,
-                title: tile.title,
+                title: full.title,
                 meta: ShowMeta(
-                  title: tile.title,
+                  title: full.title,
                   tmdbId: tile.tmdbId,
                   mediaType: 'movie',
                 ),
@@ -75,16 +83,16 @@ class MovieDetailScreen extends ConsumerWidget {
                   context,
                   tmdbId: tile.tmdbId,
                   isTv: false,
-                  title: tile.title,
+                  title: full.title,
                 ),
                 icon: const Icon(Icons.movie_outlined),
                 label: const Text('Trailers'),
               ),
           ],
         ),
-        if (tile.overview.isNotEmpty) ...[
+        if (full.overview.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.xl),
-          Text(tile.overview,
+          Text(full.overview,
               style: text.bodyMedium?.copyWith(color: AppColors.textSecondary)),
         ],
       ],

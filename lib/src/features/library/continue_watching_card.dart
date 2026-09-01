@@ -92,16 +92,7 @@ class _ContinueWatchingCardState extends State<ContinueWatchingCard> {
                   fit: StackFit.expand,
                   children: [
                     PosterArt(posterPath: item.tmdbPosterPath, seed: title),
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Color(0x00000000), Color(0xDD05060A)],
-                          stops: [0.4, 1],
-                        ),
-                      ),
-                    ),
+                    const PosterScrim.strong(),
                     Positioned(
                       left: AppSpacing.md,
                       right: AppSpacing.md,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
 import '../../widgets/focusable_card.dart';
+import '../../widgets/poster_art.dart';
 import '../../widgets/search_field.dart';
 import '../../widgets/status_pill.dart';
 
@@ -207,6 +208,23 @@ class StyleShowcasePage extends StatelessWidget {
                   ],
                 ),
               ),
+
+              // Both strengths side by side over the same artwork, so the
+              // difference is visible and a new call site picks the right one
+              // instead of hand-rolling a third gradient.
+              const _Section(
+                title: 'Poster scrim',
+                child: Wrap(
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    _ScrimSample(label: 'PosterScrim()', child: PosterScrim()),
+                    _ScrimSample(
+                        label: 'PosterScrim.strong()', child: PosterScrim.strong()),
+                    _ScrimSample(label: 'no scrim'),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -303,3 +321,40 @@ class _Pill extends StatelessWidget {
   }
 }
 
+/// One poster-sized swatch for the scrim gallery: the same placeholder artwork
+/// under each scrim strength, with a title line to judge legibility against.
+class _ScrimSample extends StatelessWidget {
+  const _ScrimSample({required this.label, this.child});
+  final String label;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 150,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        child: AspectRatio(
+          aspectRatio: 2 / 3,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              const PosterArt(seed: 'scrim sample'),
+              if (child != null) child!,
+              Align(
+                alignment: Alignment.bottomLeft,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  child: Text(
+                    label,
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

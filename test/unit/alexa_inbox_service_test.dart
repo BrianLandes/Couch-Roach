@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:couch_roach/src/core/config/app_config.dart';
 import 'package:couch_roach/src/core/logging/error_log_service.dart';
 import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/data/repositories/saved_titles_repository.dart';
@@ -11,6 +13,8 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import '../support/fake_app_config.dart';
 
 /// A DiscoveryClient stub: canned movie/tv search results, everything else
 /// unimplemented (the service only calls the two search methods).
@@ -42,13 +46,14 @@ class _FakeDiscovery implements DiscoveryClient {
 class _Worker {
   _Worker({required this.pendingBody});
   String pendingBody;
+  int pendingStatus = 200;
   final List<http.Request> requests = [];
   final List<List<String>> ackedBatches = [];
 
   http.Client client() => MockClient((req) async {
         requests.add(req);
         if (req.url.path.endsWith('/pending')) {
-          return http.Response(pendingBody, 200,
+          return http.Response(pendingBody, pendingStatus,
               headers: {'content-type': 'application/json'});
         }
         if (req.url.path.endsWith('/ack')) {
@@ -78,14 +83,16 @@ void main() {
 
   AlexaInboxService serviceWith(
     _Worker worker,
-    DiscoveryClient tmdb,
-  ) =>
-      AlexaInboxService(worker.client(), tmdb, saved, ErrorLogService());
+    DiscoveryClient tmdb, {
+    AppConfig config = const FakeAppConfig(),
+  }) =>
+      AlexaInboxService(
+          worker.client(), tmdb, saved, ErrorLogService(), config);
 
-  // NOTE: hasAlexaInbox / hasTmdbKey both read compile-time --dart-define
-  // values, which are empty under `flutter test`, so drain() short-circuits.
-  // These tests exercise addFromAlexa (the resolve+save unit) directly and the
-  // drain plumbing where the guard allows.
+  // `hasAlexaInbox` / `hasTmdbKey` read compile-time --dart-define values, which
+  // are always empty under `flutter test`. The service takes its AppConfig as a
+  // constructor dependency so [FakeAppConfig] can stand in and make the whole
+  // drain path reachable here.
 
   group('addFromAlexa', () {
     test('resolves a movie top-hit onto Want-to-watch tagged alexa', () async {
@@ -153,14 +160,157 @@ void main() {
 
   group('drain', () {
     test('is a no-op when the inbox token is not configured', () async {
-      // Under `flutter test` there's no --dart-define, so hasAlexaInbox is
-      // false: drain must never hit the Worker.
+      // An unconfigured build must never talk to the Worker at all.
+      final worker = _Worker(pendingBody: '[]');
+      final svc = serviceWith(worker, _FakeDiscovery(),
+          config: const FakeAppConfig(hasAlexaInbox: false));
+
+      await svc.drain(minGap: Duration.zero);
+
+      expect(worker.requests, isEmpty);
+    });
+
+    test('is a no-op when TMDB is unavailable to resolve titles', () async {
+      // Draining without TMDB would ack titles it can't resolve, losing them.
+      final worker = _Worker(pendingBody: '[]');
+      final svc = serviceWith(worker, _FakeDiscovery(),
+          config: const FakeAppConfig(hasTmdbKey: false));
+
+      await svc.drain(minGap: Duration.zero);
+
+      expect(worker.requests, isEmpty);
+    });
+
+    test('an empty queue polls but sends no ack', () async {
       final worker = _Worker(pendingBody: '[]');
       final svc = serviceWith(worker, _FakeDiscovery());
 
       await svc.drain(minGap: Duration.zero);
 
-      expect(worker.requests, isEmpty);
+      expect(worker.requests.map((r) => r.url.path), ['/pending']);
+      expect(worker.ackedBatches, isEmpty);
+    });
+
+    test('resolves a queued title onto Want-to-watch and acks it', () async {
+      final worker = _Worker(
+          pendingBody: jsonEncode([
+        {'id': 'q1', 'title': 'dune part two'},
+      ]));
+      final tmdb = _FakeDiscovery(movies: [_movie(693134, 'Dune: Part Two')]);
+      final svc = serviceWith(worker, tmdb);
+
+      await svc.drain(minGap: Duration.zero);
+
+      expect(tmdb.searchedMovies, ['dune part two']);
+      final rows = await saved.watchWantToWatch().first;
+      expect(rows.single.tmdbId, 693134);
+      expect(rows.single.source, 'alexa');
+      expect(worker.ackedBatches, [
+        ['q1']
+      ]);
+    });
+
+    test('drains a whole batch in order and acks all of it', () async {
+      final worker = _Worker(
+          pendingBody: jsonEncode([
+        {'id': 'q1', 'title': 'heat'},
+        {'id': 'q2', 'title': 'dune'},
+      ]));
+      final tmdb = _FakeDiscovery(movies: [_movie(1, 'Heat')]);
+      final svc = serviceWith(worker, tmdb);
+
+      await svc.drain(minGap: Duration.zero);
+
+      expect(tmdb.searchedMovies, ['heat', 'dune']);
+      expect(worker.ackedBatches, [
+        ['q1', 'q2']
+      ]);
+    });
+
+    // A title TMDB can't resolve is still acked — otherwise the Worker would
+    // redeliver it forever and block the queue behind it.
+    test('acks a no-match instead of looping on it', () async {
+      final worker = _Worker(
+          pendingBody: jsonEncode([
+        {'id': 'q1', 'title': 'asdfqwer nonsense'},
+      ]));
+      final svc = serviceWith(worker, _FakeDiscovery()); // no results at all
+
+      await svc.drain(minGap: Duration.zero);
+
+      expect(await saved.watchWantToWatch().first, isEmpty);
+      expect(worker.ackedBatches, [
+        ['q1']
+      ]);
+    });
+
+    test('a non-200 from /pending is swallowed and acks nothing', () async {
+      final worker = _Worker(pendingBody: '[]')..pendingStatus = 401;
+      final svc = serviceWith(worker, _FakeDiscovery());
+
+      await svc.drain(minGap: Duration.zero);
+
+      expect(worker.ackedBatches, isEmpty);
+    });
+
+    test('a network failure is swallowed, not thrown', () async {
+      final svc = AlexaInboxService(
+        MockClient((_) async => throw const SocketException('no route')),
+        _FakeDiscovery(),
+        saved,
+        ErrorLogService(),
+        const FakeAppConfig(),
+      );
+
+      await expectLater(svc.drain(minGap: Duration.zero), completes);
+    });
+
+    test('a second drain inside the throttle window is skipped', () async {
+      final worker = _Worker(pendingBody: '[]');
+      final svc = serviceWith(worker, _FakeDiscovery());
+
+      await svc.drain(minGap: Duration.zero);
+      await svc.drain(minGap: const Duration(seconds: 30));
+
+      expect(worker.requests, hasLength(1));
+    });
+
+    test('a zero gap bypasses the throttle for a manual refresh', () async {
+      final worker = _Worker(pendingBody: '[]');
+      final svc = serviceWith(worker, _FakeDiscovery());
+
+      await svc.drain(minGap: Duration.zero);
+      await svc.drain(minGap: Duration.zero);
+
+      expect(worker.requests, hasLength(2));
+    });
+
+    // Only a *completed* cycle stamps the throttle, so a blip lets the next
+    // trigger retry immediately rather than being throttled out.
+    test('a failed drain does not start the throttle window', () async {
+      final worker = _Worker(pendingBody: '[]')..pendingStatus = 503;
+      final svc = serviceWith(worker, _FakeDiscovery());
+
+      await svc.drain(minGap: Duration.zero);
+      await svc.drain(minGap: const Duration(seconds: 30));
+
+      expect(worker.requests, hasLength(2));
+    });
+
+    test('re-delivery of an already-saved title is idempotent', () async {
+      final body = jsonEncode([
+        {'id': 'q1', 'title': 'dune'},
+      ]);
+      final tmdb = _FakeDiscovery(movies: [_movie(693134, 'Dune')]);
+
+      await serviceWith(_Worker(pendingBody: body), tmdb)
+          .drain(minGap: Duration.zero);
+      await serviceWith(_Worker(pendingBody: body), tmdb)
+          .drain(minGap: Duration.zero);
+
+      final rows = await saved.watchWantToWatch().first;
+      expect(rows, hasLength(1));
+      expect(rows.single.source, 'alexa');
     });
   });
 }

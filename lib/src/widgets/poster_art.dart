@@ -59,3 +59,41 @@ class PosterArt extends StatelessWidget {
     );
   }
 }
+
+/// The bottom fade laid over [PosterArt] so overlaid title text stays legible
+/// against arbitrary artwork. Always stacked directly on top of the poster in a
+/// `Stack` — never used on its own.
+///
+/// Two strengths: the default suits a 2:3 poster tile carrying a title, and
+/// [PosterScrim.strong] suits a wide card whose overlay stacks a title,
+/// subtitle and progress bar. Anything else means a new token, not a one-off
+/// gradient at the call site.
+class PosterScrim extends StatelessWidget {
+  const PosterScrim({super.key})
+      : _color = AppColors.posterScrim,
+        _start = 0.45;
+
+  const PosterScrim.strong({super.key})
+      : _color = AppColors.posterScrimStrong,
+        _start = 0.4;
+
+  /// The opaque end of the ramp; the top end is always [AppColors.posterScrimClear].
+  final Color _color;
+
+  /// Where the fade begins, as a fraction of the poster's height.
+  final double _start;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [AppColors.posterScrimClear, _color],
+          stops: [_start, 1],
+        ),
+      ),
+    );
+  }
+}

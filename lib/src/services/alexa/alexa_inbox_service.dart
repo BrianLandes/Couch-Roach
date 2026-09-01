@@ -21,12 +21,14 @@ import '../discovery/tmdb_client.dart';
 /// re-stamps the same row.
 @LazySingleton()
 class AlexaInboxService {
-  AlexaInboxService(this._http, this._tmdb, this._saved, this._log);
+  AlexaInboxService(
+      this._http, this._tmdb, this._saved, this._log, this._config);
 
   final http.Client _http;
   final DiscoveryClient _tmdb;
   final SavedTitlesRepository _saved;
   final ErrorLogService _log;
+  final AppConfig _config;
 
   static const _timeout = Duration(seconds: 10);
 
@@ -51,7 +53,7 @@ class AlexaInboxService {
     // does nothing — the token must be compiled in via
     // `--dart-define-from-file=dart_define.json`, which a plain
     // `flutter build windows` omits — so say so loudly (once per process).
-    const cfg = AppConfig();
+    final cfg = _config;
     if (!cfg.hasAlexaInbox || !cfg.hasTmdbKey) {
       if (!_loggedDisabled) {
         _loggedDisabled = true;
@@ -73,8 +75,8 @@ class AlexaInboxService {
     }
     _busy = true;
     try {
-      const base = AppConfig.alexaInboxBaseUrl;
-      const token = AppConfig.alexaInboxToken;
+      final base = cfg.inboxBaseUrl;
+      final token = cfg.inboxToken;
 
       // Base URL is safe to log (public endpoint); the token is NOT — never log
       // it. This line + the status line below localize a VPN/DNS/TLS failure.

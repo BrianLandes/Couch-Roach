@@ -10,6 +10,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/fake_app_config.dart';
+
 void main() {
   late AppDatabase db;
   late LibraryRepository library;
@@ -20,13 +22,15 @@ void main() {
   });
   tearDown(() async => db.close());
 
-  // NOTE: matchUnmatched() early-returns when no TMDB key is set. These tests
-  // exercise the repository + client wiring directly (which don't gate on the
-  // key) so they run without a --dart-define.
-  LibraryMatchService serviceFor(MockClient mock) => LibraryMatchService(
+  /// A service wired to a scripted TMDB endpoint. [configured] drives the
+  /// `hasTmdbKey` gate: the real config is always empty under `flutter test`,
+  /// so the fake is what makes the matching path reachable at all.
+  LibraryMatchService serviceFor(MockClient mock, {bool configured = true}) =>
+      LibraryMatchService(
         library,
         TmdbClient(mock, ErrorLogService()),
         ErrorLogService(),
+        FakeAppConfig(hasTmdbKey: configured),
       );
 
   test('unmatched returns only rows without a tmdb id', () async {
@@ -77,8 +81,9 @@ void main() {
   });
 
   test('service constructs and no-ops without a TMDB key', () async {
-    // No --dart-define in tests, so matchUnmatched() should return immediately.
-    final service = serviceFor(MockClient((_) async => http.Response('{}', 404)));
+    final service = serviceFor(
+        MockClient((_) async => http.Response('{}', 404)),
+        configured: false);
     await library.upsert(const ScannedFile(
         filePath: '/m/a.mkv', title: 'A', mediaType: 'movie'));
     await service.matchUnmatched();
@@ -87,15 +92,236 @@ void main() {
 
   test('matchItem no-ops without a TMDB key (and tolerates a missing id)',
       () async {
-    final service = serviceFor(MockClient((_) async => http.Response('{}', 404)));
+    final service = serviceFor(
+        MockClient((_) async => http.Response('{}', 404)),
+        configured: false);
     await library.upsert(const ScannedFile(
         filePath: '/m/a.mkv', title: 'A', mediaType: 'movie'));
     final id = (await library.findByPath('/m/a.mkv'))!.id;
 
     // Real id and a never-registered id both return cleanly, leaving the row
-    // untouched (the happy path needs a TMDB key, verified on-device).
+    // untouched.
     await service.matchItem(id);
     await service.matchItem(999999);
     expect((await library.getAll()).single.tmdbId, isNull);
+  });
+
+  // ── The matching path itself ────────────────────────────────────────────
+  // Reachable now that AppConfig is injected. A TMDB router lets each test say
+  // what the API answers per endpoint; unrouted paths 404 so an unexpected call
+  // shows up as a failure rather than a silent miss.
+  MockClient tmdbRouter({
+    List<Map<String, dynamic>> tv = const [],
+    List<Map<String, dynamic>> movies = const [],
+    Map<String, dynamic>? tvDetails,
+    Map<String, dynamic>? movieDetails,
+    List<Uri>? log,
+  }) =>
+      MockClient((req) async {
+        log?.add(req.url);
+        final path = req.url.path;
+        if (path.endsWith('/search/tv')) {
+          return http.Response(jsonEncode({'results': tv}), 200);
+        }
+        if (path.endsWith('/search/movie')) {
+          return http.Response(jsonEncode({'results': movies}), 200);
+        }
+        if (tvDetails != null && RegExp(r'/tv/\d+$').hasMatch(path)) {
+          return http.Response(jsonEncode(tvDetails), 200);
+        }
+        if (movieDetails != null && RegExp(r'/movie/\d+$').hasMatch(path)) {
+          return http.Response(jsonEncode(movieDetails), 200);
+        }
+        return http.Response('{}', 404);
+      });
+
+  Future<LibraryItem> seed(ScannedFile file) async {
+    await library.upsert(file);
+    return (await library.findByPath(file.filePath))!;
+  }
+
+  group('matchUnmatched', () {
+    test('matches a TV row against TMDB and caches id, name, and poster',
+        () async {
+      await seed(const ScannedFile(
+          filePath: '/tv/The Show/The.Show.S01E01.mkv',
+          title: 'The Show',
+          mediaType: 'tv',
+          season: 1,
+          episode: 1));
+
+      await serviceFor(tmdbRouter(tv: [
+        {'id': 4242, 'name': 'The Show', 'poster_path': '/show.jpg'},
+      ])).matchUnmatched();
+
+      final row = (await library.getAll()).single;
+      expect(row.tmdbId, 4242);
+      expect(row.tmdbName, 'The Show');
+      expect(row.tmdbPosterPath, '/show.jpg');
+    });
+
+    test('matches a movie row', () async {
+      await seed(const ScannedFile(
+          filePath: '/m/Inception.mkv', title: 'Inception', mediaType: 'movie'));
+
+      await serviceFor(tmdbRouter(movies: [
+        {'id': 27205, 'title': 'Inception', 'poster_path': '/i.jpg'},
+      ])).matchUnmatched();
+
+      final row = (await library.getAll()).single;
+      expect(row.tmdbId, 27205);
+      expect(row.tmdbName, 'Inception');
+    });
+
+    // An episode that parsed as a "movie" (no SxxExx in the name) must still
+    // find its show, and the row's mediaType gets corrected on the way.
+    test('falls back to the other media type and corrects mediaType', () async {
+      await seed(const ScannedFile(
+          filePath: '/tv/The Show/ep1.mkv',
+          title: 'The Show',
+          mediaType: 'movie'));
+
+      await serviceFor(tmdbRouter(tv: [
+        {'id': 4242, 'name': 'The Show', 'poster_path': '/s.jpg'},
+      ])).matchUnmatched();
+
+      final row = (await library.getAll()).single;
+      expect(row.tmdbId, 4242);
+      expect(row.mediaType, 'tv');
+    });
+
+    test('a row nothing matches stays null for the next pass', () async {
+      await seed(const ScannedFile(
+          filePath: '/m/Unknowable.mkv',
+          title: 'Unknowable',
+          mediaType: 'movie'));
+
+      await serviceFor(tmdbRouter()).matchUnmatched();
+
+      final row = (await library.getAll()).single;
+      expect(row.tmdbId, isNull);
+      expect(await library.unmatched(), hasLength(1));
+    });
+
+    // pickBestMatchIndex guards this: a noisy query must not grab whatever
+    // TMDB happened to return first.
+    test('a result that does not validate against the query is rejected',
+        () async {
+      await seed(const ScannedFile(
+          filePath: '/movies/Inception (2010)/Inception.mkv',
+          title: 'Inception',
+          mediaType: 'movie'));
+
+      await serviceFor(tmdbRouter(movies: [
+        {'id': 99, 'title': 'Something Entirely Different'},
+      ])).matchUnmatched();
+
+      expect((await library.getAll()).single.tmdbId, isNull);
+    });
+
+    // The containing folder is tried as a second query after the stored title.
+    // A folder that names the show rescues a row whose filename didn't.
+    test('falls back to the containing folder name as a second query',
+        () async {
+      await seed(const ScannedFile(
+          filePath: '/tv/The Office/random.release.name.mkv',
+          title: 'random.release.name',
+          mediaType: 'tv'));
+
+      await serviceFor(tmdbRouter(tv: [
+        {'id': 2316, 'name': 'The Office', 'poster_path': '/o.jpg'},
+      ])).matchUnmatched();
+
+      expect((await library.getAll()).single.tmdbId, 2316);
+    });
+
+    test('an already-matched row is left alone', () async {
+      final item = await seed(const ScannedFile(
+          filePath: '/m/a.mkv', title: 'A', mediaType: 'movie'));
+      await library.setTmdbMatch(
+          id: item.id, tmdbId: 111, name: 'A!', posterPath: '/p.jpg');
+
+      final calls = <Uri>[];
+      await serviceFor(tmdbRouter(log: calls)).matchUnmatched();
+
+      expect(calls, isEmpty);
+      expect((await library.getAll()).single.tmdbName, 'A!');
+    });
+
+    // A trailing year is stripped so the title matches TMDB's canonical name.
+    // Note it's `cleanShowName` (inside tmdbSearchCandidates) that removes it,
+    // before LibraryMatchService's own _splitYear ever sees the candidate — so
+    // the year is dropped rather than forwarded to TMDB as a `year` filter.
+    test('a trailing year is stripped from the search query', () async {
+      await seed(const ScannedFile(
+          filePath: '/movies/Dune (2021)/Dune 2021.mkv',
+          title: 'Dune 2021',
+          mediaType: 'movie'));
+
+      final calls = <Uri>[];
+      await serviceFor(tmdbRouter(
+        movies: [
+          {'id': 438631, 'title': 'Dune', 'poster_path': '/d.jpg'},
+        ],
+        log: calls,
+      )).matchUnmatched();
+
+      final search = calls.firstWhere((u) => u.path.endsWith('/search/movie'));
+      expect(search.queryParameters['query'], 'Dune');
+      expect(search.queryParameters['year'], isNull);
+      expect((await library.getAll()).single.tmdbId, 438631);
+    });
+
+    test('a TMDB failure is swallowed so the scan pass continues', () async {
+      await seed(const ScannedFile(
+          filePath: '/m/a.mkv', title: 'A', mediaType: 'movie'));
+
+      final svc = serviceFor(MockClient((_) async => throw Exception('boom')));
+
+      await expectLater(svc.matchUnmatched(), completes);
+      expect((await library.getAll()).single.tmdbId, isNull);
+    });
+  });
+
+  group('matchItem', () {
+    // An acquire stamps the tmdbId up front but leaves the poster null, so the
+    // back-fill goes by id — deterministic, no fuzzy title search.
+    test('back-fills name and poster by id, without searching', () async {
+      final item = await seed(const ScannedFile(
+          filePath: '/tv/s.S01E01.mkv',
+          title: 'raw.release.name',
+          mediaType: 'tv',
+          season: 1,
+          episode: 1));
+      await library.setTmdbMatch(id: item.id, tmdbId: 4242, name: null);
+
+      final calls = <Uri>[];
+      await serviceFor(tmdbRouter(
+        tvDetails: {'id': 4242, 'name': 'The Show', 'poster_path': '/s.jpg'},
+        log: calls,
+      )).matchItem(item.id);
+
+      final row = (await library.getAll()).single;
+      expect(row.tmdbName, 'The Show');
+      expect(row.tmdbPosterPath, '/s.jpg');
+      expect(calls.where((u) => u.path.contains('/search/')), isEmpty);
+    });
+
+    test('a fully-matched row is skipped entirely', () async {
+      final item = await seed(const ScannedFile(
+          filePath: '/m/a.mkv', title: 'A', mediaType: 'movie'));
+      await library.setTmdbMatch(
+          id: item.id, tmdbId: 111, name: 'A!', posterPath: '/p.jpg');
+
+      final calls = <Uri>[];
+      await serviceFor(tmdbRouter(log: calls)).matchItem(item.id);
+
+      expect(calls, isEmpty);
+    });
+
+    test('a missing id returns cleanly', () async {
+      await expectLater(
+          serviceFor(tmdbRouter()).matchItem(999999), completes);
+    });
   });
 }

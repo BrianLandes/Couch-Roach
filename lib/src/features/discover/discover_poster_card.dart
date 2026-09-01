@@ -88,16 +88,7 @@ class DiscoverPosterCard extends ConsumerWidget {
               fit: StackFit.expand,
               children: [
                 PosterArt(posterPath: tile.posterPath, seed: tile.title),
-                const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0x00000000), Color(0xCC05060A)],
-                      stops: [0.5, 1],
-                    ),
-                  ),
-                ),
+                const PosterScrim(),
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.sm),
                   child: Align(

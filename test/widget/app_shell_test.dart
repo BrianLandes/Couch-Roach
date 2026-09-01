@@ -19,6 +19,8 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../support/fake_app_config.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -48,13 +50,14 @@ void main() {
           () => LibraryService(getIt(), getIt(), getIt(), getIt()))
       ..registerLazySingleton<SavedTitlesRepository>(
           () => DriftSavedTitlesRepository(getIt<AppDatabase>()))
-      // The landing page drains the Alexa inbox on entry; drain() no-ops here
-      // (no --dart-define token under `flutter test`), so it never hits HTTP.
+      // The landing page drains the Alexa inbox on entry. An unconfigured
+      // config makes drain() a no-op, so the shell test never hits HTTP.
       ..registerLazySingleton<AlexaInboxService>(() => AlexaInboxService(
             getIt<http.Client>(),
             getIt<DiscoveryClient>(),
             getIt<SavedTitlesRepository>(),
             getIt<ErrorLogService>(),
+            const FakeAppConfig(hasAlexaInbox: false, hasTmdbKey: false),
           ));
   });
   tearDown(() => getIt.reset());

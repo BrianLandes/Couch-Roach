@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../data/db/database.dart';
-import '../data/repositories/watch_history_repository.dart';
-import '../features/library/library_providers.dart';
-import '../features/player/player_screen.dart';
-import '../router/app_router.dart';
+import '../../data/db/database.dart';
+import '../../data/repositories/watch_history_repository.dart';
+import '../../router/app_router.dart';
+import '../library/library_providers.dart';
+import '../player/player_screen.dart';
 
 /// A "Resume" button for a detail page. When the show (by [tmdbId]) or a single
 /// title (by [libraryItemId]) has an in-progress video in Continue Watching, it

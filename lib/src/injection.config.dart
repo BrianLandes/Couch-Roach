@@ -9,6 +9,7 @@
 // coverage:ignore-file
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
+import 'package:couch_roach/src/core/config/app_config.dart' as _i784;
 import 'package:couch_roach/src/core/logging/error_log_service.dart' as _i657;
 import 'package:couch_roach/src/core/settings/settings_service.dart' as _i486;
 import 'package:couch_roach/src/core/storage/storage_manager.dart' as _i883;
@@ -88,6 +89,7 @@ extension GetItInjectableX on _i174.GetIt {
     final registerModule = _$RegisterModule();
     gh.lazySingleton<_i657.ErrorLogService>(() => _i657.ErrorLogService());
     gh.lazySingleton<_i865.AppDatabase>(() => registerModule.database);
+    gh.lazySingleton<_i784.AppConfig>(() => registerModule.appConfig);
     gh.lazySingleton<_i519.Client>(() => registerModule.httpClient);
     gh.lazySingleton<_i632.AcquisitionSession>(
         () => _i632.AcquisitionSession());
@@ -161,12 +163,6 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i657.ErrorLogService>(),
           gh<_i486.SettingsService>(),
         ));
-    gh.lazySingleton<_i680.AlexaInboxService>(() => _i680.AlexaInboxService(
-          gh<_i519.Client>(),
-          gh<_i819.DiscoveryClient>(),
-          gh<_i574.SavedTitlesRepository>(),
-          gh<_i657.ErrorLogService>(),
-        ));
     gh.lazySingleton<_i754.SubtitleService>(
         () => _i295.OpenSubtitlesSubtitleService(
               gh<_i1041.SubtitleSkipCheck>(),
@@ -181,6 +177,19 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i519.Client>(),
           gh<_i657.ErrorLogService>(),
           gh<_i486.SettingsService>(),
+        ));
+    gh.lazySingleton<_i495.LibraryMatchService>(() => _i495.LibraryMatchService(
+          gh<_i877.LibraryRepository>(),
+          gh<_i819.DiscoveryClient>(),
+          gh<_i657.ErrorLogService>(),
+          gh<_i784.AppConfig>(),
+        ));
+    gh.lazySingleton<_i680.AlexaInboxService>(() => _i680.AlexaInboxService(
+          gh<_i519.Client>(),
+          gh<_i819.DiscoveryClient>(),
+          gh<_i574.SavedTitlesRepository>(),
+          gh<_i657.ErrorLogService>(),
+          gh<_i784.AppConfig>(),
         ));
     gh.lazySingleton<_i156.AcquisitionResolver>(
         () => _i669.CompositeAcquisitionResolver(
@@ -197,11 +206,6 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i519.Client>(),
           gh<_i657.ErrorLogService>(),
           gh<_i616.JackettResolver>(),
-        ));
-    gh.lazySingleton<_i495.LibraryMatchService>(() => _i495.LibraryMatchService(
-          gh<_i877.LibraryRepository>(),
-          gh<_i819.DiscoveryClient>(),
-          gh<_i657.ErrorLogService>(),
         ));
     gh.lazySingleton<_i717.CompletedTorrentReaper>(
         () => _i717.QbittorrentCompletedTorrentReaper(

@@ -344,11 +344,48 @@ new shared widget to it** so the reference stays current.
 New features and non-trivial widgets should be accompanied by tests. Run everything with
 `flutter test`.
 
+### Layout
+
+Tests live in exactly two directories, split by whether they mount a widget — nothing sits
+loose in `test/`:
+
+| Directory     | Holds                                                              |
+| ------------- | ------------------------------------------------------------------ |
+| `test/unit/`  | Pure logic, repositories, services — **no** `testWidgets`           |
+| `test/widget/`| Anything that mounts a widget (`testWidgets` / `WidgetTester`)      |
+| `test/support/`| Shared fakes and helpers — no test files                           |
+
+A file that's mostly one kind with a stray case of the other goes by its dominant kind.
+Name a test after the source file it covers (`foo_bar.dart` → `foo_bar_test.dart`) and keep
+one test file per source file — don't split one subject across two files.
+
+### What to test
+
 - **Repository / service logic** — test against an **in-memory drift database**:
   `AppDatabase.forTesting(NativeDatabase.memory())`. This exercises the real schema and query
   shapes — it catches migration and constraint issues that mocks can't.
 - **Widgets** — widget tests for components with significant conditional rendering; there's a
-  baseline shell test in [test/widget_test.dart](test/widget_test.dart).
+  baseline shell test in [test/widget/app_shell_test.dart](test/widget/app_shell_test.dart).
+  **Don't put a real drift database behind a widget test.** `testWidgets` runs in a fake-async
+  zone, so a drift query stream never emits and the test hangs until the suite times out —
+  with no error to point at the cause. Register fakes in `getIt` (see
+  [library_detail_screen_test.dart](test/widget/library_detail_screen_test.dart)) or override the
+  Riverpod provider, and leave the real schema to the repository tests in `test/unit/`. For the
+  same reason, prefer a few bounded `tester.pump(...)` calls over `pumpAndSettle()` on screens
+  with continuous decorative animation.
+- **Shared fakes** live in `test/support/` (not a test directory — no `_test.dart` files there).
+  [FakeAppConfig](test/support/fake_app_config.dart) is the important one: `--dart-define` values
+  are compile-time constants and always empty under `flutter test`, so any path behind a
+  `hasTmdbKey` / `hasAlexaInbox` gate is unreachable unless the service takes its `AppConfig` as
+  an injected dependency and the test passes a fake. New key-gated services must follow that
+  pattern rather than constructing `const AppConfig()` inline.
+- **Anything libmpv touches** — `media_kit` can't be driven in a test (it needs a real libmpv),
+  so [player_screen.dart](lib/src/features/player/player_screen.dart) is not directly testable.
+  Cover it by extracting each decision into a **pure sibling file** and testing that instead —
+  see [audio_selection.dart](lib/src/features/player/audio_selection.dart),
+  [player_controls_visibility.dart](lib/src/features/player/player_controls_visibility.dart),
+  [player_sources.dart](lib/src/features/player/player_sources.dart). New player logic belongs
+  in a sibling, not inline in the widget.
 
 > **Sandbox note:** `flutter test` runs in the Claude Code cloud container (drift's in-memory
 > `NativeDatabase` works there). Occasionally the first run fails while fetching the native

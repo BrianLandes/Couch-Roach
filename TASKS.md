@@ -43,6 +43,31 @@ Follow-up (not done): requires `ALEXA_INBOX_TOKEN` in `dart_define.json` before 
 
 _Queued and ready to pick up._
 
+### Title matching: a very short query false-matches anything · `p3`
+
+- [ ] `pickBestMatchIndex` ([library_path_parse.dart](lib/src/features/library/library_path_parse.dart))
+  falls back to substring containment either way, with no minimum query length. A
+  1–2 character query therefore matches almost any TMDB result:
+  `pickBestMatchIndex(['Something Entirely Different'], 'm')` returns `0`.
+- Reachable in practice because `tmdbSearchCandidates` adds the **containing folder
+  name** as a second query — a library rooted at a short folder (`/m/…`, `/tv/…`)
+  feeds that short name straight in after the real title misses.
+- Found while writing `library_match_service_test.dart`; the containment branch is
+  there for "Office" ⊂ "The Office", which a minimum length (3–4 chars) wouldn't
+  break. Wants its own on-device check against the real library before changing
+  match behaviour, hence a separate task rather than folding it into the audit.
+
+### `_splitYear` in LibraryMatchService is dead for the common path · `p4`
+
+- [ ] `LibraryMatchService._splitYear` pulls a trailing year off a candidate to pass
+  TMDB a `year=` filter — but `tmdbSearchCandidates` runs `cleanShowName` first,
+  which already strips the year. So `"Dune 2021"` arrives as `"Dune"` and the year
+  filter is never sent; the search is fuzzier than intended.
+- Either drop `_splitYear` as dead code, or (better) have `tmdbSearchCandidates`
+  carry the year alongside the cleaned title so it can actually sharpen the search.
+  Pinned by a test in `library_match_service_test.dart` that asserts today's
+  behaviour, so changing it will show up there.
+
 ### Player overlay still strands sometimes after a while · `p2`
 
 - [ ] The title / back / Next Episode overlay still **sometimes** fails to come up after long playback — a recurrence of the bug the paused-persistence + global-key reveal fix (commit 32ef09d) was meant to close.
@@ -83,12 +108,6 @@ _Queued and ready to pick up._
 ### Disable "Download next" when the next episode hasn't aired · `p4`
 
 - [ ] The Download-next button should know whether the next episode has aired, and be disabled with a message if it hasn't aired yet.
-
-### Hydrate Alexa-queued titles with their TMDB id for the details page · `p3`
-
-- [ ] Ensure titles acquired from the Alexa voice queue carry their TMDB id (and media type — movie vs TV show) so that pulling one up on the details page can fill in the richer TMDB profile (overview, cast, seasons, artwork, etc.).
-
-Follow-up to the [[alexa-inbox-consumer]] work. `addFromAlexa()` already resolves the top TMDB hit and upserts on a `{tmdbId, mediaType}` PK, so the id should be present on the SavedTitles row — verify that end to end: (1) the id actually persists for Alexa-sourced titles, and (2) the details page reads it and hydrates the full profile rather than showing only the sparse queued fields. Cover both movie and TV-show paths (the resolver is movies-first with a TV fallback).
 
 ---
 
@@ -134,6 +153,69 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Structure + coverage pass · `p2`
+
+- [x] Fresh audit of file/code structure and test coverage; fix what it turned up.
+
+569 → 690 tests, 47.1% → 50.2% line coverage (excl. generated). Analyze clean throughout.
+Layering already held and there were no route-string leaks, so the findings were narrower
+than the file sizes suggested — the real gap was **testability**, not structure.
+
+- **player_screen** 1,978 → 1,954 lines, decisions extracted into four pure siblings, all
+  100%: `player_controls_visibility` (overlay auto-hide), `player_progress` (resume, the 5s
+  save throttle, the 95% watched / 50% prefetch thresholds), `player_sources`,
+  `player_input`. `audio_selection` absorbed the label/channel helpers → 100%. The widget
+  stays at 0% — libmpv can't be driven in a test; that's now the documented pattern.
+- ⚠️ **One deliberate behaviour change**, not a pure extraction:
+  `ControlsVisibility.onIdleElapsed` re-checks `playing` before hiding, so a timer armed
+  just before a pause can no longer fire after it and hide the overlay on a paused video.
+  Narrow race, but it's the stranding mode — **still wants on-device confirmation** before
+  the overlay task counts as closed.
+- **PosterScrim** — `AppColors.posterScrim{Clear,,Strong}` + a widget in `poster_art.dart`,
+  replacing 4 raw-hex copies whose stops had drifted (0.5/0.5/0.45). In the style showcase.
+- **resume_button** → `features/discover/`, fixing the one shared-layer-imports-features
+  inversion.
+- **test/ layout** — `test/unit/` vs `test/widget/` split on widget mounting, plus
+  `test/support/` for shared fakes; nothing loose in `test/`. Convention in CLAUDE.md.
+- **The root cause worth remembering:** `AppConfig` was constructed inline in services, and
+  its `--dart-define` values are compile-time constants that are *always empty* under
+  `flutter test` — so every key-gated path was unreachable and the old tests said so in
+  their comments. Injecting it (+ `test/support/FakeAppConfig`) took `AlexaInboxService`
+  45.9% → 96.9% and `LibraryMatchService` 8.1% → 79.0%. New key-gated services must follow
+  this pattern. Also `library_detail_screen` 0% → 83.2%.
+- Two bugs the new tests surfaced are queued separately (short-query false match;
+  `_splitYear` dead for the common path) — both change matching behaviour.
+
+### Hydrate Alexa-queued titles with their TMDB id for the details page · `p3`
+
+- [x] Titles from the Alexa voice queue carry their TMDB id + media type, and the details
+  page fills in the full TMDB profile from it.
+
+**(1) The id already persisted** — `addFromAlexa()` writes `tmdbId`/`mediaType` onto the
+SavedTitles row; now asserted end to end by the drain tests (movie path, TV fallback,
+re-delivery). No change needed.
+
+**(2) The details page did not hydrate — the real bug, and wider than Alexa.** `_savedTile`
+builds a `DiscoverTile` from a saved row with only `{tmdbId, title, mediaType, posterPath}`,
+and `MovieDetailScreen` rendered `overview`/`year`/`voteAverage` straight off that tile
+without ever fetching by id. So **every** movie opened from Want-to-watch, Favorites or
+Recently Downloaded showed a bare page — Alexa titles were just the most visible case. TV
+was already fine (`ShowDetailScreen` takes only `(tmdbId, name)` and fetches details itself).
+
+Fix: pure `hydrateTile(base, fetched)` in `discover_tile.dart` — base wins on identity
+(`tmdbId`/`mediaType`), fetched wins field-by-field on everything it has.
+`MovieDetailScreen` watches `movieTileProvider(tmdbId)` and renders the merged tile, so the
+page paints instantly off what it was pushed with and a miss or partial response degrades
+rather than blanking. The hydrated title/poster also feed `SaveTitleButtons`,
+`AcquireButton` and the trailer picker, so re-saving stores canonical name/art and
+acquisition searches the canonical title.
+
+Tests: `hydrate_tile_test.dart` (9 pure) + `movie_detail_screen_test.dart` (5 widget,
+including the sparse-Alexa-tile regression).
+
+Follow-up not done: the TV path is verified by reading the code, not by a test — a saved
+Alexa **show** opening `ShowDetailScreen` and hydrating has no widget test covering it.
 
 ### Logging overhaul: verbose gate, split error log, per-launch rotation · `p3`
 

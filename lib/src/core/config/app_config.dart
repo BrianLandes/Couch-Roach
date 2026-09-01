@@ -26,10 +26,23 @@ class AppConfig {
   static const String alexaInboxToken =
       String.fromEnvironment('ALEXA_INBOX_TOKEN');
 
+  // Every value a service reads is exposed as an **instance** getter over the
+  // `--dart-define` constant above, and services take an [AppConfig] as a
+  // constructor dependency (registered in `RegisterModule`) rather than
+  // constructing one inline. That's what makes a key-gated code path reachable
+  // in a test: a fake overrides the getter, since the constants themselves are
+  // fixed at compile time and a test binary has no `--dart-define`.
+
   bool get hasTmdbKey => tmdbApiKey.isNotEmpty;
   bool get hasOpenSubtitlesKey => openSubtitlesApiKey.isNotEmpty;
 
   /// True only when the inbox token is configured — the drain no-ops otherwise
   /// (an unconfigured build never polls the Worker).
   bool get hasAlexaInbox => alexaInboxToken.isNotEmpty;
+
+  /// Public Worker endpoint the Alexa inbox drains from.
+  String get inboxBaseUrl => alexaInboxBaseUrl;
+
+  /// Shared secret for the Worker. Never log this.
+  String get inboxToken => alexaInboxToken;
 }
