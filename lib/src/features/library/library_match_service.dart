@@ -2,6 +2,7 @@ import 'package:injectable/injectable.dart';
 
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
+import '../../core/storage/storage_manager.dart';
 import '../../data/db/database.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../services/discovery/tmdb_client.dart';
@@ -13,12 +14,14 @@ import 'library_path_parse.dart';
 /// misses simply stay null and get retried on the next pass.
 @LazySingleton()
 class LibraryMatchService {
-  LibraryMatchService(this._library, this._tmdb, this._log, this._config);
+  LibraryMatchService(
+      this._library, this._tmdb, this._log, this._config, this._storage);
 
   final LibraryRepository _library;
   final DiscoveryClient _tmdb;
   final ErrorLogService _log;
   final AppConfig _config;
+  final StorageManager _storage;
 
   Future<void> matchUnmatched() async {
     if (!_config.hasTmdbKey) return;
@@ -76,7 +79,13 @@ class LibraryMatchService {
       // unmarked episode that parsed as a "movie" still finds its show. A match
       // is only taken when it actually validates against the query
       // (pickBestMatchIndex), which stops a noisy query grabbing the wrong title.
-      final candidates = tmdbSearchCandidates(item.filePath, item.title);
+      // Root paths so a file loose in a library root doesn't get searched by
+      // the root's own name ("/movies/Inception.mkv" → a query for "movies").
+      final candidates = tmdbSearchCandidates(
+        item.filePath,
+        item.title,
+        rootPaths: {for (final r in _storage.roots) r.path},
+      );
       final tvFirst = item.mediaType == 'tv';
       if (tvFirst) {
         if (await _tryTv(item, candidates)) return;

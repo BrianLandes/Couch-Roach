@@ -116,6 +116,114 @@ void main() {
     test('null on an empty query', () {
       expect(pickBestMatchIndex(['Whatever'], ''), isNull);
     });
+
+    group('short strings do not count as containment', () {
+      // The bug this guard closes: a one-letter query is a substring of almost
+      // every title, so a stray short candidate swept up whatever TMDB returned.
+      test('a single-letter query matches nothing by containment', () {
+        expect(pickBestMatchIndex(['Something Entirely Different'], 'm'), isNull);
+      });
+
+      test('a two-letter query no longer grabs a title that contains it', () {
+        // "titanic" really does contain "it".
+        expect(pickBestMatchIndex(['Titanic'], 'It'), isNull);
+      });
+
+      test('a short result inside a long query is just as weak', () {
+        // The other direction: "saw" ⊂ "jigsawpuzzlemurders".
+        expect(pickBestMatchIndex(['Saw'], 'Jigsaw Puzzle Murders'), isNull);
+      });
+
+      test('the floor is on the contained side, not the pair', () {
+        // A long result doesn't rescue a short query.
+        expect(
+            pickBestMatchIndex(['The Extremely Long Movie Title'], 'x'), isNull);
+      });
+    });
+
+    group('genuinely short titles still match', () {
+      // The floor is only on containment; the exact pass has no length rule, so
+      // real one- and two-character films are unaffected.
+      test('an exact match wins at any length', () {
+        expect(pickBestMatchIndex(['M'], 'M'), 0);
+        expect(pickBestMatchIndex(['Up'], 'Up'), 0);
+        expect(pickBestMatchIndex(['It'], 'It'), 0);
+      });
+
+      test('an exact match is preferred over an earlier containment', () {
+        expect(pickBestMatchIndex(['Titanic', 'It'], 'It'), 1);
+      });
+    });
+
+    group('the containment floor boundary', () {
+      test('four characters is enough', () {
+        expect(pickBestMatchIndex(['Dune: Part Two'], 'Dune'), 0);
+      });
+
+      test('three is not', () {
+        expect(pickBestMatchIndex(['Jigsaw'], 'Saw'), isNull);
+      });
+
+      test('kMinContainmentChars is the documented threshold', () {
+        expect(kMinContainmentChars, 4);
+      });
+    });
+  });
+
+  group('tmdbSearchCandidates', () {
+    test('offers the stored title first, then the show folder', () {
+      expect(
+        tmdbSearchCandidates('/tv/The Office/xyz.release.mkv', 'The Office'),
+        ['The Office'],
+      );
+      // A useless filename is rescued by the folder that names the show.
+      expect(
+        tmdbSearchCandidates('/tv/The Office/xyz.release.mkv', 'xyz release'),
+        ['xyz release', 'The Office'],
+      );
+    });
+
+    // The other half of the false-match bug: with the canonical layout the
+    // "folder" is just the library root, so this searched TMDB for "movies".
+    test('a file loose in a library root contributes no folder candidate', () {
+      expect(
+        tmdbSearchCandidates('/movies/Inception.mkv', 'Inception',
+            rootPaths: {'/movies'}),
+        ['Inception'],
+      );
+    });
+
+    test('a file inside a folder under a root still offers the folder', () {
+      expect(
+        tmdbSearchCandidates('/movies/Inception (2010)/Inception.mkv',
+            'raw.release', rootPaths: {'/movies'}),
+        // cleanShowName turns release-style dots into spaces.
+        ['raw release', 'Inception'],
+      );
+    });
+
+    test('an unrelated root does not suppress a real show folder', () {
+      expect(
+        tmdbSearchCandidates('/tv/The Office/xyz.mkv', 'xyz',
+            rootPaths: {'/movies'}),
+        ['xyz', 'The Office'],
+      );
+    });
+
+    test('a season folder is skipped in favour of the show folder', () {
+      expect(
+        tmdbSearchCandidates(
+            '/tv/The Office/Season 2/xyz.mkv', 'xyz', rootPaths: {'/tv'}),
+        ['xyz', 'The Office'],
+      );
+    });
+
+    test('duplicate candidates are collapsed', () {
+      expect(
+        tmdbSearchCandidates('/tv/The Office/The Office.mkv', 'The Office'),
+        ['The Office'],
+      );
+    });
   });
 
   group('unmatchedShowKey', () {

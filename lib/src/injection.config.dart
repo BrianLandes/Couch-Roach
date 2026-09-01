@@ -178,12 +178,6 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i657.ErrorLogService>(),
           gh<_i486.SettingsService>(),
         ));
-    gh.lazySingleton<_i495.LibraryMatchService>(() => _i495.LibraryMatchService(
-          gh<_i877.LibraryRepository>(),
-          gh<_i819.DiscoveryClient>(),
-          gh<_i657.ErrorLogService>(),
-          gh<_i784.AppConfig>(),
-        ));
     gh.lazySingleton<_i680.AlexaInboxService>(() => _i680.AlexaInboxService(
           gh<_i519.Client>(),
           gh<_i819.DiscoveryClient>(),
@@ -212,6 +206,13 @@ extension GetItInjectableX on _i174.GetIt {
               gh<_i156.TorrentDaemon>(),
               gh<_i657.ErrorLogService>(),
             ));
+    gh.lazySingleton<_i495.LibraryMatchService>(() => _i495.LibraryMatchService(
+          gh<_i877.LibraryRepository>(),
+          gh<_i819.DiscoveryClient>(),
+          gh<_i657.ErrorLogService>(),
+          gh<_i784.AppConfig>(),
+          gh<_i883.StorageManager>(),
+        ));
     gh.lazySingleton<_i842.MediaScanner>(
         () => _i842.MediaScanner(gh<_i883.StorageManager>()));
     gh.lazySingleton<_i38.LibraryService>(() => _i38.LibraryService(

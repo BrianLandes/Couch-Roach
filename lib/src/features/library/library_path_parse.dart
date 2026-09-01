@@ -131,7 +131,19 @@ ParsedMedia parseLibraryPath(String filePath) {
 
 /// Ordered TMDB search queries for [filePath], best-first: the parsed/stored
 /// [storedTitle], then the show/containing folder. Deduped; empties dropped.
-List<String> tmdbSearchCandidates(String filePath, String storedTitle) {
+///
+/// The folder candidate exists to rescue a file whose *name* is a useless
+/// release string but whose folder names the show ("/tv/The Office/xyz.mkv").
+/// That only holds when the folder is the title's own — a file sitting loose
+/// directly in a library root has no show folder, just the root's name
+/// ("/movies/Inception.mkv" would search for "movies"), so pass [rootPaths] and
+/// the folder candidate is skipped for those. Omitting [rootPaths] keeps the old
+/// behaviour, which is only safe when the caller knows the file is foldered.
+List<String> tmdbSearchCandidates(
+  String filePath,
+  String storedTitle, {
+  Set<String> rootPaths = const {},
+}) {
   final out = <String>[];
   void add(String s) {
     final c = cleanShowName(s);
@@ -139,7 +151,7 @@ List<String> tmdbSearchCandidates(String filePath, String storedTitle) {
   }
 
   add(storedTitle);
-  add(showFolderName(filePath));
+  if (!isLooseInRoot(filePath, rootPaths)) add(showFolderName(filePath));
   return out;
 }
 
@@ -150,12 +162,24 @@ String unmatchedShowKey(String filePath, String fallbackTitle) {
   return FilenameMediaInfo.normalizeTitle(folder.isNotEmpty ? folder : fallbackTitle);
 }
 
+/// How many normalized characters the *contained* side of a containment match
+/// must have before it counts as evidence.
+///
+/// Below this, containment is noise rather than a match: "it" ⊂ "titanic",
+/// "saw" ⊂ "jigsaw", and a single letter is inside almost every title. Short
+/// titles that are genuinely real ("M", "Up", "It") are unaffected — they're
+/// caught by the exact-match pass above, which has no length rule.
+const int kMinContainmentChars = 4;
+
 /// The index of the TMDB result whose name best matches [query], or null when
-/// none is a confident match. An exact normalized match wins; otherwise a
-/// containment either way ("Office" ⊂ "The Office", "The Office US" ⊃ "Office"),
-/// earliest (most TMDB-relevant) first. Returning null — rather than blindly
-/// taking result 0 — is what stops a noisy query from grabbing the wrong title.
-/// Pure + tested.
+/// none is a confident match.
+///
+/// An exact normalized match wins outright. Failing that, containment either way
+/// ("Office" ⊂ "The Office", "The Office US" ⊃ "Office"), earliest (most
+/// TMDB-relevant) first — but only when the **contained** side is at least
+/// [kMinContainmentChars] long, so a stray short query can't sweep up an
+/// unrelated title. Returning null — rather than blindly taking result 0 — is
+/// what stops a noisy query grabbing the wrong title. Pure + tested.
 int? pickBestMatchIndex(List<String> resultNames, String query) {
   final q = FilenameMediaInfo.normalizeTitle(query);
   if (q.isEmpty) return null;
@@ -164,9 +188,12 @@ int? pickBestMatchIndex(List<String> resultNames, String query) {
     if (norm[i] == q) return i;
   }
   for (var i = 0; i < norm.length; i++) {
-    if (norm[i].isNotEmpty && (norm[i].contains(q) || q.contains(norm[i]))) {
-      return i;
-    }
+    final n = norm[i];
+    if (n.isEmpty) continue;
+    // Guard whichever string is the contained one — a short *result* inside a
+    // long query is as weak as a short query inside a long result.
+    if (n.contains(q) && q.length >= kMinContainmentChars) return i;
+    if (q.contains(n) && n.length >= kMinContainmentChars) return i;
   }
   return null;
 }

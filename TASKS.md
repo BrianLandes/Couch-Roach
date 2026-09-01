@@ -20,6 +20,45 @@ drop the rest._
 
 _Aim for one task here at a time._
 
+### Title matching: a very short query false-matches anything · `p3`
+
+- [x] Fixed in two places — the length floor the task described, plus the root-name
+  candidate that turned out to be the more common trigger.
+
+**1. Containment floor.** `pickBestMatchIndex` fell back to substring containment with no
+length rule, so a stray short query swept up whatever TMDB returned (`'m'` matched
+`'Something Entirely Different'`; `'It'` matched `'Titanic'`, which really does contain
+"it"). Containment now requires the **contained** side to be ≥ `kMinContainmentChars` (4) —
+guarded on whichever string is the contained one, since a short *result* inside a long query
+is exactly as weak. Genuinely short films (*M*, *Up*, *It*) are unaffected: they're caught by
+the exact-match pass, which has no length rule.
+
+**2. The bigger one the task understated.** The floor fixes `/m/…` and `/tv/…`, but the
+canonical layout is `/movies/Inception.mkv` — `movies` normalizes to 6 chars, sails past any
+floor, and contain-matches a result named "Movie". Root cause: `tmdbSearchCandidates` added
+the containing folder unconditionally, so a file sitting **loose in a library root** got
+searched for by the root's own name. It now takes `rootPaths` and skips the folder candidate
+via the existing `isLooseInRoot` — the same structural helper `library_grouping` already
+uses, so no denylist of folder names. `LibraryMatchService` takes `StorageManager` to supply
+them; `main()` awaits `StorageManager.load()` before `matchUnmatched()`, so the roots are
+populated when it runs. Omitting `rootPaths` keeps the old behaviour for callers that know
+the file is foldered.
+
+Note this is a **different path** from the earlier "Stop matching a longer title that merely
+contains the target" task — that one hardened *torrent release* matching
+(`titleMatches`/`titleMatchesStrict` in `filename_media_info.dart`). This is the TMDB
+search-result validation in `library_path_parse.dart`; the two don't share code.
+
+**No schema change.** Tests: 11 on `pickBestMatchIndex`/`tmdbSearchCandidates` (both floor
+directions, the boundary at 3 vs 4, short-titles-still-match, loose-in-root vs foldered,
+season folders, dedupe) + 3 end-to-end through the match service, including the `/movies`
+case the floor alone wouldn't catch. 721 green; `library_path_parse.dart` 95.7%.
+
+Not verified on-device: whether the real library has titles that *depended* on the loose
+containment. The exact-match pass covers short titles, and nothing in the suite regressed,
+but a title that only ever matched by a ≤3-char containment would now stay unmatched (and
+retry on the next pass, so it fails soft).
+
 ### Show detail: reflect a just-ready episode's Play button live (season download) · `p3`
 
 - [x] While a season downloads, an episode that finishes now flips its row to Play with no
@@ -81,20 +120,6 @@ Follow-up (not done): requires `ALEXA_INBOX_TOKEN` in `dart_define.json` before 
 ## To Do
 
 _Queued and ready to pick up._
-
-### Title matching: a very short query false-matches anything · `p3`
-
-- [ ] `pickBestMatchIndex` ([library_path_parse.dart](lib/src/features/library/library_path_parse.dart))
-  falls back to substring containment either way, with no minimum query length. A
-  1–2 character query therefore matches almost any TMDB result:
-  `pickBestMatchIndex(['Something Entirely Different'], 'm')` returns `0`.
-- Reachable in practice because `tmdbSearchCandidates` adds the **containing folder
-  name** as a second query — a library rooted at a short folder (`/m/…`, `/tv/…`)
-  feeds that short name straight in after the real title misses.
-- Found while writing `library_match_service_test.dart`; the containment branch is
-  there for "Office" ⊂ "The Office", which a minimum length (3–4 chars) wouldn't
-  break. Wants its own on-device check against the real library before changing
-  match behaviour, hence a separate task rather than folding it into the audit.
 
 ### `_splitYear` in LibraryMatchService is dead for the common path · `p4`
 

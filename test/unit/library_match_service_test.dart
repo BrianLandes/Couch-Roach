@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:couch_roach/src/core/logging/error_log_service.dart';
+import 'package:couch_roach/src/core/storage/storage_manager.dart';
 import 'package:couch_roach/src/data/db/database.dart';
 import 'package:couch_roach/src/data/repositories/library_repository.dart';
 import 'package:couch_roach/src/features/library/library_match_service.dart';
@@ -11,6 +12,20 @@ import 'package:http/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_app_config.dart';
+
+/// Reports a fixed set of library roots; nothing else on StorageManager is used
+/// by the matcher.
+class _FakeStorageManager implements StorageManager {
+  _FakeStorageManager(this._paths);
+  final Set<String> _paths;
+
+  @override
+  List<StorageRoot> get roots =>
+      [for (final p in _paths) StorageRoot(path: p)];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) async => null;
+}
 
 void main() {
   late AppDatabase db;
@@ -24,13 +39,20 @@ void main() {
 
   /// A service wired to a scripted TMDB endpoint. [configured] drives the
   /// `hasTmdbKey` gate: the real config is always empty under `flutter test`,
-  /// so the fake is what makes the matching path reachable at all.
-  LibraryMatchService serviceFor(MockClient mock, {bool configured = true}) =>
+  /// so the fake is what makes the matching path reachable at all. [roots] are
+  /// the configured library roots — a file sitting loose in one of them must not
+  /// be searched for by the root's own name.
+  LibraryMatchService serviceFor(
+    MockClient mock, {
+    bool configured = true,
+    Set<String> roots = const {},
+  }) =>
       LibraryMatchService(
         library,
         TmdbClient(mock, ErrorLogService()),
         ErrorLogService(),
         FakeAppConfig(hasTmdbKey: configured),
+        _FakeStorageManager(roots),
       );
 
   test('unmatched returns only rows without a tmdb id', () async {
@@ -233,6 +255,64 @@ void main() {
       ])).matchUnmatched();
 
       expect((await library.getAll()).single.tmdbId, 2316);
+    });
+
+    // End-to-end guard for the false-match bug. Before the fix, the stored
+    // title missed, the folder name went in as a second query, and containment
+    // handed back whatever TMDB had returned.
+    group('a library root never becomes a search query', () {
+      test('a short root name no longer sweeps up an unrelated title',
+          () async {
+        await seed(const ScannedFile(
+            filePath: '/m/Inception.mkv',
+            title: 'Inception',
+            mediaType: 'movie'));
+
+        await serviceFor(
+          tmdbRouter(movies: [
+            {'id': 99, 'title': 'Something Entirely Different'},
+          ]),
+          roots: {'/m'},
+        ).matchUnmatched();
+
+        expect((await library.getAll()).single.tmdbId, isNull);
+      });
+
+      // The canonical layout: "/movies" is 6 characters, so the length floor
+      // alone wouldn't have saved this one.
+      test('the conventional "movies" root does not match a title named Movie',
+          () async {
+        await seed(const ScannedFile(
+            filePath: '/movies/Inception.mkv',
+            title: 'Inception',
+            mediaType: 'movie'));
+
+        await serviceFor(
+          tmdbRouter(movies: [
+            {'id': 99, 'title': 'Movie'},
+          ]),
+          roots: {'/movies'},
+        ).matchUnmatched();
+
+        expect((await library.getAll()).single.tmdbId, isNull);
+      });
+
+      test('a real show folder under a root still rescues a bad filename',
+          () async {
+        await seed(const ScannedFile(
+            filePath: '/tv/The Office/xyz.release.name.mkv',
+            title: 'xyz.release.name',
+            mediaType: 'tv'));
+
+        await serviceFor(
+          tmdbRouter(tv: [
+            {'id': 2316, 'name': 'The Office', 'poster_path': '/o.jpg'},
+          ]),
+          roots: {'/tv'},
+        ).matchUnmatched();
+
+        expect((await library.getAll()).single.tmdbId, 2316);
+      });
     });
 
     test('an already-matched row is left alone', () async {
