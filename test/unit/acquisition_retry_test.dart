@@ -63,6 +63,57 @@ void main() {
     });
   });
 
+  group('rankedTorznabResults maxHeight', () {
+    TorznabResult r(String title, {int seeders = 10, int size = 1000}) =>
+        TorznabResult(
+            title: title, downloadUrl: title, seeders: seeders, sizeBytes: size);
+
+    test('prefers a release at or under the cap over one above it', () {
+      // The 4K release is better on every other signal — more seeders and a
+      // bigger file — and must still lose to the 1080p one under a 1080 cap.
+      final ranked = rankedTorznabResults([
+        r('Show.S01E01.2160p.WEB-DL', seeders: 500, size: 20000),
+        r('Show.S01E01.1080p.WEB-DL', seeders: 5, size: 3000),
+      ], maxHeight: 1080);
+      expect(ranked.first.title, contains('1080p'));
+    });
+
+    test('without a cap the old order stands (seeders, then size)', () {
+      final ranked = rankedTorznabResults([
+        r('Show.S01E01.1080p.WEB-DL', seeders: 5),
+        r('Show.S01E01.2160p.WEB-DL', seeders: 500),
+      ]);
+      expect(ranked.first.title, contains('2160p'));
+    });
+
+    test('a release naming no resolution is never demoted', () {
+      final ranked = rankedTorznabResults([
+        r('Show.S01E01.2160p.WEB-DL', seeders: 500),
+        r('Show.S01E01.WEB-DL', seeders: 100), // unknown resolution
+      ], maxHeight: 1080);
+      expect(ranked.first.title, 'Show.S01E01.WEB-DL');
+    });
+
+    test('is a preference, not a filter — over-cap results are kept', () {
+      // Nothing is under the cap, so the best 4K release is still returned
+      // rather than the download failing for want of a smaller one.
+      final ranked = rankedTorznabResults([
+        r('Show.S01E01.2160p.WEB-DL', seeders: 10),
+        r('Show.S01E01.4K.HDR', seeders: 90),
+      ], maxHeight: 1080);
+      expect(ranked, hasLength(2));
+      expect(ranked.first.title, 'Show.S01E01.4K.HDR'); // seed health breaks it
+    });
+
+    test('within-cap results still rank among themselves by seed health', () {
+      final ranked = rankedTorznabResults([
+        r('Show.S01E01.720p.WEB-DL', seeders: 5),
+        r('Show.S01E01.1080p.WEB-DL', seeders: 50),
+      ], maxHeight: 1080);
+      expect(ranked.first.title, contains('1080p'));
+    });
+  });
+
   group('parseAcquisitionKey', () {
     test('reads tmdb id, season and episode off an episode key', () {
       final key = acquisitionDedupeKey(

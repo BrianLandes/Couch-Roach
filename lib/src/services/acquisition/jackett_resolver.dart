@@ -55,6 +55,7 @@ class JackettResolver implements AcquisitionResolver {
 
     final excludeSign = _settings.excludeSignLanguage;
     final preferLang = _settings.preferredAudioLanguage;
+    final maxHeight = _settings.maxDownloadHeight;
     try {
       // TV episode: verify the release actually is this episode — never trust the
       // indexer's season/ep filtering, which routinely returns other episodes.
@@ -68,7 +69,7 @@ class JackettResolver implements AcquisitionResolver {
           final packBest = pickBestTorznabResult(
               seasonPackResults(packResults, meta, season,
                   excludeSignLanguage: excludeSign, excludeUrls: exclude),
-              preferAudioLanguage: preferLang);
+              preferAudioLanguage: preferLang, maxHeight: maxHeight);
           if (packBest != null) {
             _log.info(
                 'resolved S${season}E$episode via season pack "${packBest.title}"',
@@ -86,7 +87,7 @@ class JackettResolver implements AcquisitionResolver {
         final episodeBest = pickBestTorznabResult(
             verifiedEpisodeResults(episodeResults, meta, season, episode,
                 excludeSignLanguage: excludeSign, excludeUrls: exclude),
-            preferAudioLanguage: preferLang);
+            preferAudioLanguage: preferLang, maxHeight: maxHeight);
         if (episodeBest != null) {
           _log.info(
               'no verified season pack for S${season}E$episode — using single '
@@ -109,7 +110,8 @@ class JackettResolver implements AcquisitionResolver {
       final results = await _query(config, meta, season, episode);
       final pool = verifiedMovieResults(results, meta,
           excludeSignLanguage: excludeSign, excludeUrls: exclude);
-      final best = pickBestTorznabResult(pool, preferAudioLanguage: preferLang);
+      final best = pickBestTorznabResult(pool,
+          preferAudioLanguage: preferLang, maxHeight: maxHeight);
       if (best == null) {
         _log.info('no title-verified source for movie "${meta.title}"',
             source: 'JackettResolver');
@@ -138,6 +140,7 @@ class JackettResolver implements AcquisitionResolver {
             excludeSignLanguage: _settings.excludeSignLanguage,
             excludeUrls: exclude),
         preferAudioLanguage: _settings.preferredAudioLanguage,
+        maxHeight: _settings.maxDownloadHeight,
       );
       if (best == null) return null;
       return TorrentHandle(
@@ -165,6 +168,7 @@ class JackettResolver implements AcquisitionResolver {
             excludeSignLanguage: _settings.excludeSignLanguage,
             excludeUrls: exclude),
         preferAudioLanguage: _settings.preferredAudioLanguage,
+        maxHeight: _settings.maxDownloadHeight,
       );
       if (best == null) return null;
       return TorrentHandle(
@@ -219,7 +223,8 @@ class JackettResolver implements AcquisitionResolver {
 
       // Rank episodes + packs together, then collapse same-content duplicates.
       final ranked = dedupeTorznabResults(rankedTorznabResults(results,
-          preferAudioLanguage: _settings.preferredAudioLanguage));
+          preferAudioLanguage: _settings.preferredAudioLanguage,
+          maxHeight: _settings.maxDownloadHeight));
       return [
         for (final r in ranked)
           SourceCandidate(
@@ -355,18 +360,38 @@ List<TorznabResult> parseTorznabResults(String xmlBody) {
   return results;
 }
 
-/// Rank Torznab hits best-first. When [preferAudioLanguage] is set (a non-empty
-/// language the user wants dubbed audio in), releases whose title tags that
-/// language rank first — an explicit tag over a generic multi/dual-audio marker
-/// over neither — before the usual signals. Otherwise, and to break ties, seed
-/// health dominates (the streaming signal), then the larger file (usually higher
-/// quality). Pure + tested.
+/// Rank Torznab hits best-first.
+///
+/// Order of precedence:
+/// 1. **[maxHeight]** (when > 0) — releases at or under the cap rank above ones
+///    above it. This is a *preference*, not a filter: if 4K is all that exists
+///    you still get it, rather than the download failing. A release that names
+///    no resolution counts as within the cap (see
+///    [FilenameMediaInfo.releaseHeight]).
+/// 2. **[preferAudioLanguage]** (when non-empty) — an explicit language tag over
+///    a generic multi/dual-audio marker over neither.
+/// 3. Seed health — the streaming signal.
+/// 4. Larger file, as a last tie-break.
+///
+/// The cap outranks seed health on purpose: a beautifully-seeded 4K file this
+/// box can't play smoothly is worse than a 1080p one it can. Pure + tested.
 List<TorznabResult> rankedTorznabResults(
   List<TorznabResult> results, {
   String? preferAudioLanguage,
+  int maxHeight = 0,
 }) {
   final lang = preferAudioLanguage?.trim() ?? '';
+  bool withinCap(TorznabResult r) {
+    if (maxHeight <= 0) return true;
+    final h = FilenameMediaInfo.releaseHeight(r.title);
+    return h == null || h <= maxHeight; // unknown is never demoted
+  }
+
   return [...results]..sort((a, b) {
+      if (maxHeight > 0) {
+        final ca = withinCap(a), cb = withinCap(b);
+        if (ca != cb) return ca ? -1 : 1;
+      }
       if (lang.isNotEmpty) {
         final sa = FilenameMediaInfo.audioLanguageScore(a.title, lang);
         final sb = FilenameMediaInfo.audioLanguageScore(b.title, lang);
@@ -381,9 +406,10 @@ List<TorznabResult> rankedTorznabResults(
 TorznabResult? pickBestTorznabResult(
   List<TorznabResult> results, {
   String? preferAudioLanguage,
+  int maxHeight = 0,
 }) {
-  final ranked =
-      rankedTorznabResults(results, preferAudioLanguage: preferAudioLanguage);
+  final ranked = rankedTorznabResults(results,
+      preferAudioLanguage: preferAudioLanguage, maxHeight: maxHeight);
   return ranked.isEmpty ? null : ranked.first;
 }
 

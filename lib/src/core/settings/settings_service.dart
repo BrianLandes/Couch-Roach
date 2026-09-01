@@ -30,6 +30,7 @@ class SettingsService extends ChangeNotifier {
   static const _kHwdecMode = 'hwdecMode';
   static const _kVerboseLogging = 'verboseLogging';
   static const _kMaxVideoHeight = 'maxVideoHeight';
+  static const _kMaxDownloadHeight = 'maxDownloadHeight';
   static const _kLowPowerVideo = 'lowPowerVideo';
   static const _kInternetArchive = 'internetArchiveEnabled';
   static const _kPersonalizedCategories = 'personalizedCategories';
@@ -105,6 +106,15 @@ class SettingsService extends ChangeNotifier {
   /// by default because it also upscales a source *smaller* than the cap.
   int get maxVideoHeight => _intOr(_kMaxVideoHeight, 0);
 
+  /// Cap the resolution of releases the resolver picks (0 = no cap, default).
+  ///
+  /// A *preference*, not a filter: when nothing at or under the cap exists the
+  /// best available is still used, so a download never fails for this reason.
+  /// The lever that actually fixes 4K stutter on a box that can't do zero-copy
+  /// decoding — capping the *output* only shrinks the draw, while not fetching
+  /// 4K in the first place avoids the per-frame GPU→CPU readback entirely.
+  int get maxDownloadHeight => _intOr(_kMaxDownloadHeight, 0);
+
   /// Trade a little video quality for much lower CPU use (skip the deblocking
   /// loop filter, cheap scaling). For underpowered boxes that stutter.
   bool get lowPowerVideo => _boolOr(_kLowPowerVideo, false);
@@ -148,6 +158,8 @@ class SettingsService extends ChangeNotifier {
   Future<void> setHwdecMode(String v) => _setString(_kHwdecMode, v);
   Future<void> setVerboseLogging(bool v) => _setBool(_kVerboseLogging, v);
   Future<void> setMaxVideoHeight(int v) => _setString(_kMaxVideoHeight, '$v');
+  Future<void> setMaxDownloadHeight(int v) =>
+      _setString(_kMaxDownloadHeight, '$v');
   Future<void> setLowPowerVideo(bool v) => _setBool(_kLowPowerVideo, v);
   Future<void> setInternetArchiveEnabled(bool v) =>
       _setBool(_kInternetArchive, v);

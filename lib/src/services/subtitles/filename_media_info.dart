@@ -148,6 +148,29 @@ class FilenameMediaInfo {
     'vii': '7', 'viii': '8', 'ix': '9',
   };
 
+  // Resolution as release titles write it: `2160p`, `1080p`, `720p`, `480p`,
+  // plus the `4K`/`UHD` spellings that mean 2160. Bounded by word edges so a
+  // number inside a title can't be read as a resolution.
+  static final _resolutionToken = RegExp(
+    r'\b(?:(2160|1080|720|576|480)[pi]|(4k|uhd))\b',
+    caseSensitive: false,
+  );
+
+  /// The vertical resolution a release [title] advertises (2160, 1080, 720, …),
+  /// or null when it names none.
+  ///
+  /// Used to keep a box that can't play 4K from being handed 4K: the ranking
+  /// prefers releases at or under the user's cap. Null means *unknown*, and an
+  /// unknown release is never demoted — plenty of good releases just don't say,
+  /// and guessing them to be 4K would push them below genuinely worse ones.
+  /// Pure + tested.
+  static int? releaseHeight(String title) {
+    final m = _resolutionToken.firstMatch(title.replaceAll(RegExp(r'[._]+'), ' '));
+    if (m == null) return null;
+    if (m.group(1) != null) return int.parse(m.group(1)!);
+    return 2160; // 4k / uhd
+  }
+
   /// The season number of a **whole-season pack** named by [filename], or null
   /// when it names a single episode (has an `SxxExx`/`NxM` marker) or carries no
   /// season marker at all. Lets the resolver treat `Show.S01.1080p` as season 1's

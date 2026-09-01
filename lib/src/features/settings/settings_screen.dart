@@ -130,6 +130,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 options: _audioLanguageOptions,
                 onChanged: (v) => _set(_settings.setPreferredAudioLanguage(v)),
               ),
+              _DropdownRow(
+                title: 'Maximum download quality',
+                subtitle:
+                    "Prefer releases at or below this resolution. Use this if "
+                    "4K files don't play smoothly on this machine — it's the "
+                    'real fix, since capping the display only helps a little. '
+                    'If nothing smaller exists the best available is still used.',
+                value: _settings.maxDownloadHeight.toString(),
+                options: _downloadQualityOptions,
+                onChanged: (v) =>
+                    _set(_settings.setMaxDownloadHeight(int.tryParse(v) ?? 0)),
+              ),
               _ToggleRow(
                 title: 'Skip sign-language versions',
                 subtitle:
@@ -568,6 +580,15 @@ const _hwdecOptions = <(String, String)>[
   ('vaapi', 'VA-API — Linux'),
   ('nvdec', 'NVDEC — NVIDIA'),
   ('no', 'Software (no hardware decoding)'),
+];
+
+/// Download resolution caps. '0' (no cap) is first so it's the fallback for an
+/// unknown stored value, and matches the default.
+const _downloadQualityOptions = <(String, String)>[
+  ('0', 'Any (default)'),
+  ('2160', 'Up to 4K'),
+  ('1080', 'Up to 1080p'),
+  ('720', 'Up to 720p'),
 ];
 
 /// Output-size caps. '0' (uncapped) is first so it's the fallback for an

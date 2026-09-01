@@ -32,6 +32,17 @@ void main() {
     expect(settings.verboseLogging, isFalse);
     // Video output is uncapped unless the user opts in.
     expect(settings.maxVideoHeight, 0);
+    // Downloads aren't resolution-capped by default either.
+    expect(settings.maxDownloadHeight, 0);
+  });
+
+  test('max download height persists', () async {
+    await settings.setMaxDownloadHeight(1080);
+    expect(settings.maxDownloadHeight, 1080);
+
+    final reloaded = SettingsService(db);
+    await reloaded.load();
+    expect(reloaded.maxDownloadHeight, 1080);
   });
 
   test('max video height persists', () async {

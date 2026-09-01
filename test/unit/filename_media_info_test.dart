@@ -173,6 +173,35 @@ void main() {
     });
   });
 
+  group('releaseHeight', () {
+    int? h(String t) => FilenameMediaInfo.releaseHeight(t);
+
+    test('reads the usual resolution tags', () {
+      expect(h('Show.S01E01.2160p.WEB-DL.x265'), 2160);
+      expect(h('Show.S01E01.1080p.BluRay'), 1080);
+      expect(h('Show S01E01 720p HDTV'), 720);
+      expect(h('Old.Film.480p.DVDRip'), 480);
+      expect(h('Show.S01E01.1080i.HDTV'), 1080); // interlaced counts
+    });
+
+    test('4K and UHD mean 2160', () {
+      expect(h('Planet.Earth.II.4K.HDR'), 2160);
+      expect(h('Planet Earth II UHD BluRay'), 2160);
+    });
+
+    test('is null when the title names no resolution', () {
+      expect(h('Show.S01E01.WEB-DL.x264'), isNull);
+      expect(h('Some Movie 2019'), isNull);
+    });
+
+    test('a bare number in the title is not a resolution', () {
+      // Word-bounded and suffix-required, so these are not read as 1080/720.
+      expect(h('Apollo 13'), isNull);
+      expect(h('Blade.Runner.2049.BluRay'), isNull);
+      expect(h('Show.S01E01.x264'), isNull);
+    });
+  });
+
   group('seasonPackNumber', () {
     test('reads S01 / Season 1 / Series 1 as a pack', () {
       expect(FilenameMediaInfo.seasonPackNumber('Game.of.Thrones.S01.1080p'), 1);

@@ -264,11 +264,28 @@ letterboxes into the box preserving aspect, so a 16:9 box bounds any ratio: the 
 renders 1920x960 instead of 3840x1920 — a quarter of the pixels for the output stage. Opt-in
 because it also upscales a source *smaller* than the cap.
 
-**Honest limitation:** this cuts the upload-and-draw half only. The GPU→CPU readback still
-happens at the decoded resolution, so it reduces the bottleneck rather than removing it.
-**If 1080p/720p isn't enough, the decisive fix is to stop fetching 4K for this box** —
-a max-download-resolution preference (prefer 1080p releases over 2160p) in the resolver, which
-sidesteps the readback entirely. Queue that if the cap underdelivers.
+**Output cap tested — barely helped.** With `maxVideoHeight=1080`: drops went 791 → **695**
+(~12% better, still ~48% of frames). As predicted, it only cuts the upload-and-draw half; the
+GPU→CPU readback still happens at the full decoded 4K resolution and that's the dominant cost.
+Setting kept — it's a real if small win, and free — but it isn't the fix.
+
+**The actual fix, shipped: don't fetch 4K for this box.** New `maxDownloadHeight` setting
+(0 = any, 2160/1080/720) with a "Maximum download quality" dropdown. Feeds
+`rankedTorznabResults(maxHeight:)`, which now ranks within-cap releases **above** over-cap ones
+— ahead of seed health, deliberately: a beautifully-seeded 4K file this box can't play is worse
+than a 1080p one it can. New pure `FilenameMediaInfo.releaseHeight(title)` parses
+`2160p`/`1080p`/`720p`/`480p`/`1080i` plus `4K`/`UHD`, word-bounded so `Apollo 13` and
+`Blade Runner 2049` aren't misread.
+
+Two deliberate choices: it's a **preference, not a filter** (if only 4K exists you still get it,
+rather than the download failing), and a release naming **no** resolution is **never demoted**
+(plenty of good releases don't say, and guessing them to be 4K would push them below genuinely
+worse ones). Threaded through all six resolver call sites. Tests: 4 on `releaseHeight` incl.
+the bare-number guards, 5 on the ranking (cap beats seeders, no-cap keeps old order, unknown
+not demoted, preference-not-filter, within-cap still ranks by seed health).
+
+**Note this only affects new downloads.** The existing 4K file on disk still stutters —
+re-download it at 1080p to benefit.
 
 **Earlier device test (superseded):** User tried several Hardware decoder values;
 Direct3D 11 seemed *slightly* better but nowhere near watchable, the rest made no difference.
