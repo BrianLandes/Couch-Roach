@@ -23,22 +23,29 @@
   builds (~100MB); a personal single-machine app can afford it, and ffprobe is an
   optional speed upgrade (the app degrades to the libmpv fallback without it).
 
-  NOTE on pinning: BtbN publishes immutable per-build `autobuild-*` release tags
-  but prunes old ones over time. If this URL 404s, bump $BuildTag/$Asset to a
-  current autobuild release (https://github.com/BtbN/FFmpeg-Builds/releases) and
-  refresh $ExpectedSha256. A missing binary is non-fatal — the CMake rule is
-  guarded and the app falls back — so a stale pin degrades gracefully.
+  NOTE on pinning: this used to pin an immutable `autobuild-<date>` tag, but BtbN
+  PRUNES those after a few weeks and the build then dies on a 404 — which is
+  exactly what happened. It now uses the `latest` rolling release, whose asset
+  names are stable and never 404.
+
+  The trade: `latest` moves, so a fixed checksum can't be kept in step (BtbN
+  rebuilds daily). $ExpectedSha256 is therefore OPTIONAL — leave it empty and the
+  script reports the hash it downloaded without verifying; set it to pin a known
+  build and the script fails on any mismatch. Either way the download is HTTPS
+  from the known publisher and the archive is checked for the binaries we want.
+  To pin: run this once, copy the reported SHA-256 in, and expect to refresh it
+  whenever you deliberately take a newer build.
 
   third_party/ is gitignored. Idempotent: a no-op if the exe is already present.
   The GitHub Actions Windows build runs this before `flutter build windows`.
 #>
 $ErrorActionPreference = 'Stop'
 
-# --- Pinned build (bump deliberately; update $ExpectedSha256 when you do) ---
-$BuildTag       = 'autobuild-2026-07-08-13-30'
-$Asset          = 'ffmpeg-n7.1.5-1-g7d0e842004-win64-lgpl-7.1.zip'
+# --- Source build. $ExpectedSha256 is optional: empty = report only (see above) ---
+$BuildTag       = 'latest'
+$Asset          = 'ffmpeg-master-latest-win64-lgpl.zip'
 $Url            = "https://github.com/BtbN/FFmpeg-Builds/releases/download/$BuildTag/$Asset"
-$ExpectedSha256 = 'ADF7C790DDFF381341CF47186D7B94663F03F5499E93E048F7E98A98BBCAC9D7'
+$ExpectedSha256 = ''
 
 $Root        = Split-Path -Parent $PSScriptRoot
 $VendorRoot  = Join-Path $Root 'third_party\ffprobe'
@@ -61,8 +68,12 @@ try {
   Invoke-WebRequest -Uri $Url -OutFile $archive
 
   $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash
-  if ($hash -ne $ExpectedSha256) {
+  if ([string]::IsNullOrWhiteSpace($ExpectedSha256)) {
+    Write-Host "NOTE downloaded SHA-256: $hash (unpinned; set `$ExpectedSha256 to enforce)"
+  } elseif ($hash -ne $ExpectedSha256) {
     throw "SHA-256 mismatch: expected $ExpectedSha256 but got $hash"
+  } else {
+    Write-Host "OK SHA-256 verified against the pin"
   }
 
   Write-Host "Extracting ffprobe.exe + ffmpeg.exe ..."

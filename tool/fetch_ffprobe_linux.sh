@@ -20,21 +20,24 @@
 # builds (~100MB); a personal single-machine app can afford it, and ffprobe is an
 # optional speed upgrade (the app degrades to the libmpv fallback without it).
 #
-# NOTE on pinning: BtbN publishes immutable per-build `autobuild-*` release tags
-# but prunes old ones over time. If this URL 404s, bump BUILD_TAG/ASSET to a
-# current autobuild release (https://github.com/BtbN/FFmpeg-Builds/releases) and
-# refresh EXPECTED_SHA256. A missing binary is non-fatal — the CMake rule is
-# guarded and the app falls back — so a stale pin degrades gracefully.
+# NOTE on pinning: this used to pin an immutable `autobuild-<date>` tag, but BtbN
+# PRUNES those after a few weeks and the build then dies on a 404. It now uses the
+# `latest` rolling release, whose asset names are stable and never 404.
+#
+# The trade: `latest` moves, so a fixed checksum can't be kept in step (BtbN
+# rebuilds daily). EXPECTED_SHA256 is therefore OPTIONAL — leave it empty and the
+# script reports the hash it downloaded without verifying; set it to pin a known
+# build and the script fails on any mismatch.
 #
 # third_party/ is gitignored. Idempotent: re-running with the binary present +
 # checksum-matching is a no-op. Override the install dir with FFPROBE_VENDOR_DIR.
 set -euo pipefail
 
-# --- Pinned build (bump deliberately; update EXPECTED_SHA256 when you do) ---
-BUILD_TAG="autobuild-2026-07-08-13-30"
-ASSET="ffmpeg-n7.1.5-1-g7d0e842004-linux64-lgpl-7.1.tar.xz"
+# --- Source build. EXPECTED_SHA256 is optional: empty = report only (see above) ---
+BUILD_TAG="latest"
+ASSET="ffmpeg-master-latest-linux64-lgpl.tar.xz"
 URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/${BUILD_TAG}/${ASSET}"
-EXPECTED_SHA256="34496c6de1ff9fc9251b9466db3247cadf3d74e369e9e7b158d22944a73cd3a1"
+EXPECTED_SHA256=""
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR_ROOT="${FFPROBE_VENDOR_DIR:-$ROOT/third_party/ffprobe}"
@@ -57,7 +60,15 @@ trap 'rm -rf "$tmp"' EXIT
 archive="$tmp/ffmpeg.tar.xz"
 echo "Downloading FFmpeg (LGPL static, linux64) ${BUILD_TAG} ..."
 curl -fSL --retry 3 -o "$archive" "$URL"
-echo "${EXPECTED_SHA256}  ${archive}" | sha256sum -c -
+actual_sha="$(sha256sum "$archive" | cut -d' ' -f1)"
+if [[ -z "$EXPECTED_SHA256" ]]; then
+  echo "NOTE downloaded SHA-256: $actual_sha (unpinned; set EXPECTED_SHA256 to enforce)"
+elif [[ "$actual_sha" != "$EXPECTED_SHA256" ]]; then
+  echo "SHA-256 mismatch: expected $EXPECTED_SHA256 but got $actual_sha" >&2
+  exit 1
+else
+  echo "✓ SHA-256 verified against the pin"
+fi
 
 # Extract just bin/ffprobe and the LICENSE from the single top-level folder.
 echo "Extracting ffprobe + ffmpeg ..."

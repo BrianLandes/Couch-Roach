@@ -413,6 +413,21 @@ time.
 
 ### Sidecars bundle must be republished before ffmpeg exists on the box · `p1`
 
+**The first attempt failed: the pinned FFmpeg build had been pruned.** `fetch_ffprobe_*` pinned
+`autobuild-2026-07-08-13-30`, and BtbN deletes those tags after a few weeks — the exact failure
+the script's own comment predicted. Both scripts now use the **`latest`** rolling release, whose
+asset names (`ffmpeg-master-latest-win64-lgpl.zip`, `…linux64-lgpl.tar.xz`) are stable and never
+404. Verified both reachable.
+
+**Trade-off, deliberately taken and reversible:** `latest` moves (BtbN rebuilds daily), so a
+fixed checksum can't be kept in step. `ExpectedSha256`/`EXPECTED_SHA256` are now **optional** —
+empty means the script reports the hash it downloaded without enforcing it, and setting one
+restores hard verification. The download is still HTTPS from the known publisher and the archive
+is still checked for the binaries we want. **If you'd rather keep a hard pin**, take the SHA the
+next run prints and paste it in; it'll need refreshing whenever you take a newer build. That
+choice is yours — the previous author pinned on purpose, and this weakens it to keep CI from
+breaking every few weeks.
+
 - [ ] **Action required (user):** run the **launcher-build** workflow manually. It's
   `workflow_dispatch:` only — it never fires on push — so vendoring ffmpeg into the fetch
   scripts did **not** publish a new sidecars zip. Until it's rerun, `ffmpeg.exe` isn't on the
