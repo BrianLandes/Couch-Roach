@@ -8,6 +8,7 @@ import 'package:couch_roach/src/data/tmdb/season.dart';
 import 'package:couch_roach/src/data/tmdb/tv_show_details.dart';
 import 'package:couch_roach/src/features/discover/discover_providers.dart';
 import 'package:couch_roach/src/features/discover/show_detail_screen.dart';
+import 'package:couch_roach/src/core/settings/settings_service.dart';
 import 'package:couch_roach/src/injection.dart';
 import 'package:couch_roach/src/services/discovery/tmdb_client.dart';
 import 'package:couch_roach/src/theme/theme.dart';
@@ -117,6 +118,19 @@ final _details = TvShowDetails(
   ],
 );
 
+/// The show detail page reads the download-quality cap to decide whether to
+/// offer the manual "Make it play smoothly" action. Default 0 (no cap) keeps
+/// that item hidden, which is what these tests expect.
+class _FakeSettings implements SettingsService {
+  _FakeSettings({this.maxDownloadHeight = 0});
+
+  @override
+  final int maxDownloadHeight;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
 void main() {
   late _FakeLibraryRepo library;
 
@@ -127,7 +141,8 @@ void main() {
       ..registerLazySingleton<SavedTitlesRepository>(_FakeSavedTitlesRepo.new)
       ..registerLazySingleton<LibraryRepository>(() => library)
       ..registerLazySingleton<WatchHistoryRepository>(_FakeWatchHistoryRepo.new)
-      ..registerLazySingleton<DiscoveryClient>(_StubDiscovery.new);
+      ..registerLazySingleton<DiscoveryClient>(_StubDiscovery.new)
+      ..registerLazySingleton<SettingsService>(_FakeSettings.new);
   });
 
   tearDown(() async {
