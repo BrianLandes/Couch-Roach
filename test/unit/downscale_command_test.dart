@@ -71,6 +71,11 @@ Encoders:
       expect(args, contains('-y'));
     });
 
+    test('emits machine-readable progress instead of the human stats line', () {
+      expect(args, containsAllInOrder(['-progress', 'pipe:1']));
+      expect(args, contains('-nostats'));
+    });
+
     test('the output path is last', () {
       expect(args.last, 'out.mkv');
     });
@@ -98,6 +103,61 @@ Encoders:
         '{"streams":"nope"}',
       ]) {
         expect(parseFfprobeVideoHeight(s), isNull, reason: s);
+      }
+    });
+  });
+
+  group('progress reporting', () {
+    test('reads out_time_us off a progress line', () {
+      expect(parseFfmpegOutTimeUs('out_time_us=5000000'), 5000000);
+      expect(parseFfmpegOutTimeUs('  out_time_us=0  '), 0);
+    });
+
+    test('ignores every other key in the progress block', () {
+      for (final line in [
+        'frame=123',
+        'fps=25.0',
+        'speed=1.2x',
+        'out_time=00:00:05.000000',
+        'progress=continue',
+        '',
+      ]) {
+        expect(parseFfmpegOutTimeUs(line), isNull, reason: line);
+      }
+    });
+
+    test('detects the end marker', () {
+      expect(isFfmpegProgressEnd('progress=end'), isTrue);
+      expect(isFfmpegProgressEnd('progress=continue'), isFalse);
+    });
+
+    test('turns elapsed output time into a fraction', () {
+      expect(
+          ffmpegProgressFraction(outTimeUs: 30000000, durationSeconds: 60),
+          0.5);
+    });
+
+    test('clamps past the end — ffmpeg can overshoot slightly', () {
+      expect(
+          ffmpegProgressFraction(outTimeUs: 61000000, durationSeconds: 60), 1.0);
+    });
+
+    test('is null when either side is unknown, so the bar goes indeterminate',
+        () {
+      expect(ffmpegProgressFraction(outTimeUs: null, durationSeconds: 60),
+          isNull);
+      expect(ffmpegProgressFraction(outTimeUs: 100, durationSeconds: null),
+          isNull);
+      expect(
+          ffmpegProgressFraction(outTimeUs: 100, durationSeconds: 0), isNull);
+    });
+
+    test('parses the container duration, and survives its absence', () {
+      expect(parseFfprobeDurationSeconds('{"format":{"duration":"2700.5"}}'),
+          2700.5);
+      expect(parseFfprobeDurationSeconds('{"format":{"duration":1200}}'), 1200);
+      for (final s in ['', '{}', '{"format":{}}', '{"format":{"duration":"0"}}']) {
+        expect(parseFfprobeDurationSeconds(s), isNull, reason: s);
       }
     });
   });

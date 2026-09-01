@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/platform/open_url.dart';
+import '../../injection.dart';
 import '../../services/acquisition/acquisition.dart';
+import '../../services/transcode/downscale_service.dart';
 import '../../services/acquisition/qbittorrent_process.dart';
 import '../../theme/theme.dart';
 import '../../widgets/app_back_button.dart';
@@ -49,6 +51,9 @@ class DownloadsScreen extends ConsumerWidget {
                   ],
                 ),
               ),
+              // A downscale in flight is activity too — and it's the slowest
+              // thing the app does, so it needs somewhere visible to report.
+              const _DownscaleBanner(),
               Expanded(
                 child: async.when(
                   loading: () =>
@@ -296,6 +301,79 @@ class _Centered extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Text(text, style: TextStyle(color: color, fontSize: 16)),
+    );
+  }
+}
+
+
+/// Progress for the downscale job, when one is running. Hidden entirely when
+/// idle, so the Downloads screen looks exactly as it did before on the common
+/// path.
+class _DownscaleBanner extends StatelessWidget {
+  const _DownscaleBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return ValueListenableBuilder<DownscaleJob?>(
+      valueListenable: getIt<DownscaleService>().current,
+      builder: (context, job, _) {
+        if (job == null) return const SizedBox.shrink();
+        final pct = job.progress == null
+            ? null
+            : '${(job.progress! * 100).round()}%';
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.screenPadding,
+            0,
+            AppSpacing.screenPadding,
+            AppSpacing.md,
+          ),
+          child: GlassSurface(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.hd_outlined,
+                          size: 18, color: AppColors.secondary),
+                      const SizedBox(width: AppSpacing.xs),
+                      Expanded(
+                        child: Text(
+                          'Making "${job.title}" play smoothly',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: text.titleSmall,
+                        ),
+                      ),
+                      if (pct != null)
+                        Text(pct,
+                            style: text.labelMedium
+                                ?.copyWith(color: AppColors.textSecondary)),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  ClipRRect(
+                    borderRadius: AppRadii.rSm,
+                    // A null value renders an indeterminate bar — right when
+                    // the duration probe came back empty.
+                    child: LinearProgressIndicator(
+                      value: job.progress,
+                      minHeight: 8,
+                      backgroundColor: AppColors.glassFill,
+                      valueColor:
+                          const AlwaysStoppedAnimation(AppColors.secondary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

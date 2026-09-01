@@ -62,6 +62,10 @@ List<String> downscaleArgs({
       '-y',
       '-hide_banner',
       '-nostdin',
+      // Machine-readable progress on stdout instead of the human stats line,
+      // so a long encode can drive a real progress bar.
+      '-nostats',
+      '-progress', 'pipe:1',
       '-i', input,
       '-map', '0',
       '-c', 'copy',
@@ -77,6 +81,9 @@ List<String> probeVideoStreamArgs(String input) => [
       '-v', 'quiet',
       '-print_format', 'json',
       '-show_streams',
+      // Duration lives on the container, and it's what turns ffmpeg's elapsed
+      // output time into a percentage.
+      '-show_format',
       '-select_streams', 'v:0',
       input,
     ];
@@ -118,3 +125,52 @@ bool needsDownscale({required int? height, required int maxHeight}) {
 }
 
 const _capMargin = 64;
+
+
+/// The container duration in seconds from [probeVideoStreamArgs] output, or
+/// null when absent/unparseable. Pure + tested.
+double? parseFfprobeDurationSeconds(String jsonText) {
+  try {
+    final decoded = jsonDecode(jsonText);
+    if (decoded is! Map<String, dynamic>) return null;
+    final format = decoded['format'];
+    if (format is! Map<String, dynamic>) return null;
+    final d = format['duration'];
+    final seconds = d is num ? d.toDouble() : double.tryParse('$d');
+    return (seconds != null && seconds > 0) ? seconds : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Microseconds of output written so far, parsed from one line of ffmpeg's
+/// `-progress` stream (`out_time_us=12345`), or null for any other line.
+///
+/// ffmpeg emits a block of `key=value` lines every second, so the caller reads
+/// line by line and keeps the newest value it recognises. Pure + tested.
+int? parseFfmpegOutTimeUs(String line) {
+  final trimmed = line.trim();
+  // `out_time_ms` is, confusingly, also microseconds in ffmpeg's output — we
+  // read `out_time_us` and ignore the other to avoid depending on that quirk.
+  const key = 'out_time_us=';
+  if (!trimmed.startsWith(key)) return null;
+  final value = int.tryParse(trimmed.substring(key.length));
+  return (value != null && value >= 0) ? value : null;
+}
+
+/// Whether one line of ffmpeg's `-progress` stream reports the run finished.
+bool isFfmpegProgressEnd(String line) => line.trim() == 'progress=end';
+
+/// Fraction complete (0.0–1.0) from elapsed output time and total duration, or
+/// null when either is unknown — the UI shows an indeterminate bar rather than
+/// a wrong number. Clamped, since ffmpeg can report slightly past the end.
+/// Pure + tested.
+double? ffmpegProgressFraction({
+  required int? outTimeUs,
+  required double? durationSeconds,
+}) {
+  if (outTimeUs == null || durationSeconds == null || durationSeconds <= 0) {
+    return null;
+  }
+  return (outTimeUs / 1e6 / durationSeconds).clamp(0.0, 1.0);
+}

@@ -173,6 +173,10 @@ void main() {
         settings,
         log,
       );
+      // Registered by hand rather than via injectable: the Downloads screen
+      // watches its progress, and this container has no SDK to re-run
+      // build_runner with. get_it takes a plain instance happily.
+      getIt.registerSingleton<DownscaleService>(downscaler);
       Timer.periodic(
         const Duration(minutes: 5),
         (_) => unawaited(downscaler.sweep()),

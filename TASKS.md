@@ -357,6 +357,14 @@ Two unrelated errors this surfaced, both worth their own look:
   (stream mapping, even-width scale, 10-bit, no stdin), ffprobe height parsing, and the
   needs-downscale margin (never re-encode to shave 8 pixels; unknown height means leave alone).
 
+**Visible progress.** The encode reports live on the **Downloads screen** — a glass banner
+reading "Making \"<title>\" play smoothly" with a percentage and bar, hidden entirely when idle.
+ffmpeg runs under `-progress pipe:1 -nostats` and the service streams stdout, so progress is the
+real elapsed output time over the probed container duration rather than a guess; an unknown
+duration renders an indeterminate bar instead of a wrong number. stderr is drained so a chatty
+encode can't fill the pipe buffer and wedge. `DownscaleService` exposes a
+`ValueListenable<DownscaleJob?>` and is registered in `getIt` by hand (no codegen needed).
+
 **On-device to verify:** `ffmpeg -encoders | findstr qsv` actually lists `hevc_qsv`; that a
 downscaled file still looks HDR-correct (colour metadata should carry, but that's the part most
 worth eyeballing); and how long an episode takes.

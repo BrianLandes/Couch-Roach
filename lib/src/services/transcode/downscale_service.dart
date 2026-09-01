@@ -1,5 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/logging/error_log_service.dart';
@@ -29,8 +32,18 @@ import 'downscale_command.dart';
 /// Not an `@LazySingleton` for the same reason as `DownloadedEpisodeRegistrar`:
 /// `injection.config.dart` can't be regenerated in the container this was
 /// written in. Convert it when codegen next runs.
+/// A downscale in flight, for the Downloads screen to render.
+typedef DownscaleJob = ({String filePath, String title, double? progress});
+
 class DownscaleService {
   DownscaleService(this._library, this._settings, this._log);
+
+  /// The job running right now, or null when idle. A [ValueListenable] so the
+  /// UI can watch it directly — this service is a plain object outside the DI
+  /// container, and the alternative (polling) would be worse for a job that
+  /// reports progress once a second.
+  ValueListenable<DownscaleJob?> get current => _current;
+  final ValueNotifier<DownscaleJob?> _current = ValueNotifier(null);
 
   final LibraryRepository _library;
   final SettingsService _settings;
@@ -137,18 +150,43 @@ class DownscaleService {
   Future<void> _downscale(String path,
       {required String encoder, required int maxHeight}) async {
     final temp = '$path.downscaling.mkv';
+    final title = p.basenameWithoutExtension(path);
+    final duration = await _durationOf(path);
     _log.info('downscaling to ${maxHeight}p: $path', source: 'DownscaleService');
+    _current.value = (filePath: path, title: title, progress: null);
+
     try {
-      final res = await Process.run(
+      final proc = await Process.start(
         ffmpegCommand(),
         downscaleArgs(
             input: path, output: temp, encoder: encoder, maxHeight: maxHeight),
       );
+      // ffmpeg writes a key=value block to stdout once a second under
+      // `-progress`; keep the newest output time we recognise.
+      final progressDone = proc.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        final us = parseFfmpegOutTimeUs(line);
+        if (us == null) return;
+        _current.value = (
+          filePath: path,
+          title: title,
+          progress: ffmpegProgressFraction(
+              outTimeUs: us, durationSeconds: duration),
+        );
+      });
+      // Drain stderr so a chatty encode can't fill the pipe buffer and wedge.
+      final errDone = proc.stderr.drain<void>();
+      final exitCode = await proc.exitCode;
+      await progressDone.cancel();
+      await errDone;
+
       final out = File(temp);
-      if (res.exitCode != 0 || !out.existsSync() || out.lengthSync() <= 0) {
+      if (exitCode != 0 || !out.existsSync() || out.lengthSync() <= 0) {
         _failed.add(path);
         if (out.existsSync()) out.deleteSync();
-        _log.warn('downscale failed (exit ${res.exitCode}): $path',
+        _log.warn('downscale failed (exit $exitCode): $path',
             source: 'DownscaleService');
         return;
       }
@@ -161,6 +199,19 @@ class DownscaleService {
     } catch (e, st) {
       _failed.add(path);
       _log.logError(e, stackTrace: st, source: 'DownscaleService.downscale');
+    } finally {
+      _current.value = null;
+    }
+  }
+
+  /// Container duration, cached with the height probe it shares a call with.
+  Future<double?> _durationOf(String path) async {
+    try {
+      final res = await Process.run(
+          SubtitleSkipCheck.ffprobeCommand(), probeVideoStreamArgs(path));
+      return parseFfprobeDurationSeconds('${res.stdout}');
+    } catch (_) {
+      return null; // an unknown duration just means an indeterminate bar
     }
   }
 }
