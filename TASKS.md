@@ -411,6 +411,16 @@ extraction and playback — YouTube also answers 403. If trailers still fail aft
 the next thread to pull: log the `ip=` param and compare it against the egress address at fetch
 time.
 
+### Sidecars bundle must be republished before ffmpeg exists on the box · `p1`
+
+- [ ] **Action required (user):** run the **launcher-build** workflow manually. It's
+  `workflow_dispatch:` only — it never fires on push — so vendoring ffmpeg into the fetch
+  scripts did **not** publish a new sidecars zip. Until it's rerun, `ffmpeg.exe` isn't on the
+  machine and the downscale feature reports itself unavailable. Adding ffmpeg to the bundle's
+  content hash means the launcher will re-download once a new zip exists.
+- Note the workflow clears the previous `sidecars` release before publishing, so a failed run
+  leaves no sidecars asset — worth watching it through.
+
 ### Manual downscale trigger (episode menu) · `p3`
 
 - [x] The Play button's overflow menu on the show detail page gained **"Make it play smoothly"**,

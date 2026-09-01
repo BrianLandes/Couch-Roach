@@ -55,9 +55,14 @@ class DownscaleService {
   /// Paths whose downscale failed this session — not retried until restart.
   final Set<String> _failed = {};
 
-  /// Resolved once: the hardware encoder to use, or null when the build has
-  /// none (feature stays off).
+  /// Resolved once: the hardware encoder to use, or null when unavailable.
   String? _encoder;
+
+  /// Why [_encoder] is null, phrased for the user. Two very different causes —
+  /// ffmpeg missing entirely vs. present-but-no-hardware-encoder — and
+  /// collapsing them into one message makes the problem undiagnosable from the
+  /// UI, so they're kept apart.
+  String? _encoderProblem;
   bool _encoderResolved = false;
 
   /// Downscale at most one file. Returns the path it processed, or null when
@@ -121,7 +126,7 @@ class DownscaleService {
     try {
       final encoder = await _resolveEncoder();
       if (encoder == null) {
-        return 'No hardware video encoder available on this machine.';
+        return _encoderProblem ?? 'Video conversion is unavailable.';
       }
       // Re-probe rather than trusting the cache: the user may be asking
       // *because* something changed.
@@ -147,20 +152,30 @@ class DownscaleService {
     _encoderResolved = true;
     try {
       if (!await ffmpegAvailable()) {
-        _log.warn('downscale unavailable: no ffmpeg in the sidecar bundle',
+        _encoderProblem =
+            "ffmpeg isn't installed yet — the sidecar bundle needs updating.";
+        _log.warn(
+            'downscale unavailable: no ffmpeg found (looked for '
+            '"${ffmpegCommand()}"). The sidecars bundle predates ffmpeg — '
+            'republish it from the launcher-build workflow.',
             source: 'DownscaleService');
         return null;
       }
-      final res = await Process.run(ffmpegCommand(), ['-hide_banner', '-encoders']);
+      final res =
+          await Process.run(ffmpegCommand(), ['-hide_banner', '-encoders']);
       _encoder = pickHardwareEncoder('${res.stdout}');
       if (_encoder == null) {
+        _encoderProblem =
+            'This ffmpeg build has no hardware video encoder this machine '
+            'can use.';
         _log.warn(
-            'downscale unavailable: this ffmpeg build has no hardware HEVC '
-            'encoder (LGPL builds carry no x264/x265, and software encoding 4K '
-            'is not viable here)',
+            'downscale unavailable: ffmpeg at "${ffmpegCommand()}" lists none '
+            'of $kPreferredEncoders (LGPL builds carry no x264/x265, and '
+            'software-encoding 4K is not viable here)',
             source: 'DownscaleService');
       } else {
-        _log.info('downscale will use $_encoder', source: 'DownscaleService');
+        _log.info('downscale will use $_encoder (${ffmpegCommand()})',
+            source: 'DownscaleService');
       }
     } catch (e, st) {
       _log.logError(e, stackTrace: st, source: 'DownscaleService.resolveEncoder');
