@@ -36,6 +36,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # Catches errors anywhere under lib/, including files no test imports.
+      # --no-fatal-infos so style lints don't gate the build; errors and
+      # warnings still do.
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
       # Generated files (*.g.dart, injection.config.dart) are committed, so no
       # build_runner step is needed for a normal run.
       - name: Run tests
