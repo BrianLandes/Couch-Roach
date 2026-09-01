@@ -101,6 +101,47 @@ class DownscaleService {
     return null;
   }
 
+  /// Downscale [filePath] now, ahead of the periodic sweep — the manual
+  /// trigger behind the episode menu's "Make it play smoothly".
+  ///
+  /// Returns null when the job started, or a short human-readable reason it
+  /// couldn't. The reasons are surfaced to the user, so this deliberately does
+  /// **not** silently no-op the way [sweep] does: someone who asked for this
+  /// explicitly deserves to be told why nothing happened.
+  Future<String?> requestDownscale(String filePath) async {
+    final cap = _settings.maxDownloadHeight;
+    if (cap <= 0) {
+      return 'Set a maximum download quality in Settings first.';
+    }
+    if (_busy) return 'Already converting something else.';
+    if (playbackActive.value) return 'Not while a video is playing.';
+    if (!File(filePath).existsSync()) return "That file isn't on disk.";
+
+    _busy = true;
+    try {
+      final encoder = await _resolveEncoder();
+      if (encoder == null) {
+        return 'No hardware video encoder available on this machine.';
+      }
+      // Re-probe rather than trusting the cache: the user may be asking
+      // *because* something changed.
+      _heightCache.remove(filePath);
+      final height = await _heightOf(filePath);
+      if (height == null) return "Couldn't read that file's resolution.";
+      if (!needsDownscale(height: height, maxHeight: cap)) {
+        return 'Already ${height}p — no conversion needed.';
+      }
+      _failed.remove(filePath); // an explicit ask overrides an earlier failure
+      await _downscale(filePath, encoder: encoder, maxHeight: cap);
+      return null;
+    } catch (e, st) {
+      _log.logError(e, stackTrace: st, source: 'DownscaleService.request');
+      return 'Conversion failed — see the error log.';
+    } finally {
+      _busy = false;
+    }
+  }
+
   Future<String?> _resolveEncoder() async {
     if (_encoderResolved) return _encoder;
     _encoderResolved = true;

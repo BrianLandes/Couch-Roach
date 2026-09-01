@@ -57,6 +57,86 @@ void main() {
     });
   });
 
+  group('parseYtDlpJson picks the right headers', () {
+    // The trailer-403 regression: YouTube ties a playback URL to the client
+    // that extracted it (`c=ANDROID_VR`) and rejects a fetch whose User-Agent
+    // doesn't match. yt-dlp's top-level http_headers carried a desktop-Chrome
+    // UA while the selected format came from a different client.
+    test('prefers the selected format\'s headers over the top-level ones', () {
+      const json = '''
+      {
+        "url": "https://example.googlevideo.com/videoplayback?c=ANDROID_VR",
+        "http_headers": {"User-Agent": "Mozilla/5.0 Chrome/148"},
+        "formats": [
+          {"url": "https://other", "http_headers": {"User-Agent": "wrong"}},
+          {
+            "url": "https://example.googlevideo.com/videoplayback?c=ANDROID_VR",
+            "http_headers": {"User-Agent": "com.google.android.apps.youtube.vr"}
+          }
+        ]
+      }''';
+      final r = parseYtDlpJson(json);
+      expect(r!.headers['User-Agent'], 'com.google.android.apps.youtube.vr');
+    });
+
+    test('falls back to top-level headers when no format matches', () {
+      const json = '''
+      {
+        "url": "https://a",
+        "http_headers": {"User-Agent": "generic"},
+        "formats": [{"url": "https://b", "http_headers": {"User-Agent": "x"}}]
+      }''';
+      expect(parseYtDlpJson(json)!.headers['User-Agent'], 'generic');
+    });
+
+    test('falls back when the matching format carries no headers', () {
+      const json = '''
+      {
+        "url": "https://a",
+        "http_headers": {"User-Agent": "generic"},
+        "formats": [{"url": "https://a"}]
+      }''';
+      expect(parseYtDlpJson(json)!.headers['User-Agent'], 'generic');
+    });
+
+    test('a missing formats array is fine', () {
+      const json = '{"url":"https://a","http_headers":{"User-Agent":"g"}}';
+      expect(parseYtDlpJson(json)!.headers['User-Agent'], 'g');
+    });
+  });
+
+  group('mpvHeaderFields', () {
+    test('formats headers as mpv list entries', () {
+      expect(mpvHeaderFields({'Accept': 'text/html, */*'}),
+          ['Accept: text/html, */*']);
+    });
+
+    test('drops the headers mpv must own itself', () {
+      // User-Agent goes through mpv's dedicated property; the rest are
+      // per-connection and overriding them corrupts the request.
+      final out = mpvHeaderFields({
+        'User-Agent': 'x',
+        'Accept-Encoding': 'gzip',
+        'Host': 'example.com',
+        'Connection': 'keep-alive',
+        'Content-Length': '5',
+        'Range': 'bytes=0-',
+        'Accept-Language': 'en-US',
+      });
+      expect(out, ['Accept-Language: en-US']);
+    });
+
+    test('is case-insensitive about which names to drop', () {
+      expect(mpvHeaderFields({'user-agent': 'x', 'ACCEPT-ENCODING': 'gzip'}),
+          isEmpty);
+    });
+
+    test('skips empty values and handles an empty map', () {
+      expect(mpvHeaderFields({'X-Thing': ''}), isEmpty);
+      expect(mpvHeaderFields(const {}), isEmpty);
+    });
+  });
+
   group('pickSubtitleFile', () {
     test('returns null when nothing looks like a subtitle', () {
       expect(pickSubtitleFile(const []), isNull);

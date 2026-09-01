@@ -25,17 +25,71 @@ ResolvedStream? parseYtDlpJson(String jsonStr) {
     final json = jsonDecode(jsonStr.trim()) as Map<String, dynamic>;
     final url = json['url'] as String?;
     if (url == null || url.isEmpty) return null;
-    final headers = <String, String>{};
-    final raw = json['http_headers'];
-    if (raw is Map) {
-      raw.forEach((k, v) {
-        if (k is String && k.isNotEmpty && v != null) headers[k] = '$v';
-      });
+
+    // Prefer the *selected format's* own headers over the top-level ones.
+    //
+    // This matters: YouTube ties a playback URL to the client that extracted it
+    // (the `c=` query param — e.g. `c=ANDROID_VR`), and rejects a fetch whose
+    // User-Agent doesn't match with **HTTP 403**. yt-dlp's top-level
+    // `http_headers` is the generic set and can carry a desktop-Chrome UA while
+    // the chosen format came from a different client, which is exactly the
+    // mismatch that broke trailer playback. The per-format headers are the ones
+    // that actually go with this URL.
+    var headers = _headersFrom(json['http_headers']);
+    final formats = json['formats'];
+    if (formats is List) {
+      for (final f in formats) {
+        if (f is Map && f['url'] == url) {
+          final perFormat = _headersFrom(f['http_headers']);
+          if (perFormat.isNotEmpty) headers = perFormat;
+          break;
+        }
+      }
     }
     return ResolvedStream(url: url, headers: headers);
   } catch (_) {
     return null;
   }
+}
+
+Map<String, String> _headersFrom(Object? raw) {
+  final headers = <String, String>{};
+  if (raw is Map) {
+    raw.forEach((k, v) {
+      if (k is String && k.isNotEmpty && v != null) headers[k] = '$v';
+    });
+  }
+  return headers;
+}
+
+/// Headers to forward to mpv as `http-header-fields` entries, formatted
+/// `Name: value`.
+///
+/// [skipped] names are left out deliberately:
+/// * **User-Agent** is set through mpv's dedicated `user-agent` property, and
+///   sending it twice risks a duplicate header.
+/// * **Accept-Encoding** — ffmpeg negotiates and decodes compression itself;
+///   forcing yt-dlp's value can yield a body mpv won't decode.
+/// * **Host / Connection / Content-Length / Range** are per-connection and
+///   mpv's own, so overriding them corrupts the request.
+///
+/// Pure + tested.
+List<String> mpvHeaderFields(Map<String, String> headers) {
+  const skipped = {
+    'user-agent',
+    'accept-encoding',
+    'host',
+    'connection',
+    'content-length',
+    'range',
+  };
+  final out = <String>[];
+  headers.forEach((k, v) {
+    if (skipped.contains(k.toLowerCase())) return;
+    if (v.isEmpty) return;
+    out.add('$k: $v');
+  });
+  return out;
 }
 
 /// Resolve a page URL to a direct stream with the bundled yt-dlp — the

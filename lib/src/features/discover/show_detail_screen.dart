@@ -21,6 +21,8 @@ import '../library/saved_titles_providers.dart';
 import '../acquire/acquire_button.dart';
 import '../acquire/acquire_play.dart';
 import '../downloads/downloads_providers.dart';
+import '../../core/settings/settings_service.dart';
+import '../../services/transcode/downscale_service.dart';
 import '../player/player_screen.dart';
 import 'discover_providers.dart';
 import 'new_episodes.dart';
@@ -842,6 +844,23 @@ class _Availability extends ConsumerWidget {
     await confirmAndDelete(context, what: '$showName S${s}E$e', items: [item]);
   }
 
+  /// Manually convert this episode down to the resolution cap. The service
+  /// reports why it declined (already small enough, no encoder, busy) so the
+  /// user isn't left guessing after an explicit request.
+  Future<void> _downscaleEpisode(BuildContext context, LibraryItem item) async {
+    // Capture before the await — this widget can be gone by the time a long
+    // conversion returns.
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(
+      content: Text('Converting… progress is on the Downloads screen.'),
+    ));
+    final reason =
+        await getIt<DownscaleService>().requestDownscale(item.filePath);
+    messenger.showSnackBar(SnackBar(
+      content: Text(reason ?? 'Converted — it should play smoothly now.'),
+    ));
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final item = local;
@@ -869,6 +888,14 @@ class _Availability extends ConsumerWidget {
           const SizedBox(width: AppSpacing.xs),
           MenuAnchor(
             menuChildren: [
+              // Only offered when a cap exists to convert *to*; the service
+              // still re-checks and explains itself if it declines.
+              if (getIt<SettingsService>().maxDownloadHeight > 0)
+                MenuItemButton(
+                  leadingIcon: const Icon(Icons.hd_outlined, size: 18),
+                  onPressed: () => _downscaleEpisode(context, item),
+                  child: const Text('Make it play smoothly'),
+                ),
               MenuItemButton(
                 leadingIcon:
                     const Icon(Icons.delete_outline_rounded, size: 18),

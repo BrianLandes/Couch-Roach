@@ -382,6 +382,46 @@ worth eyeballing); and how long an episode takes.
 
 ### Trailer / YouTube playback stopped working (regression) · `p2`
 
+**DIAGNOSED + FIXED (2026-09-01).** yt-dlp resolves the stream fine, then mpv's fetch of the
+googlevideo URL returns **HTTP 403 Forbidden**. Root cause visible in the log: the resolved URL
+carries `c=ANDROID_VR` (yt-dlp extracted with the Android VR client — YouTube has been forcing
+clients around, which is why this broke with no change on our side), while we set a
+**desktop-Chrome User-Agent**. YouTube ties a playback URL to the extracting client and rejects
+a mismatched UA with 403.
+
+Two fixes:
+1. `parseYtDlpJson` now prefers the **selected format's own** `http_headers` over the top-level
+   set, falling back when the format carries none. The top-level set is generic and can name a
+   different client than the format actually chosen — exactly the mismatch here.
+2. `_applyStreamHeaders` sends **all** the headers, not just the UA. They used to be dropped
+   because `http-header-fields` is comma-separated and values like `Accept` contain commas;
+   `NativePlayer.command(['change-list', 'http-header-fields', 'append', …])` appends them one
+   at a time, which sidesteps that entirely. The list is cleared first so a re-open can't
+   accumulate stale headers. `mpvHeaderFields` excludes User-Agent (set via its own property)
+   and the per-connection headers mpv must own (Accept-Encoding, Host, Connection,
+   Content-Length, Range).
+
+Tests: per-format header preference (matching format wins, falls back when absent/headerless/no
+formats array) and `mpvHeaderFields` (formatting, the exclusion list, case-insensitivity, empties).
+
+**Caveat — a second candidate cause is not ruled out.** The failing URL was bound to an **IPv6**
+address (`ip=2a0e:d785:…`) despite `--force-ipv4` being passed to yt-dlp. If mpv then fetches
+from a different address — plausible on a dual-stack box, or if the VPN reconnects between
+extraction and playback — YouTube also answers 403. If trailers still fail after this, that's
+the next thread to pull: log the `ip=` param and compare it against the egress address at fetch
+time.
+
+### Manual downscale trigger (episode menu) · `p3`
+
+- [x] The Play button's overflow menu on the show detail page gained **"Make it play smoothly"**,
+  shown only when a download-quality cap is set. `DownscaleService.requestDownscale(path)` runs
+  it ahead of the periodic sweep and returns a short reason when it declines (no cap, busy,
+  playing, missing file, no encoder, already small enough) — surfaced as a snackbar, because
+  someone who asked explicitly deserves to be told why nothing happened rather than getting the
+  silent no-op `sweep()` does. It re-probes rather than trusting the height cache and clears any
+  earlier failure for that path, since an explicit ask should override both.
+
+
 - [ ] Playing trailers / YouTube videos fails now — was working before, unclear when it broke; no error captured yet, but nearly everything tried recently fails.
 - First step: reproduce and **capture the actual error** (ErrorLogService log + the player/network error). Likely causes to check: the YouTube extraction path (an `explode`/yt-dlp-style resolver whose API/endpoints drifted — YouTube changes break these often), a changed trailer URL/key from TMDB (`videos` endpoint → YouTube key), or the embed/stream handoff to mpv. Confirm where in the chain it dies (no trailer key? extraction fails? mpv can't open the resolved URL?) before fixing. [windows]
 

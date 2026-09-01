@@ -578,20 +578,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return resolved.url;
   }
 
-  /// Match yt-dlp's User-Agent for a resolved stream, via mpv's `user-agent`.
-  /// A googlevideo URL is signed and self-contained (it fetches without any
-  /// special header), but some clients' URLs are UA-sensitive, so setting the
-  /// exact UA yt-dlp used is a cheap safeguard. We deliberately skip the other
-  /// reported headers: mpv's `http-header-fields` is a comma-separated list and
-  /// values like `Accept` contain commas, which would corrupt the list.
+  /// Send the resolved stream the exact headers yt-dlp says go with it.
+  ///
+  /// YouTube binds a playback URL to the client that extracted it (the `c=`
+  /// query param) and answers **403** to a fetch whose User-Agent doesn't
+  /// match, so this is load-bearing, not a safeguard.
+  ///
+  /// The UA goes through mpv's dedicated `user-agent` property; the rest go in
+  /// one at a time via `change-list … append`. That sidesteps the reason the
+  /// other headers used to be dropped — `http-header-fields` is a
+  /// comma-separated list and values like `Accept` contain commas, which
+  /// corrupts it when set as one string. The list is cleared first so a
+  /// re-open can't accumulate stale headers.
+  ///
   /// Best-effort — a failure is logged, never fatal.
   Future<void> _applyStreamHeaders(Map<String, String> headers) async {
     final platform = _player.platform;
     if (platform is! NativePlayer) return;
-    final ua = headers['User-Agent'] ?? headers['user-agent'];
-    if (ua == null || ua.isEmpty) return;
     try {
-      await platform.setProperty('user-agent', ua);
+      final ua = headers['User-Agent'] ?? headers['user-agent'];
+      if (ua != null && ua.isNotEmpty) {
+        await platform.setProperty('user-agent', ua);
+      }
+      await platform.command(['change-list', 'http-header-fields', 'clr', '']);
+      for (final field in mpvHeaderFields(headers)) {
+        await platform.command(
+            ['change-list', 'http-header-fields', 'append', field]);
+      }
     } catch (e, st) {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'PlayerScreen.streamHeaders');
