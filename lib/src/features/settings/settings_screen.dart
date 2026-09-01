@@ -341,10 +341,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               const SizedBox(height: AppSpacing.xxl),
               const Divider(),
               const SizedBox(height: AppSpacing.md),
-              _SectionLabel('Error log', text: text),
+              _SectionLabel('Logs', text: text),
+              _ToggleRow(
+                title: 'Verbose logging',
+                subtitle:
+                    'Also record routine activity, not just warnings and '
+                    'errors. Turn this on while chasing a problem, then back '
+                    'off — it makes the log much noisier.',
+                value: _settings.verboseLogging,
+                onChanged: (v) => _set(_settings.setVerboseLogging(v)),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'This session — everything:',
+                style: text.labelMedium?.copyWith(color: AppColors.textSecondary),
+              ),
               SelectableText(
                 getIt<ErrorLogService>().logFilePath ?? 'initializing…',
                 style: text.bodyMedium?.copyWith(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'This session — warnings and errors only:',
+                style: text.labelMedium?.copyWith(color: AppColors.textSecondary),
+              ),
+              SelectableText(
+                getIt<ErrorLogService>().errorLogFilePath ?? 'initializing…',
+                style: text.bodyMedium?.copyWith(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'A new pair of logs is started each time the app launches; the '
+                'last 10 launches are kept.',
+                style: text.labelMedium?.copyWith(color: AppColors.textSecondary),
               ),
             ],
           ),

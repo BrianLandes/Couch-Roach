@@ -181,8 +181,12 @@ helpers, `AppTheme.dark`, and a component gallery at `Routes.styleShowcase`
 
 ## Error logging
 No remote backend (unlike the sibling projects' Supabase error table), so errors
-go to a **local text log**: `<app-support>/logs/couch_roach.log` (rotates at
-~5 MB). `ErrorLogService` (`lib/src/core/logging/`) is the single sink every
+go to **local text logs** under `<app-support>/logs/`. Each launch writes a pair —
+`couch_roach-<stamp>.log` (everything) and `couch_roach-<stamp>.errors.log`
+(warnings/errors only) — rather than one ever-growing file; the newest 10
+launches are kept and older sessions pruned on startup. `info`-level tracing is
+gated behind the "Verbose logging" setting (off by default); warnings and errors
+always write. `ErrorLogService` (`lib/src/core/logging/`) is the single sink every
 system opts into via `getIt<ErrorLogService>().logError(e, stackTrace:, source:)`;
 `main()` also routes uncaught framework/async errors to it (FlutterError.onError,
 PlatformDispatcher.onError, guarded zone). The path is shown in the Storage

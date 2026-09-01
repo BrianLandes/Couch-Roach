@@ -51,18 +51,6 @@ _Queued and ready to pick up._
 
 - [ ] Add the app icon to the Windows launcher.
 
-### Log cleanup: cut the noise, gate chatter behind a verbose setting · `p3`
-
-- [ ] The single log has grown noisy — a lot of routine `info`/`warn` chatter (~100 `info`/`warn`/`log` calls across ~21 files, heaviest in `player_screen`, `qbittorrent_daemon`, `acquire_play`, `subtitle_searcher`, `alexa_inbox_service`) drowns the entries that matter.
-- Two-part cleanup: (1) audit the existing `info`/`warn` calls and **delete the ones that are pure noise now** (routine lifecycle chatter we no longer read); (2) for the rest that are useful only when debugging, **gate them behind a "verbose logging" setting** — off by default, so `info`-level entries are suppressed unless enabled. `error`/`warning` always log.
-- Implementation: add a `verbose` flag to `ErrorLogService` (fed by `SettingsService` — pattern already established), and short-circuit `info(...)` (and low-value `warn`) when it's off. Keep the API the same at call sites (`getIt<ErrorLogService>().info(...)`) so the gate is one place. Add the toggle to the Storage/Settings screen next to where the log path is surfaced. Pairs with the log-file-structure task below.
-
-### Log files: split errors out, timestamp/rotate instead of one growing file · `p3`
-
-- [ ] Improve the on-disk log layout in `ErrorLogService` (`<app-support>/logs/couch_roach.log` today — a single append-only file with a crude 5 MB rename-to-`.1` rotation).
-- Wants: (1) **a separate `errors.log`** next to the main log carrying only `warning`/`error` entries, so real problems aren't buried in the combined stream; (2) **timestamped / rolling log files** (e.g. `couch_roach-2026-08-13.log` or per-session/`-NNN`) instead of one ever-growing file, so history is legible and old ones can be pruned; (3) prune/cap the number of retained files so the logs dir doesn't grow unbounded.
-- Implementation notes: `_emit`/`_write` already serialize appends and swallow write failures — extend to fan an entry into both the combined file and (when level ≥ warning) `errors.log`. Decide the rotation key (daily vs per-launch — per-launch is simplest and maps to the existing "session started" banner) and a retention count (delete oldest beyond N). Update `logFilePath`/the Storage screen to point at the current file (and ideally list the errors log too). Keep the `init(directory:)` test seam. Overlaps the verbose-setting task above — do them together.
-
 ### Large videos (7–8 GB) play at a poor frame rate · `p2`
 
 - [ ] Big files stutter / drop frames in Couch Roach, but the *same file* plays smoothly in PotPlayer on the same machine — so it's not raw hardware capacity. NOT transcoding — PotPlayer isn't transcoding either; it's hardware decode.
@@ -146,6 +134,17 @@ Wiring extends easily: add a provider (`discoverMovies(genreId:)` / trending / p
 ## Done
 
 _Finished work worth a short record; prune freely — git history is the archive._
+
+### Logging overhaul: verbose gate, split error log, per-launch rotation · `p3`
+
+- [x] Two tasks done together, since they touch the same file.
+- **Verbose gate.** `ErrorLogService` gained a `verbose` flag; `info` entries are now dropped unless it's on, while `warn`/`logError` always write. New `SettingsService.verboseLogging` (default off) with a "Verbose logging" toggle in Settings; `main()` syncs `log.verbose` from it and re-syncs on every settings change (`SettingsService` is a `ChangeNotifier`), so flipping the toggle takes effect immediately.
+- **Deliberately did NOT mass-delete the ~106 `info`/`warn` call sites.** Each is a `source`-tagged debug trace; with the gate they cost nothing by default, and deleting them would gut diagnostics for the bugs still on the board (trailers, downloads, sleep/resume). The poll-loop ones are already throttled to one line / 4s. Gating was the actual fix; revisit deletion only if verbose output proves unreadable.
+- **Split + rotation.** Each launch now writes a **pair** under `<app-support>/logs/`: `couch_roach-<stamp>.log` (everything) and `couch_roach-<stamp>.errors.log` (warnings/errors only — same entries, filtered copy, so the combined stream stays complete). Replaces the single ever-growing file and its 5 MB rename-to-`.1` rotation. Stamp is `YYYY-MM-DD_HH-mm-ss` so lexicographic order is chronological; startup prunes all files of the oldest sessions beyond the newest 10, matched by filename prefix (unrelated files in the dir are untouched). Pruning runs before the new pair is opened and is fully best-effort — it can never break a launch.
+- **Bonus signal.** mpv's own `error`/`fatal` log lines (mirrored for network/trailer playback) now go through `logError` instead of `info`, so real libmpv failures always land in the log and the errors file even with verbose off — directly useful for the trailer regression.
+- Settings screen shows both paths and notes the retention. Docs updated (CLAUDE.md, DECISIONS.md).
+- Tests: verbose gating (info dropped/kept, warn+error always), errors-only file contents, pre-init buffering routed to both files, pruning (deletes oldest beyond 10, both files per session, leaves foreign files and under-limit dirs alone), plus settings persistence. (Validated via CI — no Flutter SDK in this container.)
+- Caveat: `init()` runs before settings load, so the few `info` entries emitted during early startup are dropped even with verbose on. Documented on the field.
 
 ### Input-mode based focus: mouse drift no longer hijacks arrow-key selection · `p2`
 

@@ -28,6 +28,17 @@ void main() {
     expect(settings.hwdecMode, 'auto');
     // Hardware *rendering* is a separate knob and stays off by default.
     expect(settings.hardwareVideoAcceleration, isFalse);
+    // Routine log chatter is opt-in.
+    expect(settings.verboseLogging, isFalse);
+  });
+
+  test('verbose logging persists', () async {
+    await settings.setVerboseLogging(true);
+    expect(settings.verboseLogging, isTrue);
+
+    final reloaded = SettingsService(db);
+    await reloaded.load();
+    expect(reloaded.verboseLogging, isTrue);
   });
 
   test('hwdec mode persists and is independent of hardware rendering',

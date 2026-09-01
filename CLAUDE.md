@@ -252,9 +252,14 @@ try {
 }
 ```
 
-It appends human-readable entries to a local text log at `<app-support>/logs/couch_roach.log`
-(shown in the Storage settings screen — there's no remote backend). Uncaught framework/async
-errors are captured automatically: `main()` installs `FlutterError.onError`,
+It appends human-readable entries to local text logs under `<app-support>/logs/` (shown in
+the Settings screen — there's no remote backend). Each launch writes a **pair**:
+`couch_roach-<stamp>.log` (everything) and `couch_roach-<stamp>.errors.log` (warnings and
+errors only); the last 10 launches are kept and older ones pruned at startup. **`info` is
+verbose-only** — routine tracing is dropped unless "Verbose logging" is on in Settings
+(`ErrorLogService.verbose`, synced from `SettingsService` in `main()`), while `warn` and
+`logError` always write. So use `info` freely for tracing, but never for something the user
+must see. Uncaught framework/async errors are captured automatically: `main()` installs `FlutterError.onError`,
 `PlatformDispatcher.onError`, and a guarded zone that all route here. Always pass a `source`
 (`Class.operation`) so entries are traceable. Capture any `BuildContext`-derived objects
 (`ScaffoldMessenger`, `GoRouter`) before an `await` when the widget may be unmounted by the time

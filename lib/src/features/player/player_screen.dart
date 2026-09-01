@@ -336,10 +336,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // nothing in the Dart error stream, so these lines are the trail up to it.
       if (_isNetworkSource) {
         _subs.add(_player.stream.log.listen((l) {
-          getIt<ErrorLogService>().info(
-            '[mpv ${l.level}] ${l.prefix}: ${l.text.trim()}',
-            source: 'PlayerScreen.mpv',
-          );
+          final line = '[mpv ${l.level}] ${l.prefix}: ${l.text.trim()}';
+          // mpv's own error/fatal lines are the payload here — surface them at
+          // error level so they always land in the log (and the errors-only
+          // file) even with verbose logging off. The rest is trace chatter.
+          if (l.level == 'error' || l.level == 'fatal') {
+            getIt<ErrorLogService>().logError(line, source: 'PlayerScreen.mpv');
+          } else {
+            getIt<ErrorLogService>().info(line, source: 'PlayerScreen.mpv');
+          }
         }));
       }
 

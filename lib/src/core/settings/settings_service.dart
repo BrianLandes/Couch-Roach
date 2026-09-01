@@ -28,6 +28,7 @@ class SettingsService extends ChangeNotifier {
   static const _kPreferredAudioLanguage = 'preferredAudioLanguage';
   static const _kHardwareVideo = 'hardwareVideoAcceleration';
   static const _kHwdecMode = 'hwdecMode';
+  static const _kVerboseLogging = 'verboseLogging';
   static const _kLowPowerVideo = 'lowPowerVideo';
   static const _kInternetArchive = 'internetArchiveEnabled';
   static const _kPersonalizedCategories = 'personalizedCategories';
@@ -109,6 +110,12 @@ class SettingsService extends ChangeNotifier {
   /// inferred from watch history + saved titles. On by default.
   bool get personalizedCategories => _boolOr(_kPersonalizedCategories, true);
 
+  /// Write routine `info` tracing to the log as well as warnings/errors. Off by
+  /// default — it's the bulk of the log volume and only useful when actively
+  /// chasing something. `ErrorLogService.verbose` mirrors this (synced in
+  /// main()).
+  bool get verboseLogging => _boolOr(_kVerboseLogging, false);
+
   /// Genre-row keys ("tv:10765") the user has hidden from the landing page.
   Set<String> get hiddenGenres {
     final raw = _cache[_kHiddenGenres] ?? '';
@@ -130,6 +137,7 @@ class SettingsService extends ChangeNotifier {
   Future<void> setHardwareVideoAcceleration(bool v) =>
       _setBool(_kHardwareVideo, v);
   Future<void> setHwdecMode(String v) => _setString(_kHwdecMode, v);
+  Future<void> setVerboseLogging(bool v) => _setBool(_kVerboseLogging, v);
   Future<void> setLowPowerVideo(bool v) => _setBool(_kLowPowerVideo, v);
   Future<void> setInternetArchiveEnabled(bool v) =>
       _setBool(_kInternetArchive, v);

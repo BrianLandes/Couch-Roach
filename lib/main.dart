@@ -110,7 +110,16 @@ void main() {
       await getIt<StorageManager>().load();
 
       // Load user preferences into the cache so services read them synchronously.
-      await getIt<SettingsService>().load();
+      final settings = getIt<SettingsService>();
+      await settings.load();
+
+      // Keep the log's verbosity in step with the setting: routine `info`
+      // tracing is dropped unless the user opts in (warnings/errors always
+      // log). SettingsService notifies on every write, so flipping the toggle
+      // takes effect immediately.
+      void syncVerboseLogging() => log.verbose = settings.verboseLogging;
+      syncVerboseLogging();
+      settings.addListener(syncVerboseLogging);
 
       runApp(const ProviderScope(child: CouchRoachApp()));
 
