@@ -51,6 +51,18 @@ _Queued and ready to pick up._
 
 - [ ] Add the app icon to the Windows launcher.
 
+### Log cleanup: cut the noise, gate chatter behind a verbose setting · `p3`
+
+- [ ] The single log has grown noisy — a lot of routine `info`/`warn` chatter (~100 `info`/`warn`/`log` calls across ~21 files, heaviest in `player_screen`, `qbittorrent_daemon`, `acquire_play`, `subtitle_searcher`, `alexa_inbox_service`) drowns the entries that matter.
+- Two-part cleanup: (1) audit the existing `info`/`warn` calls and **delete the ones that are pure noise now** (routine lifecycle chatter we no longer read); (2) for the rest that are useful only when debugging, **gate them behind a "verbose logging" setting** — off by default, so `info`-level entries are suppressed unless enabled. `error`/`warning` always log.
+- Implementation: add a `verbose` flag to `ErrorLogService` (fed by `SettingsService` — pattern already established), and short-circuit `info(...)` (and low-value `warn`) when it's off. Keep the API the same at call sites (`getIt<ErrorLogService>().info(...)`) so the gate is one place. Add the toggle to the Storage/Settings screen next to where the log path is surfaced. Pairs with the log-file-structure task below.
+
+### Log files: split errors out, timestamp/rotate instead of one growing file · `p3`
+
+- [ ] Improve the on-disk log layout in `ErrorLogService` (`<app-support>/logs/couch_roach.log` today — a single append-only file with a crude 5 MB rename-to-`.1` rotation).
+- Wants: (1) **a separate `errors.log`** next to the main log carrying only `warning`/`error` entries, so real problems aren't buried in the combined stream; (2) **timestamped / rolling log files** (e.g. `couch_roach-2026-08-13.log` or per-session/`-NNN`) instead of one ever-growing file, so history is legible and old ones can be pruned; (3) prune/cap the number of retained files so the logs dir doesn't grow unbounded.
+- Implementation notes: `_emit`/`_write` already serialize appends and swallow write failures — extend to fan an entry into both the combined file and (when level ≥ warning) `errors.log`. Decide the rotation key (daily vs per-launch — per-launch is simplest and maps to the existing "session started" banner) and a retention count (delete oldest beyond N). Update `logFilePath`/the Storage screen to point at the current file (and ideally list the errors log too). Keep the `init(directory:)` test seam. Overlaps the verbose-setting task above — do them together.
+
 ### Large videos (7–8 GB) play at a poor frame rate · `p2`
 
 - [ ] Big files stutter / drop frames in Couch Roach, but the *same file* plays smoothly in PotPlayer on the same machine — so it's not raw hardware capacity. PotPlayer is almost certainly using **GPU hardware decoding** (DXVA2/D3D11VA) where our mpv is falling back to software decode.
