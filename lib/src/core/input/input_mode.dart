@@ -39,7 +39,10 @@ final inputMode = InputModeController();
 /// Logical keys that move the selection. Enter/Space *activate* the current
 /// selection but don't move it, so they don't force a switch — they work in
 /// either mode and leave the mode as-is.
-const _navKeys = <LogicalKeyboardKey>{
+///
+/// `final`, not `const`: `LogicalKeyboardKey` has no primitive equality, so it
+/// can't be an element of a const Set.
+final _navKeys = <LogicalKeyboardKey>{
   LogicalKeyboardKey.arrowUp,
   LogicalKeyboardKey.arrowDown,
   LogicalKeyboardKey.arrowLeft,
