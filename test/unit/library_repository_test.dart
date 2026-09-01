@@ -304,4 +304,95 @@ void main() {
     expect(row.tmdbId, 42, reason: 'scan must preserve the match');
     expect(row.tmdbName, 'Show');
   });
+
+  group('watchLocalEpisodes', () {
+    // The reason this exists: a show detail page left open while a season
+    // downloads has to flip each episode row to "Play" as its file lands, so
+    // what's on disk is reactive state rather than a value read once on open.
+    Future<void> addEpisode(String path, int season, int episode) async {
+      await repo.upsert(ScannedFile(
+          filePath: path,
+          title: 'The Show',
+          mediaType: 'tv',
+          season: season,
+          episode: episode));
+      final row = (await repo.findByPath(path))!;
+      await repo.setTmdbMatch(id: row.id, tmdbId: 4242, name: 'The Show');
+    }
+
+    test('emits again when a new episode lands', () async {
+      final seen = <int>[];
+      final sub = repo.watchLocalEpisodes(4242).listen((r) => seen.add(r.length));
+
+      await addEpisode('/tv/s01e01.mkv', 1, 1);
+      await addEpisode('/tv/s01e02.mkv', 1, 2);
+      await pumpEventQueue();
+      await sub.cancel();
+
+      // Starts empty, then grows as each file arrives — the emission after the
+      // first insert is what flips a row from "downloading" to "Play".
+      expect(seen.first, 0);
+      expect(seen.last, 2);
+      expect(seen, contains(1));
+    });
+
+    test('emits when an episode is deleted', () async {
+      await addEpisode('/tv/s01e01.mkv', 1, 1);
+
+      final seen = <int>[];
+      final sub = repo.watchLocalEpisodes(4242).listen((r) => seen.add(r.length));
+      await pumpEventQueue();
+
+      await repo.removeByPath('/tv/s01e01.mkv');
+      await pumpEventQueue();
+      await sub.cancel();
+
+      expect(seen.first, 1);
+      expect(seen.last, 0);
+    });
+
+    test('a file going missing drops it from the live set', () async {
+      await addEpisode('/tv/s01e01.mkv', 1, 1);
+
+      final seen = <int>[];
+      final sub = repo.watchLocalEpisodes(4242).listen((r) => seen.add(r.length));
+      await pumpEventQueue();
+
+      // The drive was disconnected: the row survives, but it isn't playable.
+      await repo.markMissingUnder(rootPath: '/tv', presentPaths: const {});
+      await pumpEventQueue();
+      await sub.cancel();
+
+      expect(seen.last, 0);
+    });
+
+    test('is scoped to one show', () async {
+      await addEpisode('/tv/s01e01.mkv', 1, 1);
+      await repo.upsert(const ScannedFile(
+          filePath: '/tv/other.mkv', title: 'Other', mediaType: 'tv'));
+      final other = (await repo.findByPath('/tv/other.mkv'))!;
+      await repo.setTmdbMatch(id: other.id, tmdbId: 9999, name: 'Other');
+
+      final rows = await repo.watchLocalEpisodes(4242).first;
+      expect(rows, hasLength(1));
+      expect(rows.single.filePath, '/tv/s01e01.mkv');
+    });
+
+    test('an unmatched show emits an empty set rather than never emitting',
+        () async {
+      expect(await repo.watchLocalEpisodes(1234).first, isEmpty);
+    });
+
+    // Both views read one query, so "on disk" can't mean two different things
+    // depending on which the caller reached for.
+    test('agrees with the one-shot localEpisodes', () async {
+      await addEpisode('/tv/s01e01.mkv', 1, 1);
+      await addEpisode('/tv/s01e02.mkv', 1, 2);
+
+      final live = await repo.watchLocalEpisodes(4242).first;
+      final once = await repo.localEpisodes(4242);
+      expect(live.map((e) => e.filePath).toSet(),
+          once.map((e) => e.filePath).toSet());
+    });
+  });
 }

@@ -20,6 +20,45 @@ drop the rest._
 
 _Aim for one task here at a time._
 
+### Show detail: reflect a just-ready episode's Play button live (season download) · `p3`
+
+- [x] While a season downloads, an episode that finishes now flips its row to Play with no
+  manual refresh.
+
+Root cause was one word: `localEpisodesProvider` was a `FutureProvider`, so "what's on disk"
+was read **once** when the page opened and never again. The drift query behind it was already
+the right shape — it just called `.get()` instead of `.watch()`.
+
+- `LibraryRepository.watchLocalEpisodes(tmdbId)` added alongside the existing one-shot
+  `localEpisodes`. Both go through one private `_localEpisodesQuery`, so the live and
+  one-shot views can't drift apart on what counts as "on disk". The one-shot stays for the
+  imperative callers (the player's next-episode lookup, prefetch) — those aren't UI state.
+- `localEpisodesProvider`, `localShowItemsProvider` and `localTitleProvider` are now
+  `StreamProvider`s over it. **Scope note:** `localTitleProvider` wasn't in the task but had
+  the identical bug — acquire a movie with its detail page open and Play never appeared —
+  and was the same one-line change.
+- Deleted the two hand-rolled `ref.invalidate(localEpisodesProvider(tmdbId))` calls in
+  show_detail_screen; they only existed because the provider wasn't live, and the liveness
+  now covers deletes in both directions.
+
+**No schema change** — pure read-side, no `schemaVersion` bump.
+
+Tests: 6 repository tests against real drift (emits on arrival, on delete, on a file going
+missing, scoped per show, empty-not-silent, and agreement with the one-shot) + 3 widget tests
+driving a controllable fake stream to prove a row flips Download → Play mid-download, that
+episodes flip independently, and that a delete flips it back. 703 green;
+`library_repository.dart` 94.5%.
+
+Two testing gotchas worth remembering, both now handled in
+`test/widget/show_detail_screen_test.dart`: a fake stream repo must **replay its current
+value to each new listener** (as drift's `.watch()` does) or late-subscribing providers sit
+in `loading` forever; and `DetailScaffold` lays out in a lazy `ListView`, so on the default
+800x600 test surface the episode rows never build — the test sets a taller viewport.
+
+Not verified on-device: the end-to-end season download. The liveness is proven at the
+repository and widget layers, but the real path also depends on the scanner registering the
+finished file promptly.
+
 ### Alexa inbox consumer (poll-and-drain voice-added titles) · `p2`
 
 - [ ] App-side consumer for the Alexa voice inbox (Cloudflare Worker + KV queue; upstream already built/deployed). Poll-and-drain on demand: startup + landing-page re-entry, throttled 30s.
@@ -94,11 +133,6 @@ _Queued and ready to pick up._
 
 - [ ] Pause a video, let the PC sleep, come back → the player says it can't play the file that was playing; have to back out and replay it to recover.
 - Likely the mpv/media_kit pipeline (or the file handle / GPU context / the localhost stream if it was an archive_play) doesn't survive suspend/resume. Investigate: does the OS `WM_POWERBROADCAST` resume event reach us? On resume, re-open the current media at the saved position instead of leaving the dead handle. Consider listening for the player's error state and auto-recovering (reload at last position) rather than requiring a manual back+replay. Repro with both a local file and an archive/stream source. [windows]
-
-### Show detail: reflect a just-ready episode's Play button live (season download) · `p3`
-
-- [ ] While downloading a whole season, when a single episode finishes and becomes playable, the show detail page should update that episode's row to show the Play button without a manual refresh.
-- We already have live watched-state on episode rows (`completedEpisodesProvider`) and reactive local-episode queries elsewhere. Make the per-episode "is it on disk / playable" state a live drift `.watch()` provider (family by tmdbId) that the episode rows read, so a newly-completed download flips the row from "downloading/queued" to "Play" reactively. Ties into the mid-playback auto-play-next work (`localEpisodes`) — reuse that query shape.
 
 ### Trailer / YouTube playback stopped working (regression) · `p2`
 

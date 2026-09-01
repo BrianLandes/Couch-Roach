@@ -32,12 +32,66 @@ class _FakeSavedTitlesRepo implements SavedTitlesRepository {
 }
 
 class _FakeLibraryRepo implements LibraryRepository {
+  /// Drives what's "on disk", so a test can land a downloaded episode while the
+  /// page is already built — the season-download case this screen has to react
+  /// to. Broadcast because several providers watch the same show.
+  final controller = StreamController<List<LibraryItem>>.broadcast();
+  List<LibraryItem> _current = const [];
+
+  /// Replay the current value to each new listener before following the
+  /// controller, the way a drift `.watch()` query does. Without this a provider
+  /// that subscribes late would sit in `loading` forever instead of seeing
+  /// "nothing on disk yet".
   @override
-  Future<List<LibraryItem>> localEpisodes(int tmdbId) async => const [];
+  Stream<List<LibraryItem>> watchLocalEpisodes(int tmdbId) async* {
+    yield _current;
+    yield* controller.stream;
+  }
+
+  /// Land (or remove) files, notifying everything already watching.
+  void emit(List<LibraryItem> items) {
+    _current = items;
+    controller.add(items);
+  }
+
+  @override
+  Future<List<LibraryItem>> localEpisodes(int tmdbId) async => _current;
 
   @override
   dynamic noSuchMethod(Invocation invocation) async => null;
 }
+
+/// A downloaded episode file as the scanner would have recorded it.
+LibraryItem _episodeFile({int id = 1, int season = 1, int episode = 1}) =>
+    LibraryItem(
+      id: id,
+      filePath: 'C:\\media\\tv\\got.s0${season}e0$episode.mkv',
+      title: 'Game of Thrones',
+      mediaType: 'tv',
+      season: season,
+      episode: episode,
+      tmdbId: 1399,
+      tmdbName: 'Game of Thrones',
+      keep: false,
+      missing: false,
+      hasEmbeddedEnSub: false,
+      addedAt: DateTime(2026),
+      subtitleOffsetMs: 0,
+      managed: true,
+    );
+
+/// One aired season, so the rows render a Download control rather than an
+/// unreleased badge.
+final _season1 = SeasonDetails(
+  seasonNumber: 1,
+  name: 'Season 1',
+  episodes: [
+    EpisodeSummary(
+        episodeNumber: 1, name: 'Winter Is Coming', airDate: '2011-04-17'),
+    EpisodeSummary(
+        episodeNumber: 2, name: 'The Kingsroad', airDate: '2011-04-24'),
+  ],
+);
 
 class _FakeWatchHistoryRepo implements WatchHistoryRepository {
   @override
@@ -64,22 +118,37 @@ final _details = TvShowDetails(
 );
 
 void main() {
+  late _FakeLibraryRepo library;
+
   setUp(() async {
+    library = _FakeLibraryRepo();
     await getIt.reset();
     getIt
       ..registerLazySingleton<SavedTitlesRepository>(_FakeSavedTitlesRepo.new)
-      ..registerLazySingleton<LibraryRepository>(_FakeLibraryRepo.new)
+      ..registerLazySingleton<LibraryRepository>(() => library)
       ..registerLazySingleton<WatchHistoryRepository>(_FakeWatchHistoryRepo.new)
       ..registerLazySingleton<DiscoveryClient>(_StubDiscovery.new);
   });
 
-  tearDown(() async => getIt.reset());
+  tearDown(() async {
+    await library.controller.close();
+    await getIt.reset();
+  });
 
   Future<void> pump(
     WidgetTester tester, {
     required TvShowDetails? details,
     Object? error,
+    SeasonDetails? season,
   }) async {
+    // DetailScaffold lays its children out in a lazy ListView, so on the default
+    // 800x600 surface the episode rows never build. Give the test a tall enough
+    // viewport that the whole page is in the tree.
+    tester.view.physicalSize = const Size(1400, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     const args = ShowDetailArgs(tmdbId: 1399, name: 'Game of Thrones');
     final router = GoRouter(routes: [
       GoRoute(path: '/', builder: (_, __) => const ShowDetailScreen(args: args)),
@@ -89,7 +158,7 @@ void main() {
         tvDetailsProvider(1399).overrideWith(
             (ref) => error != null ? Future.error(error) : Future.value(details)),
         trailerUrlProvider((1399, true)).overrideWith((ref) => Future.value(null)),
-        seasonProvider((1399, 1)).overrideWith((ref) => Future.value(null)),
+        seasonProvider((1399, 1)).overrideWith((ref) => Future.value(season)),
       ],
       child: MaterialApp.router(theme: AppTheme.dark, routerConfig: router),
     ));
@@ -151,5 +220,64 @@ void main() {
     await pump(tester, details: null);
 
     expect(find.text('Not found on TMDB.'), findsOneWidget);
+  });
+
+  // The task: while a season downloads, an episode that finishes must flip its
+  // row to Play without a manual refresh. Before this, localEpisodesProvider was
+  // a FutureProvider read once when the page opened, so the row stayed on
+  // "Download" until you navigated away and back.
+  group('live episode availability', () {
+    testWidgets('an episode landing mid-download flips its row to Play',
+        (tester) async {
+      await pump(tester, details: _details, season: _season1);
+
+      expect(find.text('Play'), findsNothing);
+      expect(find.text('1. Winter Is Coming'), findsOneWidget);
+
+      // The download completes and the scanner registers the file.
+      library.emit([_episodeFile(episode: 1)]);
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      expect(find.text('Play'), findsOneWidget);
+    });
+
+    testWidgets('each episode flips independently as its own file lands',
+        (tester) async {
+      await pump(tester, details: _details, season: _season1);
+      library.emit([_episodeFile(id: 1, episode: 1)]);
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(find.text('Play'), findsOneWidget);
+
+      library.emit([
+        _episodeFile(id: 1, episode: 1),
+        _episodeFile(id: 2, episode: 2),
+      ]);
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(find.text('Play'), findsNWidgets(2));
+    });
+
+    // The same liveness in reverse: deleting an episode drops its row back to a
+    // Download control, which is why the hand-rolled ref.invalidate calls could
+    // go away.
+    testWidgets('a deleted episode drops its row back off Play', (tester) async {
+      await pump(tester, details: _details, season: _season1);
+      library.emit([_episodeFile(episode: 1)]);
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(find.text('Play'), findsOneWidget);
+
+      library.emit(const []);
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(find.text('Play'), findsNothing);
+    });
   });
 }

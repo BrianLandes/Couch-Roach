@@ -47,10 +47,9 @@ final tmdbSearchProvider =
 /// The local library item matching [tmdbId] (e.g. a downloaded movie), or null.
 /// Drives the movie detail page's Play button.
 final localTitleProvider =
-    FutureProvider.family<LibraryItem?, int>((ref, tmdbId) async {
-  final items = await getIt<LibraryRepository>().localEpisodes(tmdbId);
-  return items.isEmpty ? null : items.first;
-});
+    StreamProvider.family<LibraryItem?, int>((ref, tmdbId) => getIt<LibraryRepository>()
+        .watchLocalEpisodes(tmdbId)
+        .map((items) => items.isEmpty ? null : items.first));
 
 /// Full TMDB details for a **movie**, as a [DiscoverTile] (overview + rating +
 /// year). Used to enrich a matched library movie — whose row only cached id,
@@ -363,14 +362,17 @@ final seasonProvider = FutureProvider.family<SeasonDetails?, (int, int)>(
 );
 
 /// Which episodes of a show are available locally, keyed by (season, episode).
+/// **Live** — a show detail page left open while a season downloads flips each
+/// episode row to "Play" as its file lands, with no manual refresh.
 final localEpisodesProvider =
-    FutureProvider.family<Map<(int, int), LibraryItem>, int>((ref, tmdbId) async {
-  final items = await getIt<LibraryRepository>().localEpisodes(tmdbId);
-  return {
-    for (final i in items)
-      if (i.season != null && i.episode != null) (i.season!, i.episode!): i,
-  };
-});
+    StreamProvider.family<Map<(int, int), LibraryItem>, int>(
+        (ref, tmdbId) => getIt<LibraryRepository>()
+            .watchLocalEpisodes(tmdbId)
+            .map((items) => {
+                  for (final i in items)
+                    if (i.season != null && i.episode != null)
+                      (i.season!, i.episode!): i,
+                }));
 
 /// The watched (completed) episodes of a show, as `(season, episode)` pairs —
 /// drives the per-episode "watched" mark on the show detail page. Live.
@@ -390,12 +392,16 @@ final lastWatchedSeasonProvider = FutureProvider.family<int?, int>(
 /// files that lack a season/episode (a loose matched file) rather than dropping
 /// them.
 final localShowItemsProvider =
-    FutureProvider.family<List<LibraryItem>, int>((ref, tmdbId) async {
-  final items = await getIt<LibraryRepository>().localEpisodes(tmdbId);
-  items.sort((a, b) {
-    final sa = a.season ?? 0, sb = b.season ?? 0;
-    if (sa != sb) return sa.compareTo(sb);
-    return (a.episode ?? 0).compareTo(b.episode ?? 0);
+    StreamProvider.family<List<LibraryItem>, int>((ref, tmdbId) {
+  return getIt<LibraryRepository>().watchLocalEpisodes(tmdbId).map((rows) {
+    // Copy before sorting — the stream's list is drift's, and sorting it in
+    // place would reorder what other listeners of the same query receive.
+    final items = [...rows];
+    items.sort((a, b) {
+      final sa = a.season ?? 0, sb = b.season ?? 0;
+      if (sa != sb) return sa.compareTo(sb);
+      return (a.episode ?? 0).compareTo(b.episode ?? 0);
+    });
+    return items;
   });
-  return items;
 });

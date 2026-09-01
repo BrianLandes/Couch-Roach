@@ -71,7 +71,7 @@ void main() {
             .overrideWith((ref) => Future.value(fetched)),
         trailerUrlProvider((tile.tmdbId, false))
             .overrideWith((ref) => Future.value(null)),
-        localTitleProvider(tile.tmdbId).overrideWith((ref) => Future.value(null)),
+        localTitleProvider(tile.tmdbId).overrideWith((ref) => Stream.value(null)),
       ],
       child: MaterialApp.router(theme: AppTheme.dark, routerConfig: router),
     ));

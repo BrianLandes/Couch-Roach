@@ -567,7 +567,8 @@ class _DeleteShowButton extends ConsumerWidget {
           posterPath: posterPath,
           value: false);
     }
-    ref.invalidate(localEpisodesProvider(tmdbId));
+    // No refresh needed: localEpisodesProvider is a live drift query, so the
+    // rows drop back to a Download control as the delete commits.
   }
 
   @override
@@ -831,15 +832,13 @@ class _Availability extends ConsumerWidget {
   final String showName;
   final LibraryItem? local;
 
-  /// Delete this one downloaded episode (from the Play button's overflow menu),
-  /// then refresh the row so it drops back to a Download control.
-  Future<void> _deleteEpisode(
-      BuildContext context, WidgetRef ref, LibraryItem item) async {
+  /// Delete this one downloaded episode (from the Play button's overflow menu).
+  /// The row drops back to a Download control on its own — localEpisodesProvider
+  /// is a live drift query.
+  Future<void> _deleteEpisode(BuildContext context, LibraryItem item) async {
     final s = seasonNumber.toString().padLeft(2, '0');
     final e = episode.episodeNumber.toString().padLeft(2, '0');
-    final removed =
-        await confirmAndDelete(context, what: '$showName S${s}E$e', items: [item]);
-    if (removed > 0) ref.invalidate(localEpisodesProvider(tmdbId));
+    await confirmAndDelete(context, what: '$showName S${s}E$e', items: [item]);
   }
 
   @override
@@ -872,7 +871,7 @@ class _Availability extends ConsumerWidget {
               MenuItemButton(
                 leadingIcon:
                     const Icon(Icons.delete_outline_rounded, size: 18),
-                onPressed: () => _deleteEpisode(context, ref, item),
+                onPressed: () => _deleteEpisode(context, item),
                 child: const Text('Delete episode'),
               ),
             ],

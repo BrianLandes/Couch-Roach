@@ -96,7 +96,14 @@ abstract class LibraryRepository {
   Future<List<LibraryItem>> unmatched();
 
   /// All present local files matched to a show (for episode availability).
+  /// One-shot — for imperative callers (the player's next-episode lookup,
+  /// prefetch). UI should use [watchLocalEpisodes] instead.
   Future<List<LibraryItem>> localEpisodes(int tmdbId);
+
+  /// Live [localEpisodes]. A detail page left open while a season downloads has
+  /// to flip each episode row to "Play" as its file lands, so what's on disk is
+  /// reactive state, not a value fetched once when the page opened.
+  Stream<List<LibraryItem>> watchLocalEpisodes(int tmdbId);
 
   /// Record a TMDB match: id, canonical name, and poster path. [mediaType], when
   /// given, corrects the row's type — used when a title first parsed as one type
@@ -337,11 +344,19 @@ class DriftLibraryRepository implements LibraryRepository {
   }
 
   @override
-  Future<List<LibraryItem>> localEpisodes(int tmdbId) {
-    return (_db.select(_db.libraryItems)
-          ..where((t) => t.tmdbId.equals(tmdbId) & t.missing.equals(false)))
-        .get();
-  }
+  Future<List<LibraryItem>> localEpisodes(int tmdbId) =>
+      _localEpisodesQuery(tmdbId).get();
+
+  @override
+  Stream<List<LibraryItem>> watchLocalEpisodes(int tmdbId) =>
+      _localEpisodesQuery(tmdbId).watch();
+
+  /// The one query behind both, so the live and one-shot views can never drift
+  /// apart on what counts as "on disk".
+  SimpleSelectStatement<$LibraryItemsTable, LibraryItem> _localEpisodesQuery(
+          int tmdbId) =>
+      _db.select(_db.libraryItems)
+        ..where((t) => t.tmdbId.equals(tmdbId) & t.missing.equals(false));
 
   @override
   Future<void> setTmdbMatch({
