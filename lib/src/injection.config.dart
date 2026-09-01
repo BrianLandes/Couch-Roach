@@ -38,6 +38,8 @@ import 'package:couch_roach/src/services/acquisition/archive_browse_service.dart
     as _i477;
 import 'package:couch_roach/src/services/acquisition/composite_resolver.dart'
     as _i669;
+import 'package:couch_roach/src/services/acquisition/downloaded_episode_registrar.dart'
+    as _i422;
 import 'package:couch_roach/src/services/acquisition/internet_archive_resolver.dart'
     as _i98;
 import 'package:couch_roach/src/services/acquisition/jackett_process.dart'
@@ -66,6 +68,8 @@ import 'package:couch_roach/src/services/subtitles/subtitle_service.dart'
     as _i754;
 import 'package:couch_roach/src/services/subtitles/subtitle_skip_check.dart'
     as _i1041;
+import 'package:couch_roach/src/services/transcode/downscale_service.dart'
+    as _i454;
 import 'package:couch_roach/src/services/vpn/express_vpn_controller.dart'
     as _i524;
 import 'package:couch_roach/src/services/vpn/vpn_controller.dart' as _i698;
@@ -163,6 +167,11 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i657.ErrorLogService>(),
           gh<_i486.SettingsService>(),
         ));
+    gh.lazySingleton<_i454.DownscaleService>(() => _i454.DownscaleService(
+          gh<_i877.LibraryRepository>(),
+          gh<_i486.SettingsService>(),
+          gh<_i657.ErrorLogService>(),
+        ));
     gh.lazySingleton<_i754.SubtitleService>(
         () => _i295.OpenSubtitlesSubtitleService(
               gh<_i1041.SubtitleSkipCheck>(),
@@ -201,6 +210,12 @@ extension GetItInjectableX on _i174.GetIt {
           gh<_i657.ErrorLogService>(),
           gh<_i616.JackettResolver>(),
         ));
+    gh.lazySingleton<_i422.DownloadedEpisodeRegistrar>(
+        () => _i422.DownloadedEpisodeRegistrar(
+              gh<_i156.TorrentDaemon>(),
+              gh<_i877.LibraryRepository>(),
+              gh<_i657.ErrorLogService>(),
+            ));
     gh.lazySingleton<_i717.CompletedTorrentReaper>(
         () => _i717.QbittorrentCompletedTorrentReaper(
               gh<_i156.TorrentDaemon>(),

@@ -1,12 +1,33 @@
 import 'package:couch_roach/src/features/downloads/downloads_providers.dart';
 import 'package:couch_roach/src/features/downloads/downloads_screen.dart';
 import 'package:couch_roach/src/features/downloads/manage_download.dart';
+import 'package:couch_roach/src/injection.dart';
 import 'package:couch_roach/src/services/acquisition/acquisition.dart';
+import 'package:couch_roach/src/services/transcode/downscale_service.dart';
 import 'package:couch_roach/src/theme/theme.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+
+/// The screen watches the downscaler's current job directly (it's a
+/// ValueListenable, not a provider), so the container has to hold one. This fake
+/// lets a test drive that job without an ffmpeg process.
+class _FakeDownscaleService implements DownscaleService {
+  final _job = ValueNotifier<DownscaleJob?>(null);
+
+  @override
+  ValueListenable<DownscaleJob?> get current => _job;
+
+  set job(DownscaleJob? value) => _job.value = value;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) async => null;
+}
+
+// ignore: library_private_types_in_public_api
+late _FakeDownscaleService downscaler;
 
 Widget _app(List<TorrentStatus> torrents, {bool alive = true}) {
   final router = GoRouter(
@@ -40,6 +61,14 @@ TorrentStatus _torrent({
     );
 
 void main() {
+  setUp(() async {
+    await getIt.reset();
+    downscaler = _FakeDownscaleService();
+    getIt.registerLazySingleton<DownscaleService>(() => downscaler);
+  });
+
+  tearDown(() async => getIt.reset());
+
   testWidgets('shows the idle empty state when the client is online',
       (tester) async {
     await tester.pumpWidget(_app(const [], alive: true));
@@ -99,5 +128,69 @@ void main() {
     expect(find.text('Done'), findsOneWidget);
     expect(find.text('Complete'), findsOneWidget);
     expect(find.textContaining('ETA'), findsNothing);
+  });
+
+  group('downscale banner', () {
+    // Idle is the common path: the banner must take up no room at all, so the
+    // screen looks exactly as it did before the downscaler existed.
+    testWidgets('is absent while nothing is downscaling', (tester) async {
+      await tester.pumpWidget(_app(const []));
+      await tester.pump();
+      expect(find.textContaining('play smoothly'), findsNothing);
+    });
+
+    testWidgets('names the file being downscaled, with its progress',
+        (tester) async {
+      await tester.pumpWidget(_app(const []));
+      await tester.pump();
+
+      downscaler.job =
+          (filePath: '/tv/big.mkv', title: 'Sintel', progress: 0.42);
+      await tester.pump();
+
+      expect(find.text('Making "Sintel" play smoothly'), findsOneWidget);
+      expect(find.textContaining('42%'), findsOneWidget);
+    });
+
+    // ffmpeg reports progress only once it gets going; before that there's a
+    // job but no percentage, and the banner still has to say something.
+    testWidgets('renders without a percentage before ffmpeg reports one',
+        (tester) async {
+      await tester.pumpWidget(_app(const []));
+      await tester.pump();
+
+      downscaler.job =
+          (filePath: '/tv/big.mkv', title: 'Sintel', progress: null);
+      await tester.pump();
+
+      expect(find.text('Making "Sintel" play smoothly'), findsOneWidget);
+      expect(find.textContaining('%'), findsNothing);
+    });
+
+    testWidgets('disappears again when the job finishes', (tester) async {
+      await tester.pumpWidget(_app(const []));
+      downscaler.job =
+          (filePath: '/tv/big.mkv', title: 'Sintel', progress: 0.9);
+      await tester.pump();
+      expect(find.textContaining('play smoothly'), findsOneWidget);
+
+      downscaler.job = null;
+      await tester.pump();
+      expect(find.textContaining('play smoothly'), findsNothing);
+    });
+
+    // The banner is extra activity on a screen that already lists torrents —
+    // it must not push the list out of the viewport.
+    testWidgets('coexists with a download list without overflowing',
+        (tester) async {
+      await tester.pumpWidget(_app([_torrent()]));
+      downscaler.job =
+          (filePath: '/tv/big.mkv', title: 'Sintel', progress: 0.42);
+      await tester.pump();
+
+      expect(find.textContaining('play smoothly'), findsOneWidget);
+      expect(find.text('Sintel'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

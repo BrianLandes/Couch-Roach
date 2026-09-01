@@ -17,8 +17,6 @@ import 'src/features/library/library_match_service.dart';
 import 'src/features/library/library_service.dart';
 import 'src/injection.dart';
 import 'src/services/alexa/alexa_inbox_service.dart';
-import 'src/data/repositories/library_repository.dart';
-import 'src/services/acquisition/acquisition.dart';
 import 'src/services/acquisition/downloaded_episode_registrar.dart';
 import 'src/services/acquisition/jackett_process.dart';
 import 'src/services/acquisition/qbittorrent_process.dart';
@@ -154,11 +152,7 @@ void main() {
       // one episode it was asked to prepare, and the rest stay invisible to the
       // library until the next launch's disk scan. Cheap localhost poll; the
       // sweep does nothing when no torrent of ours is running.
-      final episodeRegistrar = DownloadedEpisodeRegistrar(
-        getIt<TorrentDaemon>(),
-        getIt<LibraryRepository>(),
-        log,
-      );
+      final episodeRegistrar = getIt<DownloadedEpisodeRegistrar>();
       Timer.periodic(
         const Duration(seconds: 10),
         (_) => unawaited(episodeRegistrar.sweep()),
@@ -168,15 +162,7 @@ void main() {
       // case the download preference can't avoid. One file per sweep, skipped
       // entirely while a video is playing (it encodes on the same GPU), and a
       // no-op when the cap is off or the build has no hardware encoder.
-      final downscaler = DownscaleService(
-        getIt<LibraryRepository>(),
-        settings,
-        log,
-      );
-      // Registered by hand rather than via injectable: the Downloads screen
-      // watches its progress, and this container has no SDK to re-run
-      // build_runner with. get_it takes a plain instance happily.
-      getIt.registerSingleton<DownscaleService>(downscaler);
+      final downscaler = getIt<DownscaleService>();
       Timer.periodic(
         const Duration(minutes: 5),
         (_) => unawaited(downscaler.sweep()),

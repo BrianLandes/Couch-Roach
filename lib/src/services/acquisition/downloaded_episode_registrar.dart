@@ -1,3 +1,4 @@
+import 'package:injectable/injectable.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/logging/error_log_service.dart';
@@ -25,10 +26,7 @@ import 'acquisition.dart';
 /// * A path already in the library is left completely alone (no re-upsert, no
 ///   re-match), so repeated sweeps are cheap and can't clobber existing rows.
 ///
-/// Not an `@LazySingleton`: it's constructed in `main()` instead, because this
-/// container has no Flutter SDK to re-run `build_runner` with and
-/// `injection.config.dart` must never be hand-edited. Convert it to an
-/// annotated service the next time codegen runs.
+@LazySingleton()
 class DownloadedEpisodeRegistrar {
   DownloadedEpisodeRegistrar(this._daemon, this._library, this._log);
 

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:injectable/injectable.dart';
 import 'package:path/path.dart' as p;
 
 import '../../core/logging/error_log_service.dart';
@@ -13,6 +14,9 @@ import '../../core/settings/settings_service.dart';
 import '../../data/repositories/library_repository.dart';
 import '../subtitles/subtitle_skip_check.dart';
 import 'downscale_command.dart';
+
+/// A downscale in flight, for the Downloads screen to render.
+typedef DownscaleJob = ({String filePath, String title, double? progress});
 
 /// Re-encodes a downloaded file that's too large for this machine to play
 /// smoothly down to the user's resolution cap.
@@ -28,20 +32,13 @@ import 'downscale_command.dart';
 /// schema change and no bookkeeping to drift out of sync. Failures are
 /// remembered in memory only, so a transient failure gets one more chance on
 /// the next launch rather than looping.
-///
-/// Not an `@LazySingleton` for the same reason as `DownloadedEpisodeRegistrar`:
-/// `injection.config.dart` can't be regenerated in the container this was
-/// written in. Convert it when codegen next runs.
-/// A downscale in flight, for the Downloads screen to render.
-typedef DownscaleJob = ({String filePath, String title, double? progress});
-
+@LazySingleton()
 class DownscaleService {
   DownscaleService(this._library, this._settings, this._log);
 
   /// The job running right now, or null when idle. A [ValueListenable] so the
-  /// UI can watch it directly — this service is a plain object outside the DI
-  /// container, and the alternative (polling) would be worse for a job that
-  /// reports progress once a second.
+  /// UI can watch it directly — the alternative (polling) would be worse for a
+  /// job that reports progress once a second.
   ValueListenable<DownscaleJob?> get current => _current;
   final ValueNotifier<DownscaleJob?> _current = ValueNotifier(null);
 
