@@ -4,13 +4,16 @@ import '../../data/db/database.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../data/repositories/saved_titles_repository.dart';
 import '../../data/repositories/watch_history_repository.dart';
+import '../../data/tmdb/person_summary.dart';
 import '../../data/tmdb/season.dart';
 import '../../data/tmdb/tmdb_video.dart';
 import '../../data/tmdb/tv_show_details.dart';
 import '../../data/tmdb/tv_show_summary.dart';
+import '../../core/logging/error_log_service.dart';
 import '../../injection.dart';
 import '../../services/discovery/tmdb_client.dart';
 import 'discover_tile.dart';
+import 'person_search.dart';
 import 'new_episodes.dart';
 import 'recommendation_helpers.dart';
 import 'taste_providers.dart';
@@ -239,23 +242,13 @@ final favoriteActorProvider = FutureProvider<NamedRail?>((ref) async {
   if (person == null) return null;
 
   final owned = await ref.watch(ownedTmdbIdsProvider.future);
-  final credits = [...await tmdb.personCredits(person.personId)]
-    ..sort((a, b) => b.popularity.compareTo(a.popularity));
-  final tiles = <DiscoverTile>[];
-  final emitted = <int>{};
-  for (final c in credits) {
-    if (c.mediaType != 'tv' && c.mediaType != 'movie') continue;
-    if (owned.contains(c.tmdbId) || seedIds.contains(c.tmdbId)) continue;
-    if (c.displayTitle.isEmpty || !emitted.add(c.tmdbId)) continue;
-    tiles.add(DiscoverTile(
-      tmdbId: c.tmdbId,
-      title: c.displayTitle,
-      mediaType: c.mediaType,
-      posterPath: c.posterPath,
-      year: int.tryParse(c.year ?? ''),
-    ));
-    if (tiles.length >= 20) break;
-  }
+  // Same mapping the person-search section uses — shared so the two can't
+  // drift on what counts as a showable credit.
+  final tiles = tilesFromCredits(
+    await tmdb.personCredits(person.personId),
+    exclude: {...owned, ...seedIds},
+    limit: 20,
+  );
   return tiles.isEmpty ? null : (name: person.name, tiles: tiles);
 });
 
@@ -404,4 +397,49 @@ final localShowItemsProvider =
     });
     return items;
   });
+});
+
+
+/// People matching a search query, with their filmography as tiles.
+///
+/// Null when the query doesn't convincingly name a person — see
+/// [bestPersonMatch]. `acted` and `directed` are kept apart so the search
+/// screen can label them ("Movies with …" vs "Directed by …"); a person who
+/// only acts simply has an empty `directed`.
+///
+/// [excludeIds] are the titles the query already matched by name, so the same
+/// film isn't listed twice on one screen.
+final personSearchProvider = FutureProvider.family<PersonSearchResult?, String>(
+    (ref, query) async {
+  if (query.trim().isEmpty) return null;
+  try {
+    final tmdb = getIt<DiscoveryClient>();
+    final person = bestPersonMatch(await tmdb.searchPeople(query), query);
+    if (person == null) return null;
+
+    final credits = await tmdb.personFilmography(person.personId);
+    // Whatever the title search already surfaced is dropped from both lists.
+    final titleMatches = ref.watch(tmdbSearchProvider(query)).asData?.value ??
+        const <DiscoverTile>[];
+    final exclude = {for (final t in titleMatches) t.tmdbId};
+
+    final acted = tilesFromCredits(credits.acted, exclude: exclude);
+    final directed = tilesFromCredits(credits.directed,
+        exclude: {...exclude, for (final t in acted) t.tmdbId});
+    if (acted.isEmpty && directed.isEmpty) return null;
+    return (person: person, acted: acted, directed: directed);
+  } catch (e, st) {
+    // This section is additive — a person lookup that fails must never take
+    // the title results down with it, so it's logged and dropped.
+    getIt<ErrorLogService>()
+        .logError(e, stackTrace: st, source: 'personSearchProvider');
+    return null;
+  }
+});
+
+/// A matched person plus their credits, split by role.
+typedef PersonSearchResult = ({
+  PersonSummary person,
+  List<DiscoverTile> acted,
+  List<DiscoverTile> directed,
 });

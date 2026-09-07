@@ -6,6 +6,7 @@ import 'package:injectable/injectable.dart';
 import '../../core/config/app_config.dart';
 import '../../core/logging/error_log_service.dart';
 import '../../data/tmdb/credits.dart';
+import '../../data/tmdb/person_summary.dart';
 import '../../data/tmdb/movie_summary.dart';
 import '../../data/tmdb/season.dart';
 import '../../data/tmdb/tmdb_video.dart';
@@ -82,6 +83,18 @@ abstract class DiscoveryClient {
 
   /// A person's combined film/TV credits — the "known for" feed for an actor.
   Future<List<PersonCredit>> personCredits(int personId);
+
+  /// People matching [query] (`/search/person`), best match first.
+  Future<List<PersonSummary>> searchPeople(String query);
+
+  /// One person's filmography, split by how they contributed.
+  ///
+  /// `acted` is the `cast` array; `directed` is `crew` filtered to
+  /// `job == "Director"`. Both come from a single `/combined_credits` call —
+  /// reading only `cast` (as [personCredits] does) returns **nothing** for a
+  /// director, since directing credits live in `crew`.
+  Future<({List<PersonCredit> acted, List<PersonCredit> directed})>
+      personFilmography(int personId);
 
   /// The id of the collection (franchise) a movie belongs to, or null — from the
   /// movie's `belongs_to_collection`. Drives the "Finish the franchise" rail.
@@ -273,11 +286,42 @@ class TmdbClient implements DiscoveryClient {
       _list(await _get('/movie/$tmdbId/credits'), 'cast', CastMember.fromJson);
 
   @override
-  Future<List<PersonCredit>> personCredits(int personId) async => _list(
-        await _get('/person/$personId/combined_credits'),
-        'cast',
-        PersonCredit.fromJson,
+  Future<List<PersonCredit>> personCredits(int personId) async =>
+      (await personFilmography(personId)).acted;
+
+  @override
+  Future<List<PersonSummary>> searchPeople(String query) async => _results(
+        await _get('/search/person', {
+          'query': query,
+          'include_adult': 'false',
+        }),
+        PersonSummary.fromJson,
       );
+
+  @override
+  Future<({List<PersonCredit> acted, List<PersonCredit> directed})>
+      personFilmography(int personId) async {
+    final json = await _get('/person/$personId/combined_credits');
+    return (
+      acted: _list(json, 'cast', PersonCredit.fromJson),
+      // The job filter runs on the raw crew maps, before conversion:
+      // PersonCredit carries no `job` field (and drops unknown keys), so there
+      // would be nothing left to filter on afterwards.
+      directed:
+          _list({'crew': _directingCrew(json)}, 'crew', PersonCredit.fromJson),
+    );
+  }
+
+  /// The `crew` entries where this person was the director — the job-name
+  /// match kept in one place.
+  List<Map<String, dynamic>> _directingCrew(Map<String, dynamic>? json) {
+    final crew = json?['crew'] as List<dynamic>?;
+    if (crew == null) return const [];
+    return crew
+        .whereType<Map<String, dynamic>>()
+        .where((c) => (c['job'] as String?)?.trim().toLowerCase() == 'director')
+        .toList(growable: false);
+  }
 
   @override
   Future<int?> movieCollectionId(int tmdbId) async {

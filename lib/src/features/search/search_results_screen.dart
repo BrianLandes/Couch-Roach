@@ -39,6 +39,9 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     final iaEnabled = ref.watch(internetArchiveEnabledProvider);
     final tmdbAsync = ref.watch(tmdbSearchProvider(_query));
     final tmdbTiles = tmdbAsync.asData?.value ?? const <DiscoverTile>[];
+    // A person match is additive: it never blocks or replaces the title
+    // results, and stays null until (and unless) it resolves.
+    final person = ref.watch(personSearchProvider(_query)).asData?.value;
 
     return Scaffold(
       body: AmbientBackground(
@@ -77,7 +80,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                             color: AppColors.danger,
                           ),
                           data: (results) =>
-                              _body(tmdbTiles, results, iaEnabled: true),
+                              _body(tmdbTiles, results, person: person, iaEnabled: true),
                         )
                     : tmdbAsync.when(
                         loading: () =>
@@ -87,7 +90,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                           color: AppColors.danger,
                         ),
                         data: (tiles) =>
-                            _body(tiles, const [], iaEnabled: false),
+                            _body(tiles, const [], person: person, iaEnabled: false),
                       ),
               ),
             ],
@@ -101,6 +104,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     List<DiscoverTile> tmdbTiles,
     List<ArchiveItem> ia, {
     required bool iaEnabled,
+    PersonSearchResult? person,
   }) {
     if (_query.trim().isEmpty) {
       return const _Centered(
@@ -110,7 +114,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     }
 
     // TMDB-only (Internet Archive off) with no matches → a plain empty state.
-    if (!iaEnabled && tmdbTiles.isEmpty) {
+    if (!iaEnabled && tmdbTiles.isEmpty && person == null) {
       return _Centered(
         'No results for “$_query”.',
         color: AppColors.textSecondary,
@@ -144,6 +148,19 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
               ),
             ),
           ),
+        ],
+
+        // Whoever the query names, and what they made. Two labelled sections so
+        // an actor-director reads correctly in both roles.
+        if (person != null) ...[
+          if (person.acted.isNotEmpty) ...[
+            _SliverSectionLabel('Movies & shows with ${person.person.name}'),
+            _personGrid(person.acted),
+          ],
+          if (person.directed.isNotEmpty) ...[
+            _SliverSectionLabel('Directed by ${person.person.name}'),
+            _personGrid(person.directed),
+          ],
         ],
 
         // Internet Archive results as the main grid — only when IA is enabled.
@@ -189,6 +206,30 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
       ],
     );
   }
+
+  /// The poster grid used by both person sections — same shape as the title
+  /// grid above it, so the screen reads as one list rather than three widgets.
+  Widget _personGrid(List<DiscoverTile> tiles) => SliverPadding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.screenPadding,
+          AppSpacing.sm,
+          AppSpacing.screenPadding,
+          AppSpacing.sm,
+        ),
+        sliver: SliverGrid.builder(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 160,
+            childAspectRatio: 2 / 3,
+            crossAxisSpacing: AppSpacing.lg,
+            mainAxisSpacing: AppSpacing.lg,
+          ),
+          itemCount: tiles.length,
+          itemBuilder: (context, i) => DiscoverPosterCard(
+            tile: tiles[i],
+            onPressed: () => openDiscoverTile(context, tiles[i]),
+          ),
+        ),
+      );
 }
 
 class _SliverSectionLabel extends StatelessWidget {

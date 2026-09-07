@@ -40,6 +40,32 @@ extract it to a shared pure helper so search and the rail can't drift.
 
 **No schema change** — all live TMDB, no drift table/column, no migration.
 
+**Implemented:**
+- `PersonSummary` (`@JsonSerializable`) for `/search/person`; `DiscoveryClient.searchPeople`.
+- `personFilmography(id)` returns `({acted, directed})` from **one** `/combined_credits` call.
+  `directed` filters the raw `crew` maps on `job == "Director"` **before** `PersonCredit.fromJson`
+  — the model has no `job` field and drops unknown keys, so filtering afterwards is impossible.
+  `personCredits` now delegates to it (`.acted`), so the two can't diverge.
+- Pure `bestPersonMatch` — a result only counts when the query matches the person's **name**
+  (whole name or one part), because TMDB's person search is fuzzy and returns something for
+  "batman". Among qualifying matches the most popular wins, which is what makes a bare surname
+  ("Anderson") resolve to who you meant.
+- Pure `tilesFromCredits` — popularity order, one tile per title, skips unplayable media types
+  and untitled credits, honours an exclude set. Extracted from `favoriteActorProvider`, which
+  now calls it (Gap 3 closed).
+- `personSearchProvider` excludes titles the name search already matched, so nothing is listed
+  twice, and **fails soft**: any error is logged and the section is dropped rather than taking
+  the title results down with it.
+- Search screen gains two labelled sections after the title grid — "Movies & shows with X" and
+  "Directed by X" — so an actor-director reads correctly in both roles.
+
+Tests: 13 covering both pure helpers (full/partial name, popularity tie-break, title-query
+rejection, empty/nameless input; ordering, dedupe, exclusion, media-type and title filtering,
+year passthrough, limits).
+
+⚠ **Requires `dart run build_runner build`** for `person_summary.g.dart` — this container has no
+Flutter SDK, so CI will be red until that runs.
+
 
 ### Disable "Download next" when the next episode hasn't aired · `p4`
 
