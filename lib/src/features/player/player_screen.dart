@@ -576,13 +576,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // failure. See [downloadNetworkVideo].
     final dir = await _ensureTrailerDir();
     if (dir != null) {
-      final file = await downloadNetworkVideo(path, destDir: dir.path);
+      String? failure;
+      final file = await downloadNetworkVideo(path,
+          destDir: dir.path, onFailure: (d) => failure = d);
       if (file != null) {
         log.info('downloaded trailer via yt-dlp: $file',
             source: 'PlayerScreen.resolveMedia');
         return file;
       }
-      log.warn('trailer download failed — falling back to the direct stream',
+      log.warn(
+          'trailer download failed, falling back to the direct stream '
+          '(${failure ?? 'no detail'})',
           source: 'PlayerScreen.resolveMedia');
     }
 

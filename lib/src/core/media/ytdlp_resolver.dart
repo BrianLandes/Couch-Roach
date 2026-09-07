@@ -212,6 +212,7 @@ String? pickDownloadedVideo(Iterable<({String path, int sizeBytes})> files) {
 Future<String?> downloadNetworkVideo(
   String url, {
   required String destDir,
+  void Function(String detail)? onFailure,
 }) async {
   final ytDlp =
       bundledYtDlpPath() ?? (Platform.isWindows ? 'yt-dlp.exe' : 'yt-dlp');
@@ -230,16 +231,42 @@ Future<String?> downloadNetworkVideo(
       '-o', p.join(destDir, 'trailer.%(ext)s'),
       url,
     ]);
-    if (res.exitCode != 0) return null;
+    if (res.exitCode != 0) {
+      // yt-dlp's stderr is the only thing that says *why* — a broken extractor,
+      // an HTTP 403, a geo block. Without it a failure here is undiagnosable.
+      onFailure?.call('yt-dlp exit ${res.exitCode}: ${_tail('${res.stderr}')}');
+      return null;
+    }
     final dir = Directory(destDir);
-    if (!dir.existsSync()) return null;
-    return pickDownloadedVideo(dir
+    if (!dir.existsSync()) {
+      onFailure?.call('yt-dlp reported success but wrote no directory');
+      return null;
+    }
+    final picked = pickDownloadedVideo(dir
         .listSync()
         .whereType<File>()
         .map((f) => (path: f.path, sizeBytes: f.lengthSync())));
-  } on ProcessException {
-    return null; // yt-dlp not bundled and not on PATH
-  } catch (_) {
+    if (picked == null) {
+      onFailure?.call('yt-dlp wrote no playable file into $destDir');
+    }
+    return picked;
+  } on ProcessException catch (e) {
+    onFailure?.call('yt-dlp not runnable: $e');
+    return null; // not bundled and not on PATH
+  } catch (e) {
+    onFailure?.call('$e');
     return null;
   }
+}
+
+/// The last few lines of a process's output — enough to name the failure
+/// without pasting a screenful of progress bars into the log.
+String _tail(String output, {int lines = 6}) {
+  final kept = output
+      .trim()
+      .split('\n')
+      .where((l) => l.trim().isNotEmpty)
+      .toList();
+  if (kept.length <= lines) return kept.join(' | ');
+  return kept.sublist(kept.length - lines).join(' | ');
 }

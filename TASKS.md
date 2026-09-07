@@ -473,6 +473,23 @@ is short. The download and the caption sidecar now share **one** temp dir (`_tra
 so nothing regresses where streaming still works. Pure `pickDownloadedVideo` picks the largest
 playable file, so the `.vtt` sidecar and any fragment can't be chosen (5 tests).
 
+**Download also failed (2026-09-07, second attempt).** The new path ran and yt-dlp's own
+download failed too, falling back to the stream, which failed as before. Two things came out of
+that:
+
+1. **The bundled yt-dlp was stale.** Pinned at `2026.07.04`; newest is `2026.08.19`. yt-dlp's
+   entire value is tracking YouTube's constant extractor breakage, so a pin *guarantees* the
+   Trailer feature dies every few weeks — the script's own comment said as much. Both yt-dlp
+   fetch scripts now track the **latest** release (`releases/latest/download/…`, verified
+   reachable) with the same optional-SHA pattern used for ffmpeg. The LICENSE fetch moved to
+   `master`, since "latest" is a release alias and not a git ref.
+2. **The failure was invisible.** `downloadNetworkVideo` discarded yt-dlp's stderr, so "download
+   failed" carried no reason. It now takes an `onFailure` callback and reports the exit code plus
+   the tail of stderr — a broken extractor, a 403, a geo block all read differently — and
+   distinguishes "exited non-zero", "wrote no directory" and "wrote no playable file".
+
+If a refreshed yt-dlp still fails, the stderr line will now say why.
+
 Note the other errors in that log are unrelated: `property not found _setProperty(osc, 1)` is
 media_kit noise, `dxva2-egl: Failed to create EGL surface` is the known interop failure, and the
 `sub-add` failure is downstream of the stream never opening.

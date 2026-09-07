@@ -17,15 +17,19 @@
 # no-op. Override the install dir with YTDLP_VENDOR_DIR if needed.
 #
 # yt-dlp is released under The Unlicense (public domain) — permissive, but its
-# LICENSE is vendored alongside anyway. YouTube periodically breaks extractors,
-# so bump VERSION here to refresh (and update EXPECTED_SHA256 from the release's
-# SHA2-256SUMS file).
+# LICENSE is vendored alongside anyway.
+#
+# NOTE this deliberately tracks the LATEST release rather than a pinned version.
+# YouTube breaks extractors constantly and yt-dlp's whole value is keeping up with
+# that — a pin guarantees the Trailer feature dies every few weeks, which is what
+# happened on 2026.07.04. EXPECTED_SHA256 is therefore optional: empty reports the
+# hash without enforcing, a value pins and fails on mismatch.
 set -euo pipefail
 
-# --- Pinned version (bump deliberately; update EXPECTED_SHA256 when you do) ---
-VERSION="2026.07.04"
-URL="https://github.com/yt-dlp/yt-dlp/releases/download/${VERSION}/yt-dlp_linux"
-EXPECTED_SHA256="6bbb3d314cde4febe36e5fa1d55462e29c974f63444e707871834f6d8cc210ae"
+# --- Latest release. EXPECTED_SHA256 is optional: empty = report only (above) ---
+VERSION="latest"
+URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"
+EXPECTED_SHA256=""
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR_ROOT="${YTDLP_VENDOR_DIR:-$ROOT/third_party/yt-dlp}"
@@ -35,19 +39,28 @@ LICENSE_DEST="$VENDOR_ROOT/LICENSE-yt-dlp.txt"
 
 mkdir -p "$DEST_DIR"
 
-if [[ -f "$DEST" ]] && echo "${EXPECTED_SHA256}  ${DEST}" | sha256sum -c --status 2>/dev/null; then
-  echo "✓ yt-dlp already vendored and verified: $DEST"
+if [[ -f "$DEST" ]]; then
+  echo "✓ yt-dlp already vendored: $DEST"
 else
   echo "Downloading yt-dlp ${VERSION} (standalone, linux) ..."
   curl -fSL --retry 3 -o "$DEST" "$URL"
-  echo "${EXPECTED_SHA256}  ${DEST}" | sha256sum -c -
+  actual_sha="$(sha256sum "$DEST" | cut -d' ' -f1)"
+  if [[ -z "$EXPECTED_SHA256" ]]; then
+    echo "NOTE downloaded SHA-256: $actual_sha (unpinned; set EXPECTED_SHA256 to enforce)"
+  elif [[ "$actual_sha" != "$EXPECTED_SHA256" ]]; then
+    rm -f "$DEST"
+    echo "SHA-256 mismatch: expected $EXPECTED_SHA256 but got $actual_sha" >&2
+    exit 1
+  else
+    echo "✓ SHA-256 verified against the pin"
+  fi
   chmod +x "$DEST"
   echo "✓ Vendored: $DEST"
 fi
 
 if [[ ! -f "$LICENSE_DEST" ]]; then
   curl -fSL --retry 3 -o "$LICENSE_DEST" \
-    "https://raw.githubusercontent.com/yt-dlp/yt-dlp/${VERSION}/LICENSE"
+    "https://raw.githubusercontent.com/yt-dlp/yt-dlp/master/LICENSE"
   echo "✓ License: $LICENSE_DEST"
 fi
 

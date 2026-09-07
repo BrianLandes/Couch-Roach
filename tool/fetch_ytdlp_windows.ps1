@@ -14,15 +14,21 @@
   The GitHub Actions Windows build runs this before `flutter build windows`.
 
   yt-dlp is released under The Unlicense (public domain); its LICENSE is vendored
-  alongside anyway. YouTube periodically breaks extractors, so bump $Version to
-  refresh (and update $ExpectedSha256 from the release's SHA2-256SUMS file).
+  alongside anyway.
+
+  NOTE this deliberately tracks the LATEST release rather than a pinned version.
+  YouTube breaks extractors constantly and yt-dlp's entire value is keeping up
+  with that — a pin guarantees the Trailer feature dies every few weeks, which is
+  exactly what happened on 2026.07.04. $ExpectedSha256 is therefore optional:
+  empty reports the hash without enforcing it, a value pins and fails on
+  mismatch. The download is HTTPS from the official repo either way.
 #>
 $ErrorActionPreference = 'Stop'
 
-# --- Pinned version (bump deliberately; update $ExpectedSha256 when you do) ---
-$Version        = '2026.07.04'
-$Url            = "https://github.com/yt-dlp/yt-dlp/releases/download/$Version/yt-dlp.exe"
-$ExpectedSha256 = '52FE3C26DCF71FBDC85B528589020BB0B8E383155CFA81B64DD447BBE35E24B8'
+# --- Latest release. $ExpectedSha256 is optional: empty = report only (above) ---
+$Version        = 'latest'
+$Url            = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+$ExpectedSha256 = ''
 
 $Root        = Split-Path -Parent $PSScriptRoot
 $VendorRoot  = Join-Path $Root 'third_party\yt-dlp'
@@ -39,15 +45,21 @@ if (Test-Path $Dest) {
   Invoke-WebRequest -Uri $Url -OutFile $Dest
 
   $hash = (Get-FileHash -Algorithm SHA256 $Dest).Hash
-  if ($hash -ne $ExpectedSha256) {
+  if ([string]::IsNullOrWhiteSpace($ExpectedSha256)) {
+    Write-Host "NOTE downloaded SHA-256: $hash (unpinned; set `$ExpectedSha256 to enforce)"
+  } elseif ($hash -ne $ExpectedSha256) {
     Remove-Item -Force $Dest -ErrorAction SilentlyContinue
     throw "SHA-256 mismatch: expected $ExpectedSha256 but got $hash"
+  } else {
+    Write-Host "OK SHA-256 verified against the pin"
   }
   Write-Host "OK Vendored: $Dest"
 }
 
 if (-not (Test-Path $LicenseDest)) {
-  Invoke-WebRequest -Uri "https://raw.githubusercontent.com/yt-dlp/yt-dlp/$Version/LICENSE" -OutFile $LicenseDest
+  # `$Version` is "latest", which is a release alias and not a git ref — the
+  # LICENSE has to come off a real branch.
+  Invoke-WebRequest -Uri "https://raw.githubusercontent.com/yt-dlp/yt-dlp/master/LICENSE" -OutFile $LicenseDest
   Write-Host "OK License: $LicenseDest"
 }
 
