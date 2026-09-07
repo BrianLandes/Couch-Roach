@@ -63,8 +63,14 @@ Tests: 13 covering both pure helpers (full/partial name, popularity tie-break, t
 rejection, empty/nameless input; ordering, dedupe, exclusion, media-type and title filtering,
 year passthrough, limits).
 
-⚠ **Requires `dart run build_runner build`** for `person_summary.g.dart` — this container has no
-Flutter SDK, so CI will be red until that runs.
+**Codegen now runs in CI.** Both `test.yml` and `windows-build.yml` gained a `build_runner build
+--delete-conflicting-outputs` step after `flutter pub get`, so a commit that adds a model or an
+annotated service compiles even when its `*.g.dart` hasn't been generated yet — which is the
+normal case for work done in a container with no Flutter SDK. Generated files stay committed
+(the invariant is unchanged); a non-fatal "in sync" check warns when the committed output drifts
+from what codegen produces, rather than failing and blocking the very commit that introduced the
+model. Still run `dart run build_runner build` locally before `flutter run` — CI's copy isn't
+committed back.
 
 
 ### Disable "Download next" when the next episode hasn't aired · `p4`

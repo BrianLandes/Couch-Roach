@@ -36,13 +36,34 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # Codegen (drift / injectable / json_serializable). Generated files ARE
+      # committed, so this is normally a no-op that rewrites them identically —
+      # it's here so a commit that adds a model or an annotated service builds
+      # even when its *.g.dart hasn't been generated yet. --delete-conflicting-
+      # outputs is required because the committed outputs already exist.
+      - name: Generate code
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # Surfaces drift between the committed generated files and what codegen
+      # actually produces. A warning, not a failure: the build above already
+      # used fresh output, and failing here would just block the commit that
+      # introduced the model.
+      - name: Check generated files are in sync
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain '*.g.dart' '*.config.dart')" ]]; then
+            echo "::warning::Committed generated files differ from codegen output."
+            git status --porcelain '*.g.dart' '*.config.dart'
+            echo "Run: dart run build_runner build --delete-conflicting-outputs"
+          else
+            echo "Generated files are in sync."
+          fi
+
       # Catches errors anywhere under lib/, including files no test imports.
       # --no-fatal-infos so style lints don't gate the build; errors and
       # warnings still do.
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
-      # Generated files (*.g.dart, injection.config.dart) are committed, so no
-      # build_runner step is needed for a normal run.
       - name: Run tests
         run: flutter test

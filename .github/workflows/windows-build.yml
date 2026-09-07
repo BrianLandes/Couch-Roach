@@ -65,6 +65,14 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # Codegen (drift / injectable / json_serializable). Generated files ARE
+      # committed, so this is normally a no-op that rewrites them identically —
+      # it's here so a commit that adds a model or an annotated service builds
+      # even when its *.g.dart hasn't been generated yet. --delete-conflicting-
+      # outputs is required because the committed outputs already exist.
+      - name: Generate code
+        run: dart run build_runner build --delete-conflicting-outputs
+
       # dart_define.json is git-crypt-encrypted in the repo, so CI can't read it.
       # Reconstruct it from repository secrets instead of unlocking git-crypt.
       # Add these under Settings → Secrets and variables → Actions:
