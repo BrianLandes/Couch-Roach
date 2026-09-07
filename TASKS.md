@@ -20,6 +20,27 @@ drop the rest._
 
 _Aim for one task here at a time._
 
+### Search by person: an actor's or director's name lists their films · `p2`
+
+- [ ] Typing a person's name into search should surface everything they acted in or directed,
+  not just titles whose *name* matches the query.
+
+**Audit — already there:** `personCredits(id)` (`/person/{id}/combined_credits`), the
+`PersonCredit` model, `DiscoverTile` + `openDiscoverTile`, and the search screen's TMDB section.
+
+**Gap 1 (the important one):** `personCredits` reads only the **`cast`** array, so a
+**director returns nothing** — directing credits live in `crew` with `job: "Director"`. No model
+change needed: filter the raw `crew` maps by job *before* `PersonCredit.fromJson`, which ignores
+unknown keys.
+
+**Gap 2:** there is no `/search/person` call at all.
+
+**Gap 3:** the `PersonCredit → DiscoverTile` mapping is inline in `favoriteActorProvider`;
+extract it to a shared pure helper so search and the rail can't drift.
+
+**No schema change** — all live TMDB, no drift table/column, no migration.
+
+
 ### Disable "Download next" when the next episode hasn't aired · `p4`
 
 - [x] The player's Next Episode button now reports when an unaired episode is due instead of
