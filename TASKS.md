@@ -457,6 +457,26 @@ Two fixes:
 Tests: per-format header preference (matching format wins, falls back when absent/headerless/no
 formats array) and `mpvHeaderFields` (formatting, the exclusion list, case-insensitivity, empties).
 
+**STILL FAILING after the header fix (2026-09-07) — different approach taken.** A later log
+(build containing the header fix) shows the same `stream: Failed to open` on a `c=ANDROID_VR`
+URL, this time IPv4-bound (`ip=65.130.49.37`), so matching yt-dlp's headers was **not**
+sufficient. Root problem is structural: the signed googlevideo URL is bound to the extracting
+client, the source IP *and* an expiry, and YouTube 403s a fetch that mismatches on any axis —
+while YouTube keeps rotating which client yt-dlp must use.
+
+**Fix: download the trailer, then play it from disk.** New `downloadNetworkVideo` runs yt-dlp
+with `-f best --no-part -o <temp>/trailer.%(ext)s`; the player opens the resulting file. yt-dlp
+already holds whatever headers that format needs, so the entire class of failure goes away.
+Trailers are small (a couple of minutes of muxed ≤720p — the failing one was 8.6 MB), so the wait
+is short. The download and the caption sidecar now share **one** temp dir (`_trailerDir`, was
+`_trailerSubDir`), removed on dispose. Falls back to the direct stream URL, then the raw page URL,
+so nothing regresses where streaming still works. Pure `pickDownloadedVideo` picks the largest
+playable file, so the `.vtt` sidecar and any fragment can't be chosen (5 tests).
+
+Note the other errors in that log are unrelated: `property not found _setProperty(osc, 1)` is
+media_kit noise, `dxva2-egl: Failed to create EGL surface` is the known interop failure, and the
+`sub-add` failure is downstream of the stream never opening.
+
 **Caveat — a second candidate cause is not ruled out.** The failing URL was bound to an **IPv6**
 address (`ip=2a0e:d785:…`) despite `--force-ipv4` being passed to yt-dlp. If mpv then fetches
 from a different address — plausible on a dual-stack box, or if the VPN reconnects between

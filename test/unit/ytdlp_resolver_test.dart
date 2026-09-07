@@ -137,6 +137,49 @@ void main() {
     });
   });
 
+  group('pickDownloadedVideo', () {
+    ({String path, int sizeBytes}) f(String path, int size) =>
+        (path: path, sizeBytes: size);
+
+    test('picks the video file yt-dlp wrote', () {
+      expect(
+          pickDownloadedVideo([f('/t/trailer.mp4', 8595850)]), '/t/trailer.mp4');
+    });
+
+    test('ignores the caption sidecar sharing the directory', () {
+      // The download and the captions land in the same temp dir.
+      expect(
+        pickDownloadedVideo([
+          f('/t/trailer.en.vtt', 4000),
+          f('/t/trailer.mp4', 8595850),
+        ]),
+        '/t/trailer.mp4',
+      );
+    });
+
+    test('largest wins, so a stray fragment cannot be chosen', () {
+      expect(
+        pickDownloadedVideo([
+          f('/t/trailer.f137.mp4', 1024),
+          f('/t/trailer.mp4', 900000),
+        ]),
+        '/t/trailer.mp4',
+      );
+    });
+
+    test('accepts the container formats YouTube actually serves', () {
+      expect(pickDownloadedVideo([f('/t/trailer.webm', 10)]), '/t/trailer.webm');
+      expect(pickDownloadedVideo([f('/t/trailer.mkv', 10)]), '/t/trailer.mkv');
+    });
+
+    test('is null when nothing playable was written', () {
+      expect(pickDownloadedVideo(const []), isNull);
+      expect(
+          pickDownloadedVideo([f('/t/trailer.en.vtt', 10), f('/t/x.txt', 99)]),
+          isNull);
+    });
+  });
+
   group('pickSubtitleFile', () {
     test('returns null when nothing looks like a subtitle', () {
       expect(pickSubtitleFile(const []), isNull);

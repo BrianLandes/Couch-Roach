@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'video_extensions.dart';
 import 'ytdlp.dart';
 
 /// A directly-playable stream resolved from a page URL (a YouTube trailer): the
@@ -172,6 +173,70 @@ Future<String?> fetchNetworkSubtitle(
     final dir = Directory(destDir);
     if (!dir.existsSync()) return null;
     return pickSubtitleFile(dir.listSync().whereType<File>().map((f) => f.path));
+  } on ProcessException {
+    return null; // yt-dlp not bundled and not on PATH
+  } catch (_) {
+    return null;
+  }
+}
+
+
+/// The downloaded video among [paths] — the largest file with a playable video
+/// extension, or null when yt-dlp wrote none.
+///
+/// Largest wins because the same directory also holds the caption sidecar and
+/// can hold a leftover fragment; the media file is comfortably the biggest.
+/// Pure + tested.
+String? pickDownloadedVideo(Iterable<({String path, int sizeBytes})> files) {
+  ({String path, int sizeBytes})? best;
+  for (final f in files) {
+    final ext = p.extension(f.path).toLowerCase();
+    if (!kVideoExtensions.contains(ext)) continue;
+    if (best == null || f.sizeBytes > best.sizeBytes) best = f;
+  }
+  return best?.path;
+}
+
+/// Download a page URL's video with the bundled yt-dlp and return the file path.
+///
+/// This is how trailers play. Handing mpv the *signed* googlevideo URL kept
+/// failing: YouTube binds that URL to the client that extracted it (the `c=`
+/// query param), to the source IP, and to an expiry, and answers **403** when
+/// the fetch doesn't match on every axis. Matching yt-dlp's headers fixed some
+/// cases and not others, and YouTube keeps rotating which client yt-dlp has to
+/// use — so the fetch is handed to yt-dlp, which already holds whatever that
+/// format needs. Trailers are small (a couple of minutes of muxed ≤720p), so
+/// the wait is short and the file is temporary.
+///
+/// Returns null on any failure so the caller can fall back to streaming.
+Future<String?> downloadNetworkVideo(
+  String url, {
+  required String destDir,
+}) async {
+  final ytDlp =
+      bundledYtDlpPath() ?? (Platform.isWindows ? 'yt-dlp.exe' : 'yt-dlp');
+  try {
+    final res = await Process.run(ytDlp, [
+      // One pre-muxed progressive stream — no separate audio/video to merge,
+      // which would need ffmpeg and produce a much larger file.
+      '-f', 'best',
+      '--no-playlist',
+      '--no-warnings',
+      // Same IPv4 pin as the rest of the yt-dlp calls.
+      '--force-ipv4',
+      // Write straight to the final name; a leftover .part would otherwise sit
+      // in the directory we scan.
+      '--no-part',
+      '-o', p.join(destDir, 'trailer.%(ext)s'),
+      url,
+    ]);
+    if (res.exitCode != 0) return null;
+    final dir = Directory(destDir);
+    if (!dir.existsSync()) return null;
+    return pickDownloadedVideo(dir
+        .listSync()
+        .whereType<File>()
+        .map((f) => (path: f.path, sizeBytes: f.lengthSync())));
   } on ProcessException {
     return null; // yt-dlp not bundled and not on PATH
   } catch (_) {

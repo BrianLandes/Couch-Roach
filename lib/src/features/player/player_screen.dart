@@ -241,7 +241,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // Temp dir holding a trailer's downloaded caption sidecar (YouTube captions,
   // fetched via yt-dlp since the resolved direct stream carries none). Cleaned
   // up on dispose.
-  Directory? _trailerSubDir;
+  Directory? _trailerDir;
 
   // Per-title subtitle timing offset (ms), applied as mpv `sub-delay` and
   // persisted on the library row so a re-watch stays corrected. Range is
@@ -567,6 +567,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<String> _resolveMediaUrl(String path) async {
     if (!_isNetworkSource) return path;
     final log = getIt<ErrorLogService>();
+
+    // Download the trailer and play it from disk, rather than handing mpv the
+    // signed googlevideo URL. That URL is bound to the client that extracted
+    // it, the source IP and an expiry, and YouTube answers 403 when the fetch
+    // doesn't match on every axis — matching yt-dlp's headers fixed some cases
+    // and not others. Letting yt-dlp do the fetch removes the whole class of
+    // failure. See [downloadNetworkVideo].
+    final dir = await _ensureTrailerDir();
+    if (dir != null) {
+      final file = await downloadNetworkVideo(path, destDir: dir.path);
+      if (file != null) {
+        log.info('downloaded trailer via yt-dlp: $file',
+            source: 'PlayerScreen.resolveMedia');
+        return file;
+      }
+      log.warn('trailer download failed — falling back to the direct stream',
+          source: 'PlayerScreen.resolveMedia');
+    }
+
+    // Fallbacks, in order: the direct stream URL (fine whenever the signed URL
+    // is still fetchable), then the raw page URL for a ytdl_hook-capable
+    // libmpv (a system libmpv on Linux).
     final resolved = await resolveNetworkStream(path);
     if (resolved == null) {
       log.info('yt-dlp could not resolve "$path" — opening it raw (needs a '
@@ -576,6 +598,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await _applyStreamHeaders(resolved.headers);
     log.info('resolved trailer stream via yt-dlp', source: 'PlayerScreen.resolveMedia');
     return resolved.url;
+  }
+
+  /// The temp directory this trailer's downloaded video and captions share,
+  /// created once and removed on dispose. Null when it can't be created.
+  Future<Directory?> _ensureTrailerDir() async {
+    final existing = _trailerDir;
+    if (existing != null) return existing;
+    try {
+      return _trailerDir = await Directory.systemTemp.createTemp('cr_trailer');
+    } catch (e, st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.trailerDir');
+      return null;
+    }
   }
 
   /// Send the resolved stream the exact headers yt-dlp says go with it.
@@ -656,8 +692,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!getIt<SettingsService>().autoDownloadSubtitles) return;
     final log = getIt<ErrorLogService>();
     try {
-      final dir = await Directory.systemTemp.createTemp('cr_trailer_sub');
-      _trailerSubDir = dir;
+      final dir = await _ensureTrailerDir();
+      if (dir == null) return;
       final sub = await fetchNetworkSubtitle(widget.filePath, destDir: dir.path);
       if (sub == null) {
         log.info('no captions available for trailer ${widget.filePath}',
@@ -1398,7 +1434,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       t.cancel();
     }
     // Best-effort: remove the trailer's downloaded caption sidecar.
-    _trailerSubDir?.delete(recursive: true).ignore();
+    _trailerDir?.delete(recursive: true).ignore();
     for (final s in _subs) {
       s.cancel();
     }
