@@ -147,7 +147,6 @@ class _ShowDetailScreenState extends ConsumerState<ShowDetailScreen> {
                 context,
                 tmdbId: details.tmdbId,
                 isTv: true,
-                title: details.name,
               ),
               icon: const Icon(Icons.movie_outlined),
               label: const Text('Trailers'),

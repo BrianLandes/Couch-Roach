@@ -433,7 +433,44 @@ worth eyeballing); and how long an episode takes.
 - [ ] Pause a video, let the PC sleep, come back → the player says it can't play the file that was playing; have to back out and replay it to recover.
 - Likely the mpv/media_kit pipeline (or the file handle / GPU context / the localhost stream if it was an archive_play) doesn't survive suspend/resume. Investigate: does the OS `WM_POWERBROADCAST` resume event reach us? On resume, re-open the current media at the saved position instead of leaving the dead handle. Consider listening for the player's error state and auto-recovering (reload at last position) rather than requiring a manual back+replay. Repro with both a local file and an archive/stream source. [windows]
 
-### Trailer / YouTube playback stopped working (regression) · `p2`
+### Trailer / YouTube playback stopped working (regression) · `p2` — RESOLVED by opening the browser
+
+**Root cause, finally.** With yt-dlp's stderr surfaced, the real error appeared:
+`ERROR: [youtube] …: Requested format is not available.` That's `-f best` matching nothing —
+YouTube has largely stopped serving the pre-muxed progressive formats a single-file fetch needs.
+Every earlier symptom (the 403s, the "failed to open") was downstream of trying to play a
+YouTube URL in libmpv at all.
+
+**Decision: trailers open in the default browser.** `showTrailerPicker` now calls `openUrl` with
+the YouTube watch URL instead of pushing the player; its `title` parameter went away with the
+player args. The picker itself is unchanged, so multiple previews still list and are chosen the
+same way.
+
+Rationale: resolving a YouTube URL for libmpv is a permanently moving target — YouTube binds each
+playback URL to the extracting client, the source IP and an expiry, rotates which client yt-dlp
+may use, and changes which formats exist. Three separate fixes (per-format headers, download-then-
+play, newer yt-dlp) each held briefly and broke again on YouTube's schedule. A browser is the one
+client YouTube always intends to serve. **Local playback is untouched** — this only moves where
+*previews* play.
+
+Kept from the chase (all worth having independently): yt-dlp and ffmpeg now track their latest
+releases instead of stale pins, and `downloadNetworkVideo` reports yt-dlp's exit code and stderr
+instead of failing silently.
+
+### Remove the now-dead network-playback path from the player · `p3`
+
+- [ ] With trailers opening in the browser, **nothing** launches the player with an `http(s)`
+  URL any more — archive playback hands it a local file from the torrent daemon, and every other
+  call site is a library file. So the whole `_isNetworkSource` branch is dead: the yt-dlp
+  resolve/download, `_applyStreamHeaders`, `_configureYtdlp`/`ytdl_hook` wiring, the trailer
+  caption fetch and temp dir, and the network-only verbose mpv logging.
+- Left in place for now rather than deleted blind — it's ~200 lines across `player_screen.dart`
+  and `ytdlp_resolver.dart`, and this container has no analyzer to confirm nothing else reaches
+  it. Delete it in a session with a working SDK, in its own commit.
+- Keep `downloadNetworkVideo`/`pickDownloadedVideo` only if something else wants them; otherwise
+  they go too. yt-dlp itself stays bundled — the caption fetch may still be wanted if trailers
+  ever come back in-app.
+
 
 **DIAGNOSED + FIXED (2026-09-01).** yt-dlp resolves the stream fine, then mpv's fetch of the
 googlevideo URL returns **HTTP 403 Forbidden**. Root cause visible in the log: the resolved URL

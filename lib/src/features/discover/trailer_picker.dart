@@ -2,22 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/platform/open_url.dart';
 import '../../data/tmdb/tmdb_video.dart';
-import '../../router/app_router.dart';
 import '../../theme/theme.dart';
 import '../../widgets/focusable_card.dart';
-import '../player/player_screen.dart';
 import 'discover_providers.dart';
 
-/// Open the glass trailer picker for a title. The dialog returns the chosen
-/// [TrailerOption]; we then push the player with its YouTube URL. A title with
-/// several previews (official trailer, teaser, per-season trailers, clips) lists
-/// them all so the user can pick — see [trailerOptionsProvider].
+/// Open the glass trailer picker for a title, then hand the chosen video to the
+/// **browser**. A title with several previews (official trailer, teaser,
+/// per-season trailers, clips) lists them all so the user can pick — see
+/// [trailerOptionsProvider].
+///
+/// Why the browser and not our own player: playing a YouTube URL in libmpv means
+/// resolving it with yt-dlp first, and that resolution is a moving target.
+/// YouTube binds each playback URL to the client that extracted it, the source
+/// IP and an expiry; it rotates which client yt-dlp may use; and it has largely
+/// stopped serving the pre-muxed progressive formats a single-file fetch needs
+/// (the failure that finally settled this was `Requested format is not
+/// available`). Each fix held for a while and then broke again on YouTube's
+/// schedule. A browser is the one client YouTube always intends to serve, so
+/// trailers stop being a maintenance burden. Local playback is unaffected —
+/// this only changes where *previews* play.
 Future<void> showTrailerPicker(
   BuildContext context, {
   required int tmdbId,
   required bool isTv,
-  required String title,
 }) async {
   final selected = await showDialog<TrailerOption>(
     context: context,
@@ -25,14 +34,13 @@ Future<void> showTrailerPicker(
   );
   if (selected == null || !context.mounted) return;
 
-  final name = trailerDisplayName(selected);
-  context.push(
-    Routes.player,
-    extra: PlayerArgs(
-      filePath: youtubeWatchUrl(selected.video.key),
-      title: '$title — $name',
-    ),
-  );
+  // Capture before the await — the dialog's context may be gone after it.
+  final messenger = ScaffoldMessenger.of(context);
+  if (!await openUrl(youtubeWatchUrl(selected.video.key))) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text("Couldn't open the trailer in a browser.")),
+    );
+  }
 }
 
 /// The video's own name, or a sensible fallback from its type when TMDB left it

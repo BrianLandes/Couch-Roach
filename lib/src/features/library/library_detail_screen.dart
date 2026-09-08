@@ -103,7 +103,6 @@ class _LibraryDetailScreenState extends ConsumerState<LibraryDetailScreen> {
             context,
             tmdbId: item.tmdbId!,
             isTv: !_isMovie,
-            title: item.tmdbName ?? item.title,
           ),
           icon: const Icon(Icons.movie_outlined),
           label: const Text('Trailers'),

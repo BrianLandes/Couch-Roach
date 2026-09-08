@@ -83,7 +83,6 @@ class MovieDetailScreen extends ConsumerWidget {
                   context,
                   tmdbId: tile.tmdbId,
                   isTv: false,
-                  title: full.title,
                 ),
                 icon: const Icon(Icons.movie_outlined),
                 label: const Text('Trailers'),
