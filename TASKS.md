@@ -20,6 +20,57 @@ drop the rest._
 
 _Aim for one task here at a time._
 
+### Episode downloads: season packs, stuck progress, retry reusing a bad pack · `p2`
+
+- [ ] (1) Downloading one episode sometimes pulls the whole season, and the other episodes then sit
+  at "Downloading 0%" forever. (2) After rejecting a pack for one episode, the next episode
+  picks the same pack again. (3) An episode reads "<100% / downloading" in Couch Roach while
+  qBittorrent says the torrent is 100% (sometimes even after cleanup).
+- **Root causes found by reading the code:**
+  - `QbittorrentTask` kept the "wanted files" set **in memory on the task object**, and a new
+    object is made on every reattach (another episode of the pack, a prefetch, a restart). So
+    focusing E2 set E1 to *skip* mid-download → E1 frozen below 100% while the torrent (which
+    only counts wanted files) hit 100% and was cleared by the completed-torrent reaper. → (3)
+  - `prefetchEpisode` / background retry added a pack and **never focused it** (only the
+    foreground `prepareFile` did) → whole season downloaded. A pack whose `prepareFile` failed
+    (episode not in it) also kept downloading everything. → (1)
+  - `prefetchEpisode` and bulk `_tryPack` treated "a pack for this season exists" as "covered",
+    though a pack fetched for one episode has every other episode skipped → nothing downloaded.
+  - `episodeFileProgress` listed skipped (priority 0) files → every other row "Downloading 0%". → (1)
+  - Rejected sources were only excluded **per episode**; the remembered pack was forgotten but
+    the resolver found the same pack again for the next episode. → (2)
+  - "Try another source" / "Cancel" on a pack-served episode removed the **whole pack with
+    `deleteFiles: true`** — deleting every other episode's file already in the library.
+  - `AcquisitionController` runs weren't ordered: a superseded run (start → "Choose source…")
+    could rebind progress to the removed torrent (read as a frozen %) or overwrite the new
+    state. The task's `progress` stream also yielded 0% forever once the torrent was gone, and
+    showed the whole pack's % for one episode.
+- **Implemented (awaiting real-machine check):**
+  - Wanted files are read back from the daemon's file priorities (pure `focusPlan` /
+    `wantedFileIndices`); only a *fresh* add starts from "nothing wanted". New task ops
+    `selectEpisode` (want one episode without buffering; waits for metadata, `timeout` vs
+    `noVideo` distinguished), `dropEpisode`, `wantAll`. `progress` follows the focused file and
+    ends when the torrent disappears.
+  - acquire_play.dart consolidated: one `acquireKeysFor`, one `_addSource` (tried/disk/key/pack
+    memory), one `releaseCurrentSource` behind retry, choose-source and cancel. Background pack
+    adds select their episode; a freshly-added torrent that lacks the episode is removed (keeping
+    files); prefetch / Download All select the episode in an existing pack (or fetch the single
+    episode if the pack lacks it); bulk "Download season" un-skips an existing pack.
+  - Releasing a pack episode drops only its file (deleted from disk, row flagged missing); the pack
+    goes (files kept) only when nothing else in it is wanted. Retry rejects the pack
+    **season-wide** for the session (`AcquisitionSession.rejectedPacksFor`); the source picker
+    hides rejected packs.
+  - `episodeFileProgress` skips priority-0 files unless complete; the player's Next Episode
+    button reads the episode's file progress inside a pack.
+  - `AcquisitionController`'s three run methods collapsed into one generation-guarded `_run`.
+  - Tests: `acquire_play_test.dart` (release paths, prefetch into a pack), daemon selection /
+    progress tests, `episodeFileProgress` skip test, Next Episode pack tests.
+- **Still open / needs data:** pack rejection is session-only (a restart forgets it — persist on
+  `SeasonPackSources` if it bites); a library row is still written when the file is merely
+  *streamable*, not complete (by design for streaming, but worth confirming it isn't what
+  reads as "done" elsewhere). If (3) recurs, grab the verbose log around `AcquirePack` /
+  `QbittorrentTask.resolveFile` lines for that episode.
+
 ### Landing page: library rows above the recommendation lanes · `p2`
 
 - [x] **Implemented.** "My TV Shows" / "My Movies" (what's on the machine) sat *below* every recommendation lane.

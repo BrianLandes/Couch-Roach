@@ -324,7 +324,20 @@ class TorrentStatus {
   bool get isComplete => progress >= 1.0;
 }
 
+/// What [TorrentTask.dropEpisode] did: the dropped episode file's absolute
+/// [path] (it may be partial, or absent if nothing was written yet), and whether
+/// any **other** file in the torrent is still being downloaded — if none is,
+/// the torrent itself can go.
+class EpisodeDrop {
+  const EpisodeDrop({required this.path, required this.othersWanted});
+  final String path;
+  final bool othersWanted;
+}
+
 abstract class TorrentTask {
+  /// The torrent's info hash in the daemon.
+  String get hash;
+
   /// Prepare a single file for playback and return its absolute path: focus the
   /// download on it, then wait until enough is buffered (incl. first/last
   /// pieces) to begin playback.
@@ -338,6 +351,30 @@ abstract class TorrentTask {
   /// video is used. Selecting files is additive: previously prepared files stay
   /// wanted, so a watched episode isn't dropped when the next is picked.
   Future<String> prepareFile({String? name, int? season, int? episode});
+
+  /// Want one episode's file in a multi-file torrent (a season pack) — without
+  /// waiting for it to buffer — on top of whatever the torrent already
+  /// downloads. Returns its absolute path, or null when the torrent has no file
+  /// for that episode. How a background fetch of a pack episode downloads *that
+  /// episode* rather than the whole season (or nothing, if the pack already
+  /// existed for another episode). Waits up to [wait] for the torrent's
+  /// metadata (a magnet has no file list until peers send it), then throws a
+  /// [TorrentErrorKind.timeout].
+  Future<String?> selectEpisode({
+    required int season,
+    required int episode,
+    Duration wait = const Duration(minutes: 10),
+  });
+
+  /// Stop downloading one episode's file (priority → skip), leaving the rest of
+  /// the torrent alone. Null when the torrent has no file for that episode. How
+  /// one bad or cancelled episode is let go without deleting the pack — and the
+  /// other episodes' files — out from under them.
+  Future<EpisodeDrop?> dropEpisode({required int season, required int episode});
+
+  /// Download every file in the torrent — a bulk "Download season" landing on a
+  /// pack that was fetched for one episode (its other files skipped).
+  Future<void> wantAll();
 
   /// 0.0–1.0 download progress stream, for the show-detail availability badge.
   Stream<double> get progress;

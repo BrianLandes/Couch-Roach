@@ -51,4 +51,17 @@ void main() {
     expect(episodeFileProgress([{'progress': 1.0}]), isEmpty); // no name
     expect(episodeFileProgress([f('', 1.0)]), isEmpty);
   });
+
+  test('leaves out files the daemon skips, unless already complete', () {
+    // A pack fetched for E01 only: the rest sit at priority 0 and must not
+    // read as "Downloading 0%" on their rows.
+    final out = episodeFileProgress([
+      {'name': 'Show.S01E01.mkv', 'progress': 0.4, 'priority': 7},
+      {'name': 'Show.S01E02.mkv', 'progress': 0.0, 'priority': 0},
+      {'name': 'Show.S01E03.mkv', 'progress': 0.6, 'priority': 0},
+      // Finished before it was skipped — still a real, complete file.
+      {'name': 'Show.S01E04.mkv', 'progress': 1.0, 'priority': 0},
+    ]);
+    expect(out, {(1, 1): 0.4, (1, 4): 1.0});
+  });
 }

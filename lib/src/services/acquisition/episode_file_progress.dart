@@ -15,12 +15,19 @@ import '../subtitles/filename_media_info.dart';
 /// names one season, but its files are what actually got downloaded. Non-video
 /// files and anything without an `SxxExx` marker are ignored. When two files
 /// claim the same episode the furthest-along one wins, so a duplicate or sample
-/// can't drag the displayed progress backwards. Pure + tested.
+/// can't drag the displayed progress backwards.
+///
+/// Files the daemon has set to **skip** (priority 0) are left out unless already
+/// complete: a pack fetched for one episode carries every other episode at
+/// priority 0, and listing them read as "Downloading 0%" on every row of the
+/// season, forever. Pure + tested.
 Map<(int, int), double> episodeFileProgress(List<Map<String, dynamic>> files) {
   final out = <(int, int), double>{};
   for (final f in files) {
     final name = f['name'] as String?;
     if (name == null || name.isEmpty) continue;
+    final skipped = ((f['priority'] as num?)?.toInt() ?? 1) == 0;
+    if (skipped && ((f['progress'] as num?)?.toDouble() ?? 0) < 1.0) continue;
     if (!kVideoExtensions.contains(p.extension(name).toLowerCase())) continue;
 
     final info = FilenameMediaInfo.parse(p.basename(name));

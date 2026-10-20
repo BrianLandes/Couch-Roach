@@ -101,7 +101,7 @@ class QbittorrentDaemon implements TorrentDaemon {
       throw e;
     }
     _log.info('torrent appeared: hash=$hash', source: 'QbittorrentDaemon.add');
-    return QbittorrentTask(this, hash: hash, savePath: savePath);
+    return QbittorrentTask(this, hash: hash, savePath: savePath, fresh: true);
   }
 
   /// Resolve an add into what qBittorrent's `/torrents/add` should receive.
@@ -434,12 +434,31 @@ class QbittorrentDaemon implements TorrentDaemon {
 /// Multi-file torrents (IA bundles / whole seasons) are supported: [prepareFile]
 /// takes a file name, and selection is additive — each prepared file stays
 /// wanted, so watching one episode then another doesn't drop the first.
+///
+/// What's "wanted" is read back from the daemon's own file priorities, not kept
+/// on this object: a task is rebuilt on every reattach (another episode of the
+/// same pack, a prefetch, an app restart), and an in-memory set started empty
+/// each time — so focusing episode 2 skipped episode 1 mid-download, leaving it
+/// stuck below 100% while the torrent (which only counts wanted files) reported
+/// done. The one exception is a [fresh] add: qBittorrent starts every file at
+/// normal priority, which means "nothing chosen yet", not "everything wanted".
 class QbittorrentTask implements TorrentTask {
-  QbittorrentTask(this._daemon, {required this.hash, required this.savePath});
+  QbittorrentTask(this._daemon,
+      {required this.hash, required this.savePath, bool fresh = false})
+      : _fresh = fresh;
 
   final QbittorrentDaemon _daemon;
+  @override
   final String hash;
   final String savePath;
+
+  /// Just added by us and not yet focused — its default priorities carry no
+  /// selection. Cleared by the first focus.
+  bool _fresh;
+
+  /// The file the current [prepareFile]/[selectEpisode] is about, so [progress]
+  /// can report that file rather than the whole torrent.
+  int? _focusIndex;
 
   // Step logging goes to the same sink the daemon uses (same library, so the
   // private field is reachable).
@@ -459,10 +478,6 @@ class QbittorrentTask implements TorrentTask {
   /// Resolved files, keyed by the requested name (null = the primary).
   final Map<String?, _TorrentFileRef> _resolved = {};
 
-  /// File indices we've committed to downloading — kept high across selections
-  /// so preparing a second file doesn't un-want the first.
-  final Set<int> _wanted = {};
-
   @override
   Future<String> prepareFile({String? name, int? season, int? episode}) async {
     final file = await _resolveFile(name: name, season: season, episode: episode);
@@ -472,28 +487,77 @@ class QbittorrentTask implements TorrentTask {
     return p.join(savePath, file.name);
   }
 
+  @override
+  Future<String?> selectEpisode({
+    required int season,
+    required int episode,
+    Duration wait = const Duration(minutes: 10),
+  }) async {
+    try {
+      final file =
+          await _resolveFile(season: season, episode: episode, wait: wait);
+      return p.join(savePath, file.name);
+    } on TorrentDaemonException catch (e) {
+      if (e.kind == TorrentErrorKind.noVideo) return null;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> wantAll() async {
+    final files = await _daemon.torrentFiles(hash);
+    final skipped = [
+      for (final f in files)
+        if (((f['priority'] as num?)?.toInt() ?? 1) == 0) fileIndexOf(files, f),
+    ];
+    _fresh = false;
+    if (skipped.isNotEmpty) await _daemon.setFilePriority(hash, skipped, 1);
+  }
+
+  @override
+  Future<EpisodeDrop?> dropEpisode(
+      {required int season, required int episode}) async {
+    final files = await _daemon.torrentFiles(hash);
+    final chosen = findEpisodeFile(files, season, episode);
+    if (chosen == null) return null;
+    final index = fileIndexOf(files, chosen);
+    await _daemon.setFilePriority(hash, [index], 0);
+    _resolved.remove('s${season}e$episode');
+    if (_focusIndex == index) _focusIndex = null;
+    final othersWanted = wantedFileIndices(files)..remove(index);
+    return EpisodeDrop(
+      path: p.join(savePath, chosen['name'] as String),
+      othersWanted: _fresh ? false : othersWanted.isNotEmpty,
+    );
+  }
+
   /// Resolve the file to play and focus the download on it (additive — other
   /// unwanted files → priority 0). Selection order: an exact [name]; else the
   /// file matching [season]/[episode] (extracting one episode from a pack); else
   /// the primary/largest video. Cached per selector.
-  Future<_TorrentFileRef> _resolveFile(
-      {String? name, int? season, int? episode}) async {
+  Future<_TorrentFileRef> _resolveFile({
+    String? name,
+    int? season,
+    int? episode,
+    Duration wait = const Duration(seconds: 60),
+  }) async {
     final hasEpisode = season != null && episode != null;
     final selectorKey = name ?? (hasEpisode ? 's${season}e$episode' : null);
     final cached = _resolved[selectorKey];
     if (cached != null) return cached;
 
-    final deadline = DateTime.now().add(const Duration(seconds: 60));
+    final deadline = DateTime.now().add(wait);
+    var sawFiles = false;
     while (DateTime.now().isBefore(deadline)) {
       final files = await _daemon.torrentFiles(hash);
+      sawFiles = sawFiles || files.isNotEmpty;
       final chosen = name != null
           ? findFileByName(files, name)
           : hasEpisode
               ? findEpisodeFile(files, season, episode)
               : pickPrimaryFile(files);
       if (chosen != null) {
-        final index =
-            (chosen['index'] as num?)?.toInt() ?? files.indexOf(chosen);
+        final index = fileIndexOf(files, chosen);
         final range = pieceRangeOf(chosen['piece_range']);
         final ref = _TorrentFileRef(
           index: index,
@@ -517,29 +581,31 @@ class QbittorrentTask implements TorrentTask {
       if (selectorKey != null && files.isNotEmpty) break;
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
+    // No file list at all → the metadata never arrived (a timeout, not proof
+    // the file is absent); a file list without a match → genuinely not there.
     final e = TorrentDaemonException(
-        selectorKey == null
-            ? 'no files resolved for torrent $hash'
-            : 'no file for "$selectorKey" found in torrent $hash',
-        kind: TorrentErrorKind.noVideo);
+        !sawFiles
+            ? 'no metadata for torrent $hash within ${wait.inSeconds}s'
+            : selectorKey == null
+                ? 'no files resolved for torrent $hash'
+                : 'no file for "$selectorKey" found in torrent $hash',
+        kind: sawFiles ? TorrentErrorKind.noVideo : TorrentErrorKind.timeout);
     _log.logError(e, source: 'QbittorrentTask.resolveFile');
     throw e;
   }
 
-  /// Mark [index] wanted and reassert priorities: every wanted file → maximal,
-  /// everything else → skipped. Additive, so previously prepared files keep
-  /// downloading. Best-effort (streaming still works if the daemon rejects it).
+  /// Want [index] on top of whatever the daemon already wants (see
+  /// [focusPlan]): the focused file → maximal, unwanted files → skipped, other
+  /// wanted files left as they are. Best-effort (streaming still works if the
+  /// daemon rejects it).
   Future<void> _focusDownloadOn(
       int index, List<Map<String, dynamic>> files) async {
-    _wanted.add(index);
-    final others = <int>[];
-    for (var i = 0; i < files.length; i++) {
-      final idx = (files[i]['index'] as num?)?.toInt() ?? i;
-      if (!_wanted.contains(idx)) others.add(idx);
-    }
+    _focusIndex = index;
+    final plan = focusPlan(files, index, fresh: _fresh);
+    _fresh = false;
     try {
-      if (others.isNotEmpty) await _daemon.setFilePriority(hash, others, 0);
-      await _daemon.setFilePriority(hash, _wanted.toList(), 7);
+      if (plan.skip.isNotEmpty) await _daemon.setFilePriority(hash, plan.skip, 0);
+      await _daemon.setFilePriority(hash, [index], 7);
     } catch (_) {
       // Non-fatal — fall back to streaming whatever downloads.
     }
@@ -642,13 +708,26 @@ class QbittorrentTask implements TorrentTask {
     throw e;
   }
 
+  /// The focused file's progress once one is chosen (a season pack's torrent
+  /// figure covers every wanted episode, not the one being prepared), else the
+  /// torrent's. Ends at 1.0, or when the torrent leaves the client — a removed
+  /// torrent used to read as 0% forever.
   @override
   Stream<double> get progress async* {
     while (true) {
       final info = await _daemon.torrentsInfo(hashes: hash);
-      final value = info.isEmpty
-          ? 0.0
-          : (info.first['progress'] as num?)?.toDouble() ?? 0.0;
+      if (info.isEmpty) return;
+      var value = (info.first['progress'] as num?)?.toDouble() ?? 0.0;
+      final focus = _focusIndex;
+      if (focus != null) {
+        final files = await _daemon.torrentFiles(hash);
+        for (final f in files) {
+          if (fileIndexOf(files, f) == focus) {
+            value = (f['progress'] as num?)?.toDouble() ?? value;
+            break;
+          }
+        }
+      }
       yield value.clamp(0.0, 1.0);
       if (value >= 1.0) return;
       await Future<void>.delayed(const Duration(seconds: 1));
@@ -735,6 +814,36 @@ bool headAndTailReady(
     if (states[i] != 2) return false;
   }
   return true;
+}
+
+/// A `/torrents/files` entry's index: its `index` field (qBittorrent ≥4.?) or,
+/// failing that, its position in the list. Pure.
+int fileIndexOf(List<Map<String, dynamic>> files, Map<String, dynamic> file) =>
+    (file['index'] as num?)?.toInt() ?? files.indexOf(file);
+
+/// Indices of files the daemon currently downloads (priority above 0). Pure.
+Set<int> wantedFileIndices(List<Map<String, dynamic>> files) => {
+      for (var i = 0; i < files.length; i++)
+        if (((files[i]['priority'] as num?)?.toInt() ?? 1) > 0)
+          fileIndexOf(files, files[i]),
+    };
+
+/// Which files to skip when focusing [index]: every file the daemon isn't
+/// already downloading — so the selection is **additive** across tasks,
+/// reattaches and restarts. On a [fresh] add (all files still at the default
+/// priority, i.e. nothing chosen yet) everything but [index] is skipped. A
+/// torrent whose files are all wanted (a bulk "download the season" add) keeps
+/// them all. Pure + tested.
+({List<int> skip}) focusPlan(List<Map<String, dynamic>> files, int index,
+    {required bool fresh}) {
+  final keep = fresh ? <int>{} : wantedFileIndices(files);
+  keep.add(index);
+  return (
+    skip: [
+      for (final f in files)
+        if (!keep.contains(fileIndexOf(files, f))) fileIndexOf(files, f),
+    ],
+  );
 }
 
 /// Find the torrent file whose basename matches [name] (case-insensitively).

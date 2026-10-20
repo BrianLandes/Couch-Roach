@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../services/acquisition/acquisition.dart';
 import 'acquire_play.dart';
+import 'preparing_dialog.dart' show Prepared;
 
 /// Where an inline Download control is in its lifecycle.
 enum AcquirePhase { idle, preparing, ready, failed }
@@ -50,6 +51,13 @@ class AcquisitionController extends StateNotifier<AcquireState> {
 
   StreamSubscription<double>? _sub;
 
+  /// Bumped by every run. A run only touches [state] while it's still the
+  /// latest, so a slow run that's been superseded (start → "Choose source…"
+  /// while the first source is still buffering) can't overwrite the new run's
+  /// progress with its own — or rebind progress to a torrent that was just
+  /// removed, which read as a "Downloading nn%" that never moved again.
+  int _generation = 0;
+
   Future<void> start({
     required String title,
     required ShowMeta meta,
@@ -62,35 +70,13 @@ class AcquisitionController extends StateNotifier<AcquireState> {
         state.phase == AcquirePhase.ready) {
       return;
     }
-    state = const AcquireState.preparing();
-    try {
-      final prepared = await prepareForPlayback(
-        title: title,
-        meta: meta,
-        season: season,
-        episode: episode,
-        bindProgress: (progress) {
-          _sub?.cancel();
-          _sub = progress.listen((p) {
-            if (mounted) state = AcquireState.preparing(progress: p);
-          });
-        },
-      );
-      await _sub?.cancel();
-      if (mounted) {
-        state = AcquireState.ready(
-          filePath: prepared.filePath,
-          libraryItemId: prepared.libraryItemId,
-        );
-      }
-    } on TorrentDaemonException catch (e) {
-      if (mounted) state = AcquireState.failed(e.userMessage);
-    } catch (_) {
-      if (mounted) {
-        state = const AcquireState.failed(
-            'Something went wrong starting this video. Please try again.');
-      }
-    }
+    await _run((bind) => prepareForPlayback(
+          title: title,
+          meta: meta,
+          season: season,
+          episode: episode,
+          bindProgress: bind,
+        ));
   }
 
   /// "This torrent didn't work" — abandon the current source and prepare the
@@ -102,38 +88,14 @@ class AcquisitionController extends StateNotifier<AcquireState> {
     required ShowMeta meta,
     int? season,
     int? episode,
-  }) async {
-    await _sub?.cancel();
-    state = const AcquireState.preparing();
-    try {
-      final prepared = await retryWithNextSource(
-        title: title,
-        meta: meta,
-        season: season,
-        episode: episode,
-        bindProgress: (progress) {
-          _sub?.cancel();
-          _sub = progress.listen((p) {
-            if (mounted) state = AcquireState.preparing(progress: p);
-          });
-        },
-      );
-      await _sub?.cancel();
-      if (mounted) {
-        state = AcquireState.ready(
-          filePath: prepared.filePath,
-          libraryItemId: prepared.libraryItemId,
-        );
-      }
-    } on TorrentDaemonException catch (e) {
-      if (mounted) state = AcquireState.failed(e.userMessage);
-    } catch (_) {
-      if (mounted) {
-        state = const AcquireState.failed(
-            'Something went wrong starting this video. Please try again.');
-      }
-    }
-  }
+  }) =>
+      _run((bind) => retryWithNextSource(
+            title: title,
+            meta: meta,
+            season: season,
+            episode: episode,
+            bindProgress: bind,
+          ));
 
   /// "Use this source" — the user picked a specific candidate from the source
   /// picker. Discards whatever's downloading and prepares the chosen one,
@@ -144,34 +106,45 @@ class AcquisitionController extends StateNotifier<AcquireState> {
     required ShowMeta meta,
     int? season,
     int? episode,
-  }) async {
+  }) =>
+      _run((bind) => prepareChosenSource(
+            title: title,
+            meta: meta,
+            season: season,
+            episode: episode,
+            handle: handle,
+            bindProgress: bind,
+          ));
+
+  /// Drive one prepare through preparing → ready / failed, binding its live
+  /// progress — and ignoring it entirely once a newer run has started.
+  Future<void> _run(
+      Future<Prepared> Function(void Function(Stream<double>) bind)
+          prepare) async {
+    final generation = ++_generation;
+    bool current() => mounted && generation == _generation;
     await _sub?.cancel();
+    _sub = null;
     state = const AcquireState.preparing();
     try {
-      final prepared = await prepareChosenSource(
-        title: title,
-        meta: meta,
-        season: season,
-        episode: episode,
-        handle: handle,
-        bindProgress: (progress) {
-          _sub?.cancel();
-          _sub = progress.listen((p) {
-            if (mounted) state = AcquireState.preparing(progress: p);
-          });
-        },
-      );
+      final prepared = await prepare((progress) {
+        if (!current()) return;
+        _sub?.cancel();
+        _sub = progress.listen((p) {
+          if (current()) state = AcquireState.preparing(progress: p);
+        });
+      });
+      if (!current()) return;
       await _sub?.cancel();
-      if (mounted) {
-        state = AcquireState.ready(
-          filePath: prepared.filePath,
-          libraryItemId: prepared.libraryItemId,
-        );
-      }
+      _sub = null;
+      state = AcquireState.ready(
+        filePath: prepared.filePath,
+        libraryItemId: prepared.libraryItemId,
+      );
     } on TorrentDaemonException catch (e) {
-      if (mounted) state = AcquireState.failed(e.userMessage);
+      if (current()) state = AcquireState.failed(e.userMessage);
     } catch (_) {
-      if (mounted) {
+      if (current()) {
         state = const AcquireState.failed(
             'Something went wrong starting this video. Please try again.');
       }
@@ -180,21 +153,26 @@ class AcquisitionController extends StateNotifier<AcquireState> {
 
   /// "Stop this" — cancel the in-progress download, remove the torrent + its
   /// partial files, and reset the control to idle (a Download button). Best-
-  /// effort: even if the removal fails, the control still returns to idle.
+  /// effort: even if the removal fails, the control still returns to idle. Also
+  /// retires any run still in flight, so it can't flip the control back.
   Future<void> cancel({
     required String title,
     required ShowMeta meta,
     int? season,
     int? episode,
   }) async {
+    final generation = ++_generation;
     await _sub?.cancel();
+    _sub = null;
     try {
       await cancelDownload(
           title: title, meta: meta, season: season, episode: episode);
     } catch (_) {
       // Best-effort — still drop the control back to idle below.
     }
-    if (mounted) state = const AcquireState.idle();
+    if (mounted && generation == _generation) {
+      state = const AcquireState.idle();
+    }
   }
 
   @override

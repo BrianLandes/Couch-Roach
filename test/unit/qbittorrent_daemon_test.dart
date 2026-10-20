@@ -532,4 +532,136 @@ void main() {
       expect(s.tags.contains(tag), isTrue);
     });
   });
+
+  group('focusPlan', () {
+    Map<String, dynamic> f(int index, int priority) =>
+        {'index': index, 'name': 'S01E0${index + 1}.mkv', 'priority': priority};
+
+    test('a fresh add skips everything but the focused file', () {
+      // qBittorrent starts every file at normal priority — not a selection.
+      final files = [f(0, 1), f(1, 1), f(2, 1)];
+      expect(focusPlan(files, 1, fresh: true).skip, [0, 2]);
+    });
+
+    test('a reattach keeps what the daemon already downloads', () {
+      // E1 was being fetched (by an earlier task object); focusing E2 must
+      // not skip it — that left E1 stuck below 100% forever.
+      final files = [f(0, 7), f(1, 0), f(2, 0)];
+      expect(focusPlan(files, 1, fresh: false).skip, [2]);
+    });
+
+    test('a bulk pack with every file wanted keeps them all', () {
+      final files = [f(0, 1), f(1, 1), f(2, 1)];
+      expect(focusPlan(files, 2, fresh: false).skip, isEmpty);
+    });
+
+    test('wantedFileIndices treats a missing priority as wanted', () {
+      expect(
+          wantedFileIndices([
+            {'index': 0, 'priority': 0},
+            {'index': 1},
+            {'index': 2, 'priority': 6},
+          ]),
+          {1, 2});
+    });
+  });
+
+  group('QbittorrentTask episode selection', () {
+    /// A daemon whose /torrents/files returns [files] and that records every
+    /// filePrio POST as (ids, priority).
+    (QbittorrentDaemon, List<(String, String)>) daemonWith(
+        List<Map<String, dynamic>> files,
+        {double torrentProgress = 0.5}) {
+      final prio = <(String, String)>[];
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/torrents/filePrio')) {
+          prio.add((req.bodyFields['id']!, req.bodyFields['priority']!));
+          return http.Response('', 200);
+        }
+        if (req.url.path.endsWith('/torrents/files')) {
+          return http.Response(jsonEncode(files), 200);
+        }
+        if (req.url.path.endsWith('/torrents/info')) {
+          return http.Response(
+              jsonEncode([
+                {'hash': 'H', 'progress': torrentProgress}
+              ]),
+              200);
+        }
+        return http.Response('', 200);
+      });
+      return (QbittorrentDaemon(client, ErrorLogService()), prio);
+    }
+
+    final pack = [
+      {'index': 0, 'name': 'Pack/Show.S01E01.mkv', 'priority': 7, 'progress': 0.3},
+      {'index': 1, 'name': 'Pack/Show.S01E02.mkv', 'priority': 0, 'progress': 0.0},
+      {'index': 2, 'name': 'Pack/Show.S01E03.mkv', 'priority': 0, 'progress': 0.0},
+    ];
+
+    test('selectEpisode on a reattached pack adds the episode, skips no '
+        'wanted file', () async {
+      final (daemon, prio) = daemonWith(pack);
+      final task = QbittorrentTask(daemon, hash: 'H', savePath: '/lib');
+
+      final path = await task.selectEpisode(season: 1, episode: 2);
+
+      expect(path, '/lib/Pack/Show.S01E02.mkv');
+      expect(prio, [('2', '0'), ('1', '7')],
+          reason: 'only E03 is skipped; E01 keeps downloading');
+    });
+
+    test('selectEpisode returns null when the pack lacks the episode',
+        () async {
+      final (daemon, _) = daemonWith(pack);
+      final task = QbittorrentTask(daemon, hash: 'H', savePath: '/lib');
+      expect(await task.selectEpisode(season: 1, episode: 9), isNull);
+    });
+
+    test('selectEpisode times out (not "missing") when no metadata arrives',
+        () async {
+      final (daemon, _) = daemonWith(const []);
+      final task = QbittorrentTask(daemon, hash: 'H', savePath: '/lib');
+      await expectLater(
+        task.selectEpisode(
+            season: 1, episode: 2, wait: const Duration(milliseconds: 300)),
+        throwsA(isA<TorrentDaemonException>()
+            .having((e) => e.kind, 'kind', TorrentErrorKind.timeout)),
+      );
+    });
+
+    test('dropEpisode skips the file and reports whether others remain',
+        () async {
+      final (daemon, prio) = daemonWith(pack);
+      final task = QbittorrentTask(daemon, hash: 'H', savePath: '/lib');
+
+      final drop = await task.dropEpisode(season: 1, episode: 1);
+
+      expect(prio, [('0', '0')]);
+      expect(drop!.path, '/lib/Pack/Show.S01E01.mkv');
+      expect(drop.othersWanted, isFalse, reason: 'E02/E03 are skipped');
+    });
+
+    test('wantAll un-skips every skipped file', () async {
+      final (daemon, prio) = daemonWith(pack);
+      await QbittorrentTask(daemon, hash: 'H', savePath: '/lib').wantAll();
+      expect(prio, [('1|2', '1')]);
+    });
+
+    test('progress follows the focused file, not the whole pack', () async {
+      final (daemon, _) = daemonWith(pack, torrentProgress: 0.9);
+      final task = QbittorrentTask(daemon, hash: 'H', savePath: '/lib');
+      await task.selectEpisode(season: 1, episode: 1);
+      expect(await task.progress.first, 0.3);
+    });
+
+    test('progress ends when the torrent leaves the client', () async {
+      final client = MockClient((req) async => http.Response('[]', 200));
+      final task = QbittorrentTask(
+          QbittorrentDaemon(client, ErrorLogService()),
+          hash: 'H',
+          savePath: '/lib');
+      expect(await task.progress.toList(), isEmpty);
+    });
+  });
 }

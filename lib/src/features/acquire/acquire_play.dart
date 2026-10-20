@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path/path.dart' as p;
 
 import '../../core/logging/error_log_service.dart';
 import '../../core/settings/settings_service.dart';
@@ -27,6 +29,35 @@ const int _movieEstimateBytes = 5 * 1024 * 1024 * 1024; // ~5 GB
 const int _seasonPackEstimateBytes = 25 * 1024 * 1024 * 1024; // ~25 GB
 const int _showPackEstimateBytes = 120 * 1024 * 1024 * 1024; // ~120 GB
 
+/// The two daemon keys one request can live under: its own [episode] key (an
+/// episode, or a movie/whole-show key), and — for an episode — the [season] key
+/// a season pack serving it is tagged with.
+typedef AcquireKeys = ({String episode, String? season});
+
+/// [AcquireKeys] for a title / episode. Pure.
+AcquireKeys acquireKeysFor(ShowMeta meta, int? season, int? episode) => (
+      episode: acquisitionDedupeKey(
+          tmdbId: meta.tmdbId,
+          title: meta.title,
+          season: season,
+          episode: episode),
+      season: (season != null && episode != null)
+          ? acquisitionDedupeKey(
+              tmdbId: meta.tmdbId, title: meta.title, season: season)
+          : null,
+    );
+
+/// Sources not to hand out for [keys]: what this episode already tried, plus
+/// any season pack rejected for its season (so a bad pack isn't picked straight
+/// back up by the next episode).
+Set<String> _excludedFor(AcquireKeys keys) {
+  final session = getIt<AcquisitionSession>();
+  return {
+    ...session.triedFor(keys.episode),
+    if (keys.season != null) ...session.rejectedPacksFor(keys.season!),
+  };
+}
+
 /// Prepare a not-local title for playback through the [AcquisitionResolver] seam
 /// (Internet Archive, then the user's own Jackett indexers). Reattaches to a
 /// running download for this title if one exists (no re-resolve/re-add), else
@@ -43,37 +74,38 @@ Future<Prepared> prepareForPlayback({
   int? episode,
   required void Function(Stream<double>) bindProgress,
 }) async {
-  final episodeKey = acquisitionDedupeKey(
-    tmdbId: meta.tmdbId,
-    title: meta.title,
-    season: season,
-    episode: episode,
-  );
-  // A season-scoped key tags a whole-season pack, so a second episode reuses the
-  // same download instead of re-fetching it (Tier 0).
-  final seasonKey = (season != null && episode != null)
-      ? acquisitionDedupeKey(
-          tmdbId: meta.tmdbId, title: meta.title, season: season)
-      : null;
-
+  final keys = acquireKeysFor(meta, season, episode);
   // Remember how this title was requested so "try another source" can re-run the
   // same resolve later (incl. from the Downloads screen, which only has the
   // torrent). Keyed by the episode/movie identity.
   final request =
       AcquireRequest(title: title, meta: meta, season: season, episode: episode);
-  getIt<AcquisitionSession>().recordRequest(episodeKey, request);
+  getIt<AcquisitionSession>().recordRequest(keys.episode, request);
 
   // Tier 0 — reattach to an already-running download for this episode, or to a
-  // season pack we already fetched (extract this episode's file from it below);
-  // else resolve a source and add it.
+  // season pack that holds it (its file is extracted below); else resolve a
+  // source and add it.
   final daemon = getIt<TorrentDaemon>();
-  var task = await daemon.taskForDedupeKey(episodeKey);
-  if (task == null && seasonKey != null) {
-    task = await daemon.taskForDedupeKey(seasonKey);
+  final own = await daemon.taskForDedupeKey(keys.episode);
+  if (own != null) return _finishPrepared(own, request, bindProgress);
+
+  var allowPack = true;
+  if (keys.season != null) {
+    final pack = await daemon.taskForDedupeKey(keys.season!);
+    if (pack != null) {
+      final path = await pack.selectEpisode(
+          season: season!, episode: episode!, wait: const Duration(seconds: 60));
+      if (path != null) {
+        return _finishPrepared(pack, request, bindProgress);
+      }
+      // The pack in the client doesn't have this episode (an incomplete pack) —
+      // a pack can't help; fetch the single episode.
+      allowPack = false;
+    }
   }
-  task ??= await _resolveAndAdd(request,
-      episodeKey: episodeKey, seasonKey: seasonKey);
-  return _finishPrepared(task, request, bindProgress);
+  final added = await _resolveAndAdd(request, keys, allowPack: allowPack);
+  return _finishPrepared(added.task, request, bindProgress,
+      addedNow: added.addedNow);
 }
 
 /// The shared tail of a prepare: bind progress, extract this episode's file from
@@ -81,14 +113,27 @@ Future<Prepared> prepareForPlayback({
 /// the known TMDB id + canonical name *now* so the next-episode feature works
 /// immediately rather than racing the async match — and kick off that metadata
 /// match (fire-and-forget; the tile updates live off the drift stream).
+///
+/// When the file isn't in the torrent at all and we only just added it
+/// ([addedNow]), the torrent is removed again: nothing else asked for it, and
+/// left alone it would download every file it has.
 Future<Prepared> _finishPrepared(
   TorrentTask task,
   AcquireRequest request,
-  void Function(Stream<double>) bindProgress,
-) async {
+  void Function(Stream<double>) bindProgress, {
+  bool addedNow = false,
+}) async {
   bindProgress(task.progress);
-  final file =
-      await task.prepareFile(season: request.season, episode: request.episode);
+  final String file;
+  try {
+    file =
+        await task.prepareFile(season: request.season, episode: request.episode);
+  } on TorrentDaemonException catch (e) {
+    if (addedNow && e.kind == TorrentErrorKind.noVideo) {
+      await _removeQuietly(task, reason: 'no file for "${request.title}"');
+    }
+    rethrow;
+  }
 
   final library = getIt<LibraryRepository>();
   await library.upsert(ScannedFile(
@@ -109,14 +154,19 @@ Future<Prepared> _finishPrepared(
 }
 
 /// Ranked, deduped sources for the "Choose source" picker — episode releases and
-/// the season packs that contain the episode. Empty when nothing verifies or
-/// Jackett isn't up.
+/// the season packs that contain the episode, minus packs already rejected for
+/// the season. Empty when nothing verifies or Jackett isn't up.
 Future<List<SourceCandidate>> sourceCandidates({
   required ShowMeta meta,
   int? season,
   int? episode,
-}) =>
-    getIt<AcquisitionResolver>().candidates(meta, season, episode);
+}) {
+  final keys = acquireKeysFor(meta, season, episode);
+  return getIt<AcquisitionResolver>().candidates(meta, season, episode,
+      exclude: keys.season == null
+          ? const {}
+          : getIt<AcquisitionSession>().rejectedPacksFor(keys.season!));
+}
 
 /// Download a **specific** chosen source (from the picker) instead of the
 /// auto-ranked best: discard whatever's currently downloading for this episode,
@@ -130,49 +180,28 @@ Future<Prepared> prepareChosenSource({
   required TorrentHandle handle,
   required void Function(Stream<double>) bindProgress,
 }) async {
-  await _discardCurrentSource(meta, season, episode, title: title);
-  final episodeKey = acquisitionDedupeKey(
-      tmdbId: meta.tmdbId, title: meta.title, season: season, episode: episode);
-  final seasonKey = (season != null && episode != null)
-      ? acquisitionDedupeKey(
-          tmdbId: meta.tmdbId, title: meta.title, season: season)
-      : null;
+  await releaseCurrentSource(meta, season, episode, title: title, reject: true);
+  final keys = acquireKeysFor(meta, season, episode);
   final request =
       AcquireRequest(title: title, meta: meta, season: season, episode: episode);
-  final session = getIt<AcquisitionSession>();
-  session.recordRequest(episodeKey, request);
-  session.markTried(episodeKey, handle.magnetOrUrl);
-
-  final isEpisode = season != null && episode != null;
-  final savePath = await getIt<StorageManager>().chooseTarget(
-      estimatedBytes: isEpisode ? _episodeEstimateBytes : _movieEstimateBytes);
-  if (savePath == null) {
-    throw TorrentDaemonException('not enough free disk space to download this',
-        kind: TorrentErrorKind.generic);
-  }
-  final addKey = (handle.seasonPack && seasonKey != null) ? seasonKey : episodeKey;
-  if (addKey != episodeKey) session.recordRequest(addKey, request);
-  // A pack the user picked from the source list becomes this season's remembered
-  // pack, so other episodes reuse the same one.
-  if (handle.seasonPack && season != null && episode != null) {
-    await _rememberSeasonPack(meta, season, handle);
-  }
-  final task =
-      await getIt<TorrentDaemon>().add(handle, savePath: savePath, dedupeKey: addKey);
-  return _finishPrepared(task, request, bindProgress);
+  getIt<AcquisitionSession>().recordRequest(keys.episode, request);
+  final added = await _addSource(request, keys, handle);
+  return _finishPrepared(added.task, request, bindProgress,
+      addedNow: added.addedNow);
 }
 
 /// Resolve a source for an episode, **cache- and pack-first**: a season pack
 /// already remembered for this show+season is reused directly — so other
 /// episodes share one consistent, well-seeded source, we skip re-searching, and
 /// the reuse survives a restart / the pack leaving the client. Otherwise the
-/// resolver is asked (it prefers a season pack over a single episode), and a
-/// freshly-found pack is remembered for the rest of the season. [exclude] drops
-/// sources already tried this session, so a pack that just failed is neither
-/// reused nor re-remembered. Movie / unscoped requests bypass the cache.
+/// resolver is asked (it prefers a season pack over a single episode). [exclude]
+/// drops sources already tried for this episode and packs rejected for the
+/// season. [allowPack] false resolves the single episode only. Movie /
+/// unscoped requests bypass the cache.
 Future<TorrentHandle?> _resolveEpisodeSource(
   AcquireRequest request, {
   required Set<String> exclude,
+  bool allowPack = true,
 }) async {
   final meta = request.meta;
   final season = request.season, episode = request.episode;
@@ -180,12 +209,16 @@ Future<TorrentHandle?> _resolveEpisodeSource(
   if (season == null || episode == null || meta.tmdbId == null) {
     return resolver.resolve(meta, season, episode, exclude: exclude);
   }
+  if (!allowPack) {
+    return resolver.resolve(meta, season, episode,
+        exclude: exclude, allowSeasonPack: false);
+  }
 
   // Reuse a remembered pack directly — the hot path for later episodes of a
   // season, and no air-date fetch needed (a pack is only remembered once one was
-  // actually found/chosen for this season) — unless it just failed this session.
-  final packs = getIt<SeasonPackSourceRepository>();
-  final cached = await packs.find(meta.tmdbId!, season);
+  // actually found/chosen for this season) — unless it's excluded.
+  final cached =
+      await getIt<SeasonPackSourceRepository>().find(meta.tmdbId!, season);
   if (cached != null && !exclude.contains(cached.downloadUrl)) {
     getIt<ErrorLogService>().info(
         'reusing remembered season pack for "${meta.title}" S$season: '
@@ -210,12 +243,7 @@ Future<TorrentHandle?> _resolveEpisodeSource(
     return resolver.resolve(meta, season, episode,
         exclude: exclude, allowSeasonPack: false);
   }
-
-  final handle = await resolver.resolve(meta, season, episode, exclude: exclude);
-  if (handle != null && handle.seasonPack) {
-    await _rememberSeasonPack(meta, season, handle);
-  }
-  return handle;
+  return resolver.resolve(meta, season, episode, exclude: exclude);
 }
 
 /// Persist a chosen season pack for a show's season so other episodes reuse it.
@@ -230,33 +258,51 @@ Future<void> _rememberSeasonPack(
   );
 }
 
-/// Resolve a source for [request] — excluding any already tried this session
-/// ([AcquisitionSession]) so a retry picks the next-best — choose a disk target,
-/// and add it to the daemon. Records the chosen source as tried and (for a
-/// season pack, tagged per-season) mirrors the request under the add key so the
-/// Downloads screen can retry it. Throws [TorrentDaemonException] when nothing
-/// resolves or there's no disk space.
-Future<TorrentTask> _resolveAndAdd(
-  AcquireRequest request, {
-  required String episodeKey,
-  required String? seasonKey,
+/// Resolve the next-best source for [request] (skipping [_excludedFor] its
+/// keys) and add it — see [_addSource]. Throws [TorrentDaemonException] when
+/// nothing resolves or there's no disk space.
+Future<({TorrentTask task, bool addedNow})> _resolveAndAdd(
+  AcquireRequest request,
+  AcquireKeys keys, {
+  bool allowPack = true,
+  bool focusPackEpisode = false,
 }) async {
-  final session = getIt<AcquisitionSession>();
-  final handle = await _resolveEpisodeSource(
-    request,
-    exclude: session.triedFor(episodeKey),
-  );
+  final handle = await _resolveEpisodeSource(request,
+      exclude: _excludedFor(keys), allowPack: allowPack);
   if (handle == null) {
     throw TorrentDaemonException(
       'no source found for "${request.title}"',
       kind: TorrentErrorKind.sourceNotFound,
     );
   }
-  session.markTried(episodeKey, handle.magnetOrUrl);
+  return _addSource(request, keys, handle,
+      focusPackEpisode: focusPackEpisode);
+}
 
-  final isEpisode = request.season != null && request.episode != null;
+/// Add [handle] to the daemon for [request]: record it as tried, pick a disk
+/// target, and add it under the right key. A season pack serving one episode is
+/// keyed **per season** (so every episode played out of it shares one
+/// download), remembered for the season, and has its request mirrored under
+/// that key (so a retry from the Downloads screen, which only knows the tag, can
+/// map it back).
+///
+/// The foreground prepare focuses the pack on its episode itself
+/// ([TorrentTask.prepareFile]); a background add has nothing that would, so
+/// with [focusPackEpisode] the episode's file is selected here — otherwise a
+/// pack added for one episode downloads the whole season.
+Future<({TorrentTask task, bool addedNow})> _addSource(
+  AcquireRequest request,
+  AcquireKeys keys,
+  TorrentHandle handle, {
+  bool focusPackEpisode = false,
+}) async {
+  final session = getIt<AcquisitionSession>();
+  final daemon = getIt<TorrentDaemon>();
+  session.markTried(keys.episode, handle.magnetOrUrl);
+
   final savePath = await getIt<StorageManager>().chooseTarget(
-    estimatedBytes: isEpisode ? _episodeEstimateBytes : _movieEstimateBytes,
+    estimatedBytes:
+        keys.season != null ? _episodeEstimateBytes : _movieEstimateBytes,
   );
   if (savePath == null) {
     throw TorrentDaemonException(
@@ -264,22 +310,64 @@ Future<TorrentTask> _resolveAndAdd(
       kind: TorrentErrorKind.generic,
     );
   }
-  // A season-pack fallback is keyed per-season so every episode played out of it
-  // shares one download; a single episode is keyed per-episode.
-  final addKey =
-      (handle.seasonPack && seasonKey != null) ? seasonKey : episodeKey;
-  // So a retry from the Downloads screen (which only knows the torrent's tag)
-  // can map a pack torrent back to a request.
-  if (addKey != episodeKey) session.recordRequest(addKey, request);
-  return getIt<TorrentDaemon>().add(handle, savePath: savePath, dedupeKey: addKey);
+
+  final asPack = handle.seasonPack && keys.season != null;
+  final addKey = asPack ? keys.season! : keys.episode;
+  if (asPack) {
+    session.recordRequest(addKey, request);
+    // Chosen again (e.g. picked by hand) → no longer rejected for the season.
+    session.unrejectPack(addKey, handle.magnetOrUrl);
+    await _rememberSeasonPack(request.meta, request.season!, handle);
+  }
+  final existed = await daemon.taskForDedupeKey(addKey) != null;
+  final task = await daemon.add(handle, savePath: savePath, dedupeKey: addKey);
+  if (asPack && focusPackEpisode) {
+    unawaited(_focusPackEpisode(task, request, removeIfMissing: !existed));
+  }
+  return (task: task, addedNow: !existed);
+}
+
+/// Background half of a pack add: once its metadata arrives, select the
+/// requested episode's file (and only that, on a fresh add). A pack that turns
+/// out not to contain the episode is removed again if we only just added it.
+Future<void> _focusPackEpisode(
+  TorrentTask task,
+  AcquireRequest request, {
+  required bool removeIfMissing,
+}) async {
+  final log = getIt<ErrorLogService>();
+  try {
+    final path = await task.selectEpisode(
+        season: request.season!, episode: request.episode!);
+    if (path != null) {
+      log.info('pack: downloading only $path', source: 'AcquirePack');
+    } else if (removeIfMissing) {
+      await _removeQuietly(task,
+          reason: 'pack has no file for "${request.title}"');
+    }
+  } catch (e, st) {
+    log.logError(e, stackTrace: st, source: 'AcquirePack.focusEpisode');
+  }
+}
+
+/// Remove [task] from the client, keeping whatever is on disk (it may share
+/// files with episodes already in the library). Best-effort, logged.
+Future<void> _removeQuietly(TorrentTask task, {required String reason}) async {
+  final log = getIt<ErrorLogService>();
+  log.warn('removing torrent ${task.hash}: $reason', source: 'AcquireCleanup');
+  try {
+    await getIt<TorrentDaemon>().remove(hash: task.hash, deleteFiles: false);
+  } catch (e, st) {
+    log.logError(e, stackTrace: st, source: 'AcquireCleanup.remove');
+  }
 }
 
 /// Abandon the current download for a title/episode and prepare its **next-best**
-/// source instead ("that torrent didn't work — try another one"). Removes the
-/// current torrent + its files so the resolve doesn't just reattach to it; the
-/// source it was using is already recorded as tried this session, so the resolver
-/// returns the next candidate. Then runs the normal [prepareForPlayback] (which
-/// buffers and returns the streamable file). Throws
+/// source instead ("that torrent didn't work — try another one"). Releases the
+/// current source (see [releaseCurrentSource]) so the resolve doesn't just
+/// reattach to it; the source it was using is already recorded as tried this
+/// session, so the resolver returns the next candidate. Then runs the normal
+/// [prepareForPlayback] (which buffers and returns the streamable file). Throws
 /// [TorrentErrorKind.sourceNotFound] when nothing else resolves.
 Future<Prepared> retryWithNextSource({
   required String title,
@@ -288,7 +376,7 @@ Future<Prepared> retryWithNextSource({
   int? episode,
   required void Function(Stream<double>) bindProgress,
 }) async {
-  await _discardCurrentSource(meta, season, episode, title: title);
+  await releaseCurrentSource(meta, season, episode, title: title, reject: true);
   return prepareForPlayback(
     title: title,
     meta: meta,
@@ -308,82 +396,126 @@ Future<void> retrySourceInBackground({
   int? season,
   int? episode,
 }) async {
-  await _discardCurrentSource(meta, season, episode, title: title);
-  final episodeKey = acquisitionDedupeKey(
-      tmdbId: meta.tmdbId, title: meta.title, season: season, episode: episode);
-  final seasonKey = (season != null && episode != null)
-      ? acquisitionDedupeKey(tmdbId: meta.tmdbId, title: meta.title, season: season)
-      : null;
+  await releaseCurrentSource(meta, season, episode, title: title, reject: true);
+  final keys = acquireKeysFor(meta, season, episode);
   final request =
       AcquireRequest(title: title, meta: meta, season: season, episode: episode);
-  getIt<AcquisitionSession>().recordRequest(episodeKey, request);
-  await _resolveAndAdd(request, episodeKey: episodeKey, seasonKey: seasonKey);
+  getIt<AcquisitionSession>().recordRequest(keys.episode, request);
+  await _resolveAndAdd(request, keys, focusPackEpisode: true);
 }
 
-/// Remove the current download for this title/episode (deleting its files). The
-/// episode's own torrent is removed; only if there isn't one (the episode was
-/// served from a season pack) is the pack discarded, so retrying one episode
-/// doesn't needlessly nuke a pack that also has its own single-episode torrent.
-Future<void> _discardCurrentSource(
+/// Let go of the current download for one title/episode — "try another source"
+/// ([reject] true) or "cancel" ([reject] false).
+///
+/// * The episode's **own** torrent is removed with its files, and any library
+///   row pointing at them is flagged missing.
+/// * An episode served from a **season pack** only drops *its* file: the file
+///   stops downloading and is deleted, and the pack itself is removed (keeping
+///   files) only when nothing else in it is still wanted. Deleting the whole
+///   pack's files here used to wipe out every other episode already downloaded
+///   from it.
+/// * [reject] additionally forgets the remembered pack for the season and
+///   rejects it for the rest of the session, so the next episode doesn't reuse
+///   the same bad pack.
+Future<void> releaseCurrentSource(
   ShowMeta meta,
   int? season,
   int? episode, {
   required String title,
+  required bool reject,
 }) async {
+  final keys = acquireKeysFor(meta, season, episode);
   final daemon = getIt<TorrentDaemon>();
-  final episodeKey = acquisitionDedupeKey(
-      tmdbId: meta.tmdbId, title: meta.title, season: season, episode: episode);
-  final hadEpisodeTorrent = await daemon.taskForDedupeKey(episodeKey) != null;
-  await daemon.removeByDedupeKey(episodeKey, deleteFiles: true);
-  if (!hadEpisodeTorrent && season != null && episode != null) {
-    final seasonKey =
-        acquisitionDedupeKey(tmdbId: meta.tmdbId, title: meta.title, season: season);
-    await daemon.removeByDedupeKey(seasonKey, deleteFiles: true);
-    // The episode was served from the remembered pack and it's being rejected —
-    // forget it so the retry finds a genuinely different source (session-exclude
-    // also blocks re-picking it), and so the whole season moves off a bad pack.
-    if (meta.tmdbId != null) {
-      await getIt<SeasonPackSourceRepository>().forget(meta.tmdbId!, season);
+  final log = getIt<ErrorLogService>();
+
+  final own = await daemon.taskForDedupeKey(keys.episode);
+  if (own != null) {
+    final paths = await _filePathsOf(own);
+    await daemon.remove(hash: own.hash, deleteFiles: true);
+    await _markRowsMissing(paths);
+  } else if (keys.season != null) {
+    final pack = await daemon.taskForDedupeKey(keys.season!);
+    final drop =
+        await pack?.dropEpisode(season: season!, episode: episode!);
+    if (pack != null && drop != null) {
+      if (!drop.othersWanted) {
+        await daemon.remove(hash: pack.hash, deleteFiles: false);
+      }
+      await _deleteQuietly(drop.path);
+      await _markRowsMissing([drop.path]);
+    }
+    if (reject && meta.tmdbId != null) {
+      final packs = getIt<SeasonPackSourceRepository>();
+      final remembered = await packs.find(meta.tmdbId!, season!);
+      if (remembered != null) {
+        getIt<AcquisitionSession>()
+            .rejectPack(keys.season!, remembered.downloadUrl);
+        await packs.forget(meta.tmdbId!, season);
+      }
     }
   }
-  getIt<ErrorLogService>().info(
-      'retry: discarded current source for "$title" — resolving next-best',
-      source: 'AcquireRetry');
+  log.info(
+      '${reject ? 'retry' : 'cancel'}: released current source for "$title"',
+      source: 'AcquireRelease');
+}
+
+/// Absolute paths of every file in [task] (empty if the daemon can't say).
+Future<List<String>> _filePathsOf(TorrentTask task) async {
+  final daemon = getIt<TorrentDaemon>();
+  final status = (await daemon.listTorrents())
+      .where((t) => t.hash == task.hash)
+      .firstOrNull;
+  if (status == null || status.savePath.isEmpty) return const [];
+  return [
+    for (final f in await daemon.torrentFiles(task.hash))
+      if (f['name'] is String) p.join(status.savePath, f['name'] as String),
+  ];
+}
+
+/// Flag the library rows for [paths] missing (their files are being deleted),
+/// so the show page stops offering "Play" on a file that's gone. Watch history
+/// is kept, as with any reaped file.
+Future<void> _markRowsMissing(List<String> paths) async {
+  final library = getIt<LibraryRepository>();
+  for (final path in paths) {
+    final row = await library.findByPath(path);
+    if (row != null && !row.missing) await library.markMissing(row.id);
+  }
+}
+
+/// Delete one file, tolerating it being absent or still locked. Best-effort.
+Future<void> _deleteQuietly(String path) async {
+  try {
+    final f = File(path);
+    if (await f.exists()) await f.delete();
+  } catch (e) {
+    getIt<ErrorLogService>().warn(
+        'could not delete dropped episode file $path: $e',
+        source: 'AcquireRelease');
+  }
 }
 
 /// Stop and remove the in-progress download for this title/episode, deleting its
-/// partial files — the user cancelled it from the inline control's menu. Removes
-/// the episode's own torrent; only if there isn't one (it was streaming from a
-/// season pack) is the pack removed. No re-resolve — the control returns to idle.
-/// The remembered season pack is left intact (cancelling isn't "this source is
-/// bad", just "not now"), so a later play can still reuse it.
+/// partial file — the user cancelled it from the inline control's menu. See
+/// [releaseCurrentSource]; the remembered season pack is left intact (cancelling
+/// isn't "this source is bad", just "not now"), so a later play can reuse it.
 Future<void> cancelDownload({
   required ShowMeta meta,
   int? season,
   int? episode,
   required String title,
-}) async {
-  final daemon = getIt<TorrentDaemon>();
-  final episodeKey = acquisitionDedupeKey(
-      tmdbId: meta.tmdbId, title: meta.title, season: season, episode: episode);
-  final hadEpisodeTorrent = await daemon.taskForDedupeKey(episodeKey) != null;
-  await daemon.removeByDedupeKey(episodeKey, deleteFiles: true);
-  if (!hadEpisodeTorrent && season != null && episode != null) {
-    final seasonKey =
-        acquisitionDedupeKey(tmdbId: meta.tmdbId, title: meta.title, season: season);
-    await daemon.removeByDedupeKey(seasonKey, deleteFiles: true);
-  }
-  getIt<ErrorLogService>()
-      .info('cancelled download for "$title"', source: 'AcquireCancel');
-}
+}) =>
+    releaseCurrentSource(meta, season, episode, title: title, reject: false);
 
 /// Start downloading an episode in the **background** if it isn't already
 /// downloading — used to prefetch the next episode while the current one plays.
 /// Fire-and-forget: resolves + adds the torrent but never waits, buffers, or
-/// plays. No-op (logged) when a VPN is required but down, when a download for
-/// this episode (or a season pack containing it) already exists, or when nothing
-/// resolves. The caller checks the library first, so this only handles sourcing.
-Future<void> prefetchEpisode({
+/// plays. When a season pack holding the episode is already in the client, its
+/// file is selected there instead of fetching anything new. Returns whether a
+/// download for the episode is now running; false (logged) when a VPN is
+/// required but down, the episode hasn't aired, nothing resolves, or the add
+/// fails. The caller checks the library first, so this only handles sourcing.
+Future<bool> prefetchEpisode({
   required String showName,
   required int tmdbId,
   required int season,
@@ -398,57 +530,56 @@ Future<void> prefetchEpisode({
   if (!await episodeHasAired(tmdbId, season, episode)) {
     log.info('prefetch skipped: S${season}E$episode of "$showName" has not aired',
         source: 'AcquirePrefetch');
-    return;
+    return false;
   }
   if (getIt<SettingsService>().requireVpn) {
     final state = await getIt<VpnService>().ensureConnected();
     if (!state.isConnected) {
       log.info('prefetch skipped: VPN required but not connected',
           source: 'AcquirePrefetch');
-      return;
+      return false;
     }
   }
 
-  final daemon = getIt<TorrentDaemon>();
-  final session = getIt<AcquisitionSession>();
   final meta = ShowMeta(title: showName, tmdbId: tmdbId, mediaType: 'tv');
-  final episodeKey = acquisitionDedupeKey(
-      tmdbId: tmdbId, title: showName, season: season, episode: episode);
-  final seasonKey =
-      acquisitionDedupeKey(tmdbId: tmdbId, title: showName, season: season);
-  // Already downloading this episode, or a season pack that would contain it.
-  if (await daemon.taskForDedupeKey(episodeKey) != null ||
-      await daemon.taskForDedupeKey(seasonKey) != null) {
-    return;
-  }
-
-  // Record how this episode was requested so "try another source" can retry it,
-  // and skip any source already tried this session.
+  final keys = acquireKeysFor(meta, season, episode);
   final request = AcquireRequest(
       title: showName, meta: meta, season: season, episode: episode);
-  session.recordRequest(episodeKey, request);
-  final handle = await _resolveEpisodeSource(request,
-      exclude: session.triedFor(episodeKey));
-  if (handle == null) {
-    log.info('prefetch: no source for S${season}E$episode of "$showName"',
-        source: 'AcquirePrefetch');
-    return;
-  }
-  session.markTried(episodeKey, handle.magnetOrUrl);
-  final savePath = await getIt<StorageManager>()
-      .chooseTarget(estimatedBytes: _episodeEstimateBytes);
-  if (savePath == null) return;
+  getIt<AcquisitionSession>().recordRequest(keys.episode, request);
 
-  final addKey = handle.seasonPack ? seasonKey : episodeKey;
-  if (addKey != episodeKey) {
-    session.recordRequest(
-        addKey,
-        AcquireRequest(
-            title: showName, meta: meta, season: season, episode: episode));
+  try {
+    final daemon = getIt<TorrentDaemon>();
+    if (await daemon.taskForDedupeKey(keys.episode) != null) return true;
+
+    // A pack for this season is already in the client: want this episode's file
+    // in it. (It used to count as "already downloading" and do nothing — but a
+    // pack fetched for another episode has this one skipped, so it never came.)
+    var allowPack = true;
+    final pack = await daemon.taskForDedupeKey(keys.season!);
+    if (pack != null) {
+      final path = await pack.selectEpisode(
+          season: season, episode: episode, wait: const Duration(seconds: 30));
+      if (path != null) {
+        log.info('prefetch: S${season}E$episode of "$showName" from the '
+            'season pack already in the client', source: 'AcquirePrefetch');
+        return true;
+      }
+      allowPack = false; // the pack doesn't have it
+    }
+
+    await _resolveAndAdd(request, keys,
+        allowPack: allowPack, focusPackEpisode: true);
+    log.info('prefetching S${season}E$episode of "$showName"',
+        source: 'AcquirePrefetch');
+    return true;
+  } on TorrentDaemonException catch (e) {
+    log.warn('prefetch: S${season}E$episode of "$showName" not started: '
+        '${e.message}', source: 'AcquirePrefetch');
+    return false;
+  } catch (e, st) {
+    log.logError(e, stackTrace: st, source: 'AcquirePrefetch');
+    return false;
   }
-  await daemon.add(handle, savePath: savePath, dedupeKey: addKey);
-  log.info('prefetching next episode S${season}E$episode of "$showName"',
-      source: 'AcquirePrefetch');
 }
 
 /// The TMDB air date of one episode, or null when TMDB doesn't list it.
@@ -503,23 +634,21 @@ List<int> airedEpisodeNumbers(List<EpisodeSummary> episodes, DateTime now) => [
 
 /// Queue background downloads for a batch of [episodes] ((season, episode)) of a
 /// show — the show detail "Download All". Skips episodes already in the library;
-/// [prefetchEpisode] itself skips ones already downloading (or covered by a
-/// season pack). Returns how many were asked to fetch (i.e. not already local).
+/// [prefetchEpisode] itself reuses ones already downloading (or held by a season
+/// pack in the client). Returns how many are now downloading.
 Future<int> downloadEpisodes({
   required String showName,
   required int tmdbId,
   required List<(int, int)> episodes,
 }) async {
-  final local = {
-    for (final e in await getIt<LibraryRepository>().localEpisodes(tmdbId))
-      if (e.season != null && e.episode != null) (e.season!, e.episode!),
-  };
+  final local = await _localEpisodes(tmdbId);
   var queued = 0;
   for (final (season, episode) in episodes) {
     if (local.contains((season, episode))) continue;
-    await prefetchEpisode(
-        showName: showName, tmdbId: tmdbId, season: season, episode: episode);
-    queued++;
+    if (await prefetchEpisode(
+        showName: showName, tmdbId: tmdbId, season: season, episode: episode)) {
+      queued++;
+    }
   }
   return queued;
 }
@@ -639,8 +768,13 @@ Future<bool> _tryPack({
 }) async {
   final log = getIt<ErrorLogService>();
   final daemon = getIt<TorrentDaemon>();
-  // Already downloading this pack → the episodes it holds are covered.
-  if (await daemon.taskForDedupeKey(dedupeKey) != null) return true;
+  // Already in the client → make sure all of it downloads: a pack first
+  // fetched for a single episode has every other episode skipped.
+  final existing = await daemon.taskForDedupeKey(dedupeKey);
+  if (existing != null) {
+    await existing.wantAll();
+    return true;
+  }
 
   if (getIt<SettingsService>().requireVpn) {
     final state = await getIt<VpnService>().ensureConnected();

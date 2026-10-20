@@ -33,10 +33,13 @@ void main() {
   Widget host(
     Widget child, {
     List<TorrentStatus> torrents = const [],
+    Map<(int, int), double> packFiles = const {},
   }) {
     return ProviderScope(
       overrides: [
         downloadsProvider.overrideWith((ref) => Stream.value(torrents)),
+        packEpisodeProgressProvider
+            .overrideWith((ref, _) => Stream.value(packFiles)),
       ],
       child: MaterialApp(
         theme: AppTheme.dark,
@@ -87,17 +90,31 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
   });
 
-  testWidgets('a season-pack download also counts as downloading',
+  testWidgets('its file in a season pack counts as downloading',
       (tester) async {
-    final seasonTag = acquisitionTag(
-        acquisitionDedupeKey(tmdbId: tmdbId, title: showName, season: season));
     await tester.pumpWidget(host(
       button(),
-      torrents: [statusFor(tag: seasonTag, progress: 0.10)],
+      packFiles: {(season, episode): 0.10},
     ));
     await tester.pump(); // let the overridden stream deliver its value
     await tester.pump();
     expect(find.text('Play Next when Ready · 10%'), findsOneWidget);
+  });
+
+  testWidgets('a pack fetching other episodes does not count as this one',
+      (tester) async {
+    // The pack is in the client (90% of what it's fetching) but this
+    // episode's file is skipped, so it isn't in the per-file map.
+    final seasonTag = acquisitionTag(
+        acquisitionDedupeKey(tmdbId: tmdbId, title: showName, season: season));
+    await tester.pumpWidget(host(
+      button(),
+      torrents: [statusFor(tag: seasonTag, progress: 0.90)],
+      packFiles: {(season, episode - 1): 0.90},
+    ));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Download Next Episode'), findsOneWidget);
   });
 
   testWidgets('just-tapped download shows an indeterminate "Starting…"',

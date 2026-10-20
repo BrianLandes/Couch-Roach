@@ -16,10 +16,12 @@ import '../downloads/downloads_providers.dart';
 ///   - not fetched yet → **Download Next Episode** (starts a background fetch)
 ///   - not fetched and not yet aired → disabled, showing when it airs
 ///
-/// It watches [downloadForTagProvider] for both the episode's own tag and a
-/// season-pack tag (an episode can be served from a whole-season download), so a
+/// It watches [downloadForTagProvider] for the episode's own torrent and
+/// [packEpisodeProgressProvider] for its file inside a season pack, so a
 /// download started here — or by the halfway-mark prefetch — flips it to the
-/// downloading state on the next poll.
+/// downloading state on the next poll. A pack is read per file: the pack's own
+/// percentage covers every episode it's fetching, not this one, and its other
+/// episodes may not be downloading at all.
 class NextEpisodeButton extends ConsumerWidget {
   const NextEpisodeButton({
     super.key,
@@ -71,29 +73,30 @@ class NextEpisodeButton extends ConsumerWidget {
       );
     }
 
-    // 2) Downloading (its own torrent, or a season pack that contains it) →
-    //    show progress and drop into the preparing dialog when tapped.
+    // 2) Downloading (its own torrent, or its file in a season pack) → show
+    //    progress and drop into the preparing dialog when tapped.
     final epTag = acquisitionTag(acquisitionDedupeKey(
         tmdbId: tmdbId, title: showName, season: season, episode: episode));
-    final seasonTag = acquisitionTag(
-        acquisitionDedupeKey(tmdbId: tmdbId, title: showName, season: season));
-    final status = ref.watch(downloadForTagProvider(epTag)) ??
-        ref.watch(downloadForTagProvider(seasonTag));
-    if (status != null) {
+    final progress = ref.watch(downloadForTagProvider(epTag))?.progress ??
+        ref
+            .watch(packEpisodeProgressProvider(tmdbId))
+            .asData
+            ?.value[(season, episode)];
+    if (progress != null) {
       // Finished downloading but not yet imported into the library — it's ready
       // to play, so drop the progress bar and read like the local case.
-      if (status.isComplete) {
+      if (progress >= 1.0) {
         return _NextEpisodePill(
           icon: Icons.skip_next_rounded,
           label: 'Play Next Episode',
           onPressed: onPlayWhenReady,
         );
       }
-      final pct = (status.progress * 100).round();
+      final pct = (progress * 100).round();
       return _NextEpisodePill(
         icon: Icons.hourglass_top_rounded,
         label: 'Play Next when Ready · $pct%',
-        progress: status.progress,
+        progress: progress,
         onPressed: onPlayWhenReady,
       );
     }

@@ -37,6 +37,22 @@ class AcquireRequest {
 class AcquisitionSession {
   final Map<String, Set<String>> _tried = {};
   final Map<String, AcquireRequest> _requests = {};
+  final Map<String, Set<String>> _rejectedPacks = {};
+
+  /// Season-pack URLs the user rejected ("try another source" off a pack) for a
+  /// season key. Unlike [triedFor], which is per episode, this applies to
+  /// **every** episode of the season: the next episode must not pick the same
+  /// bad pack straight back up.
+  Set<String> rejectedPacksFor(String seasonKey) =>
+      _rejectedPacks[seasonKey] ?? const <String>{};
+
+  /// Record that the pack at [url] was rejected for [seasonKey].
+  void rejectPack(String seasonKey, String url) =>
+      (_rejectedPacks[seasonKey] ??= <String>{}).add(url);
+
+  /// Clear a rejection — the user explicitly picked that pack again.
+  void unrejectPack(String seasonKey, String url) =>
+      _rejectedPacks[seasonKey]?.remove(url);
 
   /// URLs already handed out for [dedupeKey] (empty if none). Pass to `resolve`.
   Set<String> triedFor(String dedupeKey) =>

@@ -1199,24 +1199,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _nextDownloadRequested = true);
 
-    await prefetchEpisode(
+    final started = await prefetchEpisode(
       showName: show,
       tmdbId: tmdbId,
       season: nextSeason,
       episode: nextEp,
     );
-    if (!mounted) return;
-
-    final daemon = getIt<TorrentDaemon>();
-    final started = await daemon.taskForDedupeKey(acquisitionDedupeKey(
-                tmdbId: tmdbId,
-                title: show,
-                season: nextSeason,
-                episode: nextEp)) !=
-            null ||
-        await daemon.taskForDedupeKey(acquisitionDedupeKey(
-                tmdbId: tmdbId, title: show, season: nextSeason)) !=
-            null;
     if (!started && mounted) {
       setState(() => _nextDownloadRequested = false);
       messenger.showSnackBar(const SnackBar(
