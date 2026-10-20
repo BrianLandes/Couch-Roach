@@ -11,18 +11,26 @@ import 'discover_tile.dart';
 
 /// A portrait poster card for a discovery item (trending / recommendations /
 /// search), for either a TV show or a movie. A long-press / right-click opens a
-/// quick "Not interested" action that hides the title from the landing rails.
+/// quick "Not interested" action that hides the title from the landing rails,
+/// plus "Remove from this row" on lanes that pass [onRemoveFromRail].
 class DiscoverPosterCard extends ConsumerWidget {
   const DiscoverPosterCard({
     super.key,
     required this.tile,
     this.onPressed,
     this.autofocus = false,
+    this.onRemoveFromRail,
   });
 
   final DiscoverTile tile;
   final VoidCallback? onPressed;
   final bool autofocus;
+
+  /// When set, the context menu offers "Remove from this row" — a per-lane
+  /// dismissal, as opposed to "Not interested", which hides the title from
+  /// every rail. Set by lanes where that distinction matters (New Episodes:
+  /// you still want the show, just not nagged about it).
+  final VoidCallback? onRemoveFromRail;
 
   Future<void> _showContextMenu(BuildContext context, WidgetRef ref) async {
     final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
@@ -39,8 +47,17 @@ class DiscoverPosterCard extends ConsumerWidget {
     final selected = await showMenu<String>(
       context: context,
       position: position,
-      items: const [
-        PopupMenuItem(
+      items: [
+        if (onRemoveFromRail != null)
+          const PopupMenuItem(
+            value: 'remove_from_rail',
+            child: ListTile(
+              leading: Icon(Icons.remove_circle_outline_rounded),
+              title: Text('Remove from this row'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        const PopupMenuItem(
           value: 'not_interested',
           child: ListTile(
             leading: Icon(Icons.not_interested_rounded),
@@ -50,6 +67,10 @@ class DiscoverPosterCard extends ConsumerWidget {
         ),
       ],
     );
+    if (selected == 'remove_from_rail') {
+      onRemoveFromRail?.call();
+      return;
+    }
     if (selected != 'not_interested') return;
     try {
       await getIt<SavedTitlesRepository>().setNotInterested(

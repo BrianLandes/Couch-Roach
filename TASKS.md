@@ -20,6 +20,52 @@ drop the rest._
 
 _Aim for one task here at a time._
 
+### Landing page: library rows above the recommendation lanes · `p2`
+
+- [x] **Implemented.** "My TV Shows" / "My Movies" (what's on the machine) sat *below* every recommendation lane.
+  Move them up: Continue Watching → Recent → My TV Shows → My Movies → Favorites / Want to Watch
+  → recommendation lanes. Continue Watching stays first (STYLE invariant).
+
+### Remove a title from a landing lane (New Episodes, Recent, …) · `p2`
+
+- [x] **Implemented** on New Episodes and the Recent lane, via the poster's long-press/right-click
+  menu (with an Undo snackbar). `_DiscoverRail` takes a `dismissLane`; New Episodes stamps each
+  tile with its newest *aired* episode date, Recent with the latest download/watch. Recommendation
+  lanes keep "Not interested" only — add `dismissLane` to any of them to opt in. Pure
+  `isDismissed` + repo tests.
+- Need a per-lane "Remove from this row" — distinct from "Not interested", which hides a title
+  from *every* rail (wrong for a show you're actively watching).
+- **New table `RailDismissals`** `{rail, tmdbId, mediaType, dismissedAt}`, PK on all three keys.
+  Deviates from "prefer a column": one title can be dismissed from several lanes independently,
+  so a column-per-lane on `SavedTitles` doesn't scale to "possibly these others". schemaVersion
+  11 → 12.
+- **Dismissal expires on new activity.** Each lane can stamp a tile with an `activityAt`; a
+  dismissal only hides it while `activityAt <= dismissedAt`. So a show removed from New Episodes
+  comes back when its *next* episode airs, and a title removed from Recent returns when you
+  download or watch it again. Tiles without an activity time stay hidden.
+
+### "Recently Downloaded" → also include recently watched · `p2`
+
+- [x] **Implemented** as "Recently Downloaded & Watched". New `watchRecentlyWatched` query
+  (finished *and* unfinished, file present *or* reaped, matched titles, one per title) merged with
+  recent downloads by pure `mergeRecentActivity` in `recentLaneProvider`, excluding anything in
+  Continue Watching. Tests for the merge and the query.
+- A watched show drops out of Continue Watching once an episode is *finished* (CW is
+  in-progress only), its file is reaped, or it's dismissed — and then it's nowhere. Merge recently
+  watched titles into the recent lane: newest activity (download or watch) first, one tile per
+  title, excluding anything currently in Continue Watching.
+
+### Recover playback after display sleep / HDMI loss · `p2`
+
+- [ ] Paused video + monitor sleep / HDMI unplug → "this video can't be played" with "Try a
+  different source"; going back and replaying works. Distinguish a **transient pipeline loss**
+  (recoverable by reopening at the saved position) from a **genuinely unplayable file**.
+
+### Media Play/Pause still intermittent, worse in fullscreen · `p2`
+
+- [ ] Sometimes no effect, sometimes reaches Couch Roach *and* a background app
+  (YouTube/Spotify). More likely in fullscreen.
+
 ### Search by person: an actor's or director's name lists their films · `p2`
 
 - [ ] Typing a person's name into search should surface everything they acted in or directed,

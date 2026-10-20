@@ -12,6 +12,9 @@ import '../db/database.dart';
 /// outlive the file).
 /// A resumable title for the Continue Watching rail: the library row plus its
 /// resume position and duration.
+/// A title's most recent watch, for the landing page's "Recent" lane.
+typedef RecentlyWatched = ({LibraryItem item, DateTime lastWatchedAt});
+
 class ContinueWatchingEntry {
   const ContinueWatchingEntry({
     required this.item,
@@ -96,6 +99,14 @@ abstract class WatchHistoryRepository {
   /// Continue Watching feed. Excludes completed items, items with no progress,
   /// and files flagged missing.
   Stream<List<ContinueWatchingEntry>> watchContinueWatching({int limit = 20});
+
+  /// Titles with any watch activity — finished or not, file present or since
+  /// reaped — newest first, one per title (`mediaType` + `tmdbId`), matched
+  /// titles only. Feeds the landing page's "Recent" lane, which needs the
+  /// shows that *fell out* of Continue Watching: a finished episode, a reaped
+  /// file or a dismissal all remove a title from CW, and without this it would
+  /// vanish from the landing page entirely.
+  Stream<List<RecentlyWatched>> watchRecentlyWatched({int limit = 20});
 
   /// The `(season, episode)` pairs of show [tmdbId] that have been **watched**
   /// (watch history `completed`), for the show detail page's per-episode watched
@@ -308,6 +319,41 @@ class DriftWatchHistoryRepository implements WatchHistoryRepository {
         if (entries.length >= limit) break;
       }
       return entries;
+    });
+  }
+
+  @override
+  Stream<List<RecentlyWatched>> watchRecentlyWatched({int limit = 20}) {
+    final query = _db.select(_db.watchHistory).join([
+      innerJoin(
+        _db.libraryItems,
+        _db.libraryItems.id.equalsExp(_db.watchHistory.libraryItemId),
+      ),
+    ])
+      // Missing (reaped) rows are deliberately included: a show whose watched
+      // episode was cleaned up is exactly the one that needs this lane.
+      ..where(_db.libraryItems.tmdbId.isNotNull())
+      ..orderBy([
+        OrderingTerm(
+          expression: _db.watchHistory.lastWatchedAt,
+          mode: OrderingMode.desc,
+        ),
+      ]);
+
+    return query.watch().map((rows) {
+      final out = <RecentlyWatched>[];
+      final seen = <String>{};
+      for (final row in rows) {
+        final item = row.readTable(_db.libraryItems);
+        // Newest-first, so the first row per title carries its latest watch.
+        if (!seen.add('${item.mediaType}:${item.tmdbId}')) continue;
+        out.add((
+          item: item,
+          lastWatchedAt: row.readTable(_db.watchHistory).lastWatchedAt,
+        ));
+        if (out.length >= limit) break;
+      }
+      return out;
     });
   }
 

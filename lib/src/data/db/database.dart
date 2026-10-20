@@ -173,6 +173,31 @@ class SeasonPackSources extends Table {
   Set<Column> get primaryKey => {tmdbId, season};
 }
 
+/// A title the user removed from one landing lane ("New Episodes", "Recent",
+/// …). Keyed per lane because the same title can be dismissed from several
+/// lanes independently — which is why this is its own table rather than a
+/// column per lane on [SavedTitles].
+///
+/// A dismissal is not permanent: a lane can stamp its tiles with the time of
+/// their latest relevant activity (a new episode airing, a fresh download or
+/// watch), and a tile only stays hidden while that activity predates
+/// [dismissedAt]. Distinct from `SavedTitles.notInterestedAt`, which hides a
+/// title from *every* discovery rail.
+class RailDismissals extends Table {
+  /// The lane's stable id, e.g. 'newEpisodes' / 'recent'.
+  TextColumn get rail => text()();
+  IntColumn get tmdbId => integer()();
+
+  /// 'tv' or 'movie'.
+  TextColumn get mediaType => text()();
+
+  DateTimeColumn get dismissedAt =>
+      dateTime().withDefault(currentDateAndTime)();
+
+  @override
+  Set<Column> get primaryKey => {rail, tmdbId, mediaType};
+}
+
 /// Configured storage roots. Content spreads across these by free space
 /// (see DECISIONS: multi-disk storage).
 class StorageLocations extends Table {
@@ -192,6 +217,7 @@ class StorageLocations extends Table {
     SavedTitles,
     SeasonPackSources,
     StorageLocations,
+    RailDismissals,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -201,7 +227,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -238,6 +264,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 11) {
             await m.createTable(seasonPackSources);
+          }
+          if (from < 12) {
+            await m.createTable(railDismissals);
           }
         },
         beforeOpen: (details) async {

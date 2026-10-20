@@ -350,4 +350,64 @@ void main() {
       expect(await history.lastWatchedSeason(1), 5);
     });
   });
+
+  group('watchRecentlyWatched', () {
+    Future<int> seed(String path, {int? tmdbId, String type = 'tv'}) async {
+      await library.upsert(ScannedFile(
+          filePath: path, title: path, mediaType: type, tmdbId: tmdbId));
+      return (await library.findByPath(path))!.id;
+    }
+
+    Future<void> watched(int id, DateTime when, {bool completed = false}) async {
+      await history.record(
+          libraryItemId: id,
+          position: const Duration(seconds: 30),
+          duration: const Duration(minutes: 40),
+          completed: completed);
+      await (db.update(db.watchHistory)..where((w) => w.libraryItemId.equals(id)))
+          .write(WatchHistoryCompanion(lastWatchedAt: Value(when)));
+    }
+
+    final t0 = DateTime(2026, 10, 1);
+
+    test('includes finished titles — the ones Continue Watching drops',
+        () async {
+      final id = await seed('/tv/a.mkv', tmdbId: 1);
+      await watched(id, t0, completed: true);
+      final rows = await history.watchRecentlyWatched().first;
+      expect(rows.map((r) => r.item.tmdbId), [1]);
+    });
+
+    test('includes titles whose file was reaped', () async {
+      final id = await seed('/tv/b.mkv', tmdbId: 2);
+      await watched(id, t0);
+      await (db.update(db.libraryItems)..where((t) => t.id.equals(id)))
+          .write(const LibraryItemsCompanion(missing: Value(true)));
+      final rows = await history.watchRecentlyWatched().first;
+      expect(rows.map((r) => r.item.tmdbId), [2]);
+    });
+
+    test('one entry per title, carrying its latest watch, newest first',
+        () async {
+      final e1 = await seed('/tv/s1e1.mkv', tmdbId: 9);
+      final e2 = await seed('/tv/s1e2.mkv', tmdbId: 9);
+      final film = await seed('/m/f.mkv', tmdbId: 9, type: 'movie');
+      await watched(e1, t0);
+      await watched(e2, t0.add(const Duration(hours: 2)));
+      await watched(film, t0.add(const Duration(hours: 1)));
+
+      final rows = await history.watchRecentlyWatched().first;
+      // Show 9 (via e2) then the movie that shares its id.
+      expect(rows.map((r) => r.item.mediaType), ['tv', 'movie']);
+      expect(rows.first.item.id, e2);
+      expect(rows.first.lastWatchedAt, t0.add(const Duration(hours: 2)));
+    });
+
+    test('unmatched files are left out (no TMDB id to route a tile by)',
+        () async {
+      final id = await seed('/tv/unmatched.mkv');
+      await watched(id, t0);
+      expect(await history.watchRecentlyWatched().first, isEmpty);
+    });
+  });
 }

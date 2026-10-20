@@ -10,6 +10,7 @@ import '../../core/settings/settings_providers.dart';
 import '../../core/settings/settings_service.dart';
 import '../../core/window/window_service.dart';
 import '../../data/db/database.dart';
+import '../../data/repositories/rail_dismissal_repository.dart';
 import '../../data/repositories/watch_history_repository.dart';
 import '../../injection.dart';
 import '../../router/app_router.dart';
@@ -29,6 +30,7 @@ import '../settings/storage_providers.dart';
 import '../vpn/vpn_status_chip.dart';
 import '../player/player_screen.dart';
 import 'continue_watching_card.dart';
+import 'landing_lanes.dart';
 import 'library_grouping.dart';
 import 'library_match_service.dart';
 import 'library_providers.dart';
@@ -128,15 +130,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with RouteAware {
         ref.watch(favoritesProvider).asData?.value ?? const <SavedTitle>[];
     final wantToWatch =
         ref.watch(wantToWatchProvider).asData?.value ?? const <SavedTitle>[];
-    // Recently-downloaded titles (app-acquired), one tile per show. Only matched
-    // rows become tiles — the poster-tile routing keys off a TMDB id; a rare
-    // still-unmatched download simply waits until it's matched.
-    final recentDownloadTiles = [
-      for (final i
-          in ref.watch(recentlyDownloadedProvider).asData?.value ??
-              const <LibraryItem>[])
-        if (i.tmdbId != null) _recentlyDownloadedTile(i),
-    ];
+    // Recent downloads and recent watches merged, minus Continue Watching —
+    // so a show that fell out of CW (a finished episode, a reaped file) still
+    // has a home. Matched titles only: the poster routing keys off a TMDB id.
+    final recentTiles = ref.watch(recentLaneProvider);
     final resumable = continueAsync.asData?.value ?? const [];
 
     return Scaffold(
@@ -152,17 +149,25 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with RouteAware {
                 child: CustomScrollView(
                   controller: _scrollController,
                   slivers: [
+                  // Order: what you're in the middle of, then what you have, then
+                  // what you've saved, then suggestions. Continue Watching stays
+                  // first (STYLE invariant); the library rows come before any
+                  // recommendation lane.
                   if (resumable.isNotEmpty)
                     SliverToBoxAdapter(
                         child: _ContinueWatchingRail(entries: resumable)),
-                  if (recentDownloadTiles.isNotEmpty)
+                  if (recentTiles.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _DiscoverRail(
-                        label: 'Recently Downloaded',
-                        tiles: recentDownloadTiles,
+                        label: 'Recently Downloaded & Watched',
+                        tiles: recentTiles,
                         limit: null,
+                        dismissLane: LaneIds.recent,
                       ),
                     ),
+                  ..._librarySlivers(context, itemsAsync,
+                      autofocusFirst: resumable.isEmpty,
+                      rootPaths: rootPaths),
                   if (favorites.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _DiscoverRail(
@@ -184,6 +189,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with RouteAware {
                       child: _DiscoverRail(
                         label: 'New Episodes For You',
                         tiles: newEpisodes,
+                        dismissLane: LaneIds.newEpisodes,
                       ),
                     ),
                   if (recommended.isNotEmpty)
@@ -229,11 +235,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with RouteAware {
                         tiles: franchise,
                       ),
                     ),
-                  // The user's own library sits above the generic discovery
-                  // rails (TV Shows / Movies).
-                  ..._librarySlivers(context, itemsAsync,
-                      autofocusFirst: resumable.isEmpty,
-                      rootPaths: rootPaths),
+
                   if (trending.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _DiscoverRail(
@@ -263,6 +265,32 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with RouteAware {
   }
 }
 
+/// Remove [tile] from [lane], with an Undo — the menu sits right on the poster,
+/// so a mis-press on the remote is easy and should be cheap to reverse.
+Future<void> _removeFromLane(
+    BuildContext context, String lane, DiscoverTile tile) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final repo = getIt<RailDismissalRepository>();
+  try {
+    await repo.dismiss(
+        rail: lane, tmdbId: tile.tmdbId, mediaType: tile.mediaType);
+    messenger.showSnackBar(SnackBar(
+      content: Text("Removed '${tile.title}' from this row"),
+      action: SnackBarAction(
+        label: 'Undo',
+        onPressed: () => repo.restore(
+            rail: lane, tmdbId: tile.tmdbId, mediaType: tile.mediaType),
+      ),
+    ));
+  } catch (e, st) {
+    getIt<ErrorLogService>()
+        .logError(e, stackTrace: st, source: 'LibraryScreen.removeFromLane');
+    messenger.showSnackBar(
+      const SnackBar(content: Text("Couldn't remove that from the row")),
+    );
+  }
+}
+
 /// Opens the player for [item], resuming from saved watch history.
 void _openPlayer(BuildContext context, LibraryItem item) {
   context.push(
@@ -282,16 +310,6 @@ DiscoverTile _savedTile(SavedTitle s) => DiscoverTile(
       title: s.name,
       mediaType: s.mediaType,
       posterPath: s.posterPath,
-    );
-
-/// Maps a recently-downloaded library row to a poster tile, using the show's
-/// canonical TMDB name/poster (not the episode's) so a series shows once with
-/// its own art. Only called for matched rows (`tmdbId != null`).
-DiscoverTile _recentlyDownloadedTile(LibraryItem i) => DiscoverTile(
-      tmdbId: i.tmdbId!,
-      title: i.tmdbName ?? i.title,
-      mediaType: i.mediaType,
-      posterPath: i.tmdbPosterPath,
     );
 
 /// Opens the detail page for a Continue Watching [item]: a matched TV episode
@@ -590,9 +608,15 @@ class _DiscoverRail extends ConsumerWidget {
     required this.tiles,
     this.limit = 10,
     this.onHide,
+    this.dismissLane,
   });
   final String label;
   final List<DiscoverTile> tiles;
+
+  /// When set (a [LaneIds] value), each card offers "Remove from this row" and
+  /// the rail drops titles dismissed from this lane — until their next activity
+  /// (see [isDismissed]).
+  final String? dismissLane;
 
   /// Max tiles to show; null shows all (the user's own lists shouldn't be
   /// truncated the way the algorithmic discovery rails are).
@@ -606,12 +630,18 @@ class _DiscoverRail extends ConsumerWidget {
     // Drop "not interested" titles from every discovery rail (one place, so all
     // rails honor it); if that empties the rail, don't render it at all.
     final hidden = ref.watch(notInterestedProvider).asData?.value ?? const {};
-    final visible = hidden.isEmpty
-        ? tiles
-        : [
-            for (final t in tiles)
-              if (!hidden.contains(notInterestedKey(t.tmdbId, t.mediaType))) t,
-          ];
+    final lane = dismissLane;
+    final dismissed = lane == null
+        ? const <String, DateTime>{}
+        : ref.watch(railDismissalsProvider(lane)).asData?.value ??
+            const <String, DateTime>{};
+    final visible = [
+      for (final t in tiles)
+        if (!hidden.contains(notInterestedKey(t.tmdbId, t.mediaType)) &&
+            !isDismissed(
+                dismissedAt: dismissed[t.key], activityAt: t.activityAt))
+          t,
+    ];
     if (visible.isEmpty) return const SizedBox.shrink();
     final lim = limit;
     final top =
@@ -647,6 +677,9 @@ class _DiscoverRail extends ConsumerWidget {
               return DiscoverPosterCard(
                 tile: tile,
                 onPressed: () => openDiscoverTile(context, tile),
+                onRemoveFromRail: lane == null
+                    ? null
+                    : () => _removeFromLane(context, lane, tile),
               );
             },
           ),

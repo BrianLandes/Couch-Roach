@@ -325,13 +325,21 @@ final newEpisodesProvider = FutureProvider<List<DiscoverTile>>((ref) async {
           parse(s.airDate),
     ];
 
-    return hasNewEpisodeSinceCaughtUp(
+    if (!hasNewEpisodeSinceCaughtUp(
       higherRankedAirDates: higher,
       lastWatchedAt: show.lastWatchedAt,
       now: now,
-    )
-        ? _newEpisodeTile(show)
-        : null;
+    )) {
+      return null;
+    }
+    // Stamp the tile with its newest *aired* episode, so a dismissal from this
+    // lane lifts by itself when the next episode airs.
+    final aired = [
+      for (final d in higher)
+        if (d != null && !d.isAfter(now)) d,
+    ]..sort();
+    return _newEpisodeTile(show)
+        .withActivity(aired.isEmpty ? null : aired.last);
   }));
 
   return results.whereType<DiscoverTile>().toList();

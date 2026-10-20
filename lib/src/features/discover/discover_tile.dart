@@ -14,6 +14,7 @@ class DiscoverTile {
     this.overview = '',
     this.year,
     this.voteAverage,
+    this.activityAt,
   });
 
   final int tmdbId;
@@ -26,7 +27,29 @@ class DiscoverTile {
   final int? year;
   final double? voteAverage;
 
+  /// When this title last had activity relevant to the lane showing it — a new
+  /// episode airing, a download, a watch. Null for lanes with no such notion.
+  /// A lane dismissal only hides the tile while this predates the dismissal,
+  /// so a removed title returns once something new happens (see
+  /// `isDismissed` in landing_lanes.dart).
+  final DateTime? activityAt;
+
   bool get isTv => mediaType == 'tv';
+
+  /// `'<mediaType>:<tmdbId>'` — the identity lanes dedupe and dismiss by.
+  String get key => '$mediaType:$tmdbId';
+
+  /// This tile, stamped with [at] as its lane activity time.
+  DiscoverTile withActivity(DateTime? at) => DiscoverTile(
+        tmdbId: tmdbId,
+        title: title,
+        mediaType: mediaType,
+        posterPath: posterPath,
+        overview: overview,
+        year: year,
+        voteAverage: voteAverage,
+        activityAt: at,
+      );
 
   factory DiscoverTile.fromTv(TvShowSummary s) => DiscoverTile(
         tmdbId: s.tmdbId,
