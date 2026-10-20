@@ -10,7 +10,14 @@ void main() {
 
     test('is stable for the same file', () {
       expect(key(), key());
-      expect(key(), hasLength(16));
+    });
+
+    test('is always 16 lowercase hex digits (a safe directory name)', () {
+      // About half of all hashes have the top bit set; those once printed
+      // with a leading '-'.
+      for (var i = 0; i < 200; i++) {
+        expect(key(path: '/tv/$i.mkv'), matches(RegExp(r'^[0-9a-f]{16}$')));
+      }
     });
 
     test('changes when the file does (path, size or mtime)', () {

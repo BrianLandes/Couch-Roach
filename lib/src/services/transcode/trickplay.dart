@@ -48,7 +48,11 @@ String trickplayKey({
     hash ^= unit;
     hash *= prime; // native ints wrap mod 2^64, which is what FNV wants
   }
-  return hash.toUnsigned(64).toRadixString(16).padLeft(16, '0');
+  // Hex each 32-bit half: a native int is signed, and `toUnsigned(64)` can't
+  // make a value with the top bit set non-negative, so formatting the whole
+  // thing gave a leading '-' for about half of all keys.
+  String half(int v) => (v & 0xFFFFFFFF).toRadixString(16).padLeft(8, '0');
+  return half(hash >> 32) + half(hash);
 }
 
 /// How many tiles a video of [durationSeconds] needs (at least one).
