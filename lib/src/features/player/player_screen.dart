@@ -1809,6 +1809,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // bottom seek-bar region so clicking the scrubber doesn't pause).
       playAndPauseOnTap: true,
       toggleFullscreenOnDoublePress: false,
+      // Off: in media_kit this one flag drives *both* wheel-volume and a
+      // click-drag-up/down volume gesture on the video. The drag variant
+      // changed the volume on any slightly-moving click and, as a competing
+      // pan recognizer, swallowed the click-to-pause tap. The wheel half is
+      // re-added by us without the drag (see [_onPointerSignal]).
+      modifyVolumeOnScroll: false,
       // Hide the mouse pointer together with the controls when they fade out, so
       // a fullscreen TV appliance shows nothing over the video while playing.
       hideMouseOnControlsRemoval: true,
@@ -1836,6 +1842,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
         const FullscreenToggleButton(color: Colors.white, iconSize: 28),
       ],
     );
+  }
+
+  /// Mouse wheel over the video nudges the volume (media_kit's own wheel handler
+  /// is off — it came bundled with a drag-to-change-volume gesture).
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final next = volumeAfterScroll(_player.state.volume, event.scrollDelta.dy);
+    if (next == _player.state.volume) return;
+    unawaited(_player.setVolume(next).catchError((Object e, StackTrace st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.wheelVolume');
+    }));
   }
 
   /// Seek 10 seconds earlier (clamped at the start), for the bottom-bar rewind
@@ -1884,18 +1902,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       // tap the DoubleTapGestureRecognizer wins the arena, so the
                       // inner play/pause tap is rejected and doesn't flicker; a
                       // single tap times out and falls through to media_kit's
-                      // playAndPauseOnTap handler.
+                      // playAndPauseOnTap handler. (That tap used to lose to
+                      // media_kit's drag-volume pan on any click that moved a
+                      // pixel — now disabled, see _controlsTheme.) The Listener
+                      // re-adds wheel-to-volume without claiming any gesture.
                       Positioned.fill(
-                        child: GestureDetector(
-                          onSecondaryTapDown: (d) => _subtitleMenuController
-                              .open(position: d.localPosition),
-                          onDoubleTap: _toggleFullscreen,
-                          child: MaterialDesktopVideoControlsTheme(
-                            normal: _controlsTheme(),
-                            fullscreen: _controlsTheme(),
-                            child: Video(
-                              controller: _controller,
-                              controls: MaterialDesktopVideoControls,
+                        child: Listener(
+                          onPointerSignal: _onPointerSignal,
+                          child: GestureDetector(
+                            onSecondaryTapDown: (d) => _subtitleMenuController
+                                .open(position: d.localPosition),
+                            onDoubleTap: _toggleFullscreen,
+                            child: MaterialDesktopVideoControlsTheme(
+                              normal: _controlsTheme(),
+                              fullscreen: _controlsTheme(),
+                              child: Video(
+                                controller: _controller,
+                                controls: MaterialDesktopVideoControls,
+                              ),
                             ),
                           ),
                         ),

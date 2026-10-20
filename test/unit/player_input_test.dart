@@ -69,4 +69,17 @@ void main() {
       expect(debouncer.accept(), isTrue);
     });
   });
+
+  group('volumeAfterScroll', () {
+    test('wheel up is louder, down is quieter, by 5', () {
+      expect(volumeAfterScroll(50, -120), 55);
+      expect(volumeAfterScroll(50, 120), 45);
+    });
+
+    test('clamps to 0..100 and ignores a zero delta', () {
+      expect(volumeAfterScroll(98, -120), 100);
+      expect(volumeAfterScroll(3, 120), 0);
+      expect(volumeAfterScroll(40, 0), 40);
+    });
+  });
 }

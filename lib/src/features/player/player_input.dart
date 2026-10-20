@@ -9,6 +9,13 @@ bool isMediaPlayPauseKey(LogicalKeyboardKey key) =>
     key == LogicalKeyboardKey.mediaPlay ||
     key == LogicalKeyboardKey.mediaPause;
 
+/// The volume (0–100) after one mouse-wheel notch over the video: 5 per notch,
+/// wheel up (negative [scrollDy]) louder, down quieter, clamped. Pure.
+double volumeAfterScroll(double volume, double scrollDy) {
+  if (scrollDy == 0) return volume;
+  return (volume + (scrollDy < 0 ? 5.0 : -5.0)).clamp(0.0, 100.0);
+}
+
 /// A play/pause request from any media-key route.
 enum MediaCommand { toggle, play, pause }
 
