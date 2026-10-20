@@ -9,18 +9,63 @@ bool isMediaPlayPauseKey(LogicalKeyboardKey key) =>
     key == LogicalKeyboardKey.mediaPlay ||
     key == LogicalKeyboardKey.mediaPause;
 
-/// Whether the player should **swallow** a raw key event instead of letting it
-/// reach media_kit's controls.
+/// A play/pause request from any media-key route.
+enum MediaCommand { toggle, play, pause }
+
+/// The command a raw media key asks for, or null for any other key.
+MediaCommand? mediaCommandForKey(LogicalKeyboardKey key) {
+  if (key == LogicalKeyboardKey.mediaPlayPause) return MediaCommand.toggle;
+  if (key == LogicalKeyboardKey.mediaPlay) return MediaCommand.play;
+  if (key == LogicalKeyboardKey.mediaPause) return MediaCommand.pause;
+  return null;
+}
+
+/// The command an OS media-session button name ('play' / 'pause' / 'toggle')
+/// asks for, or null for one we don't handle.
+MediaCommand? mediaCommandForButton(String button) => switch (button) {
+      'play' => MediaCommand.play,
+      'pause' => MediaCommand.pause,
+      'toggle' => MediaCommand.toggle,
+      _ => null,
+    };
+
+/// Whether the player should be playing after [command], given it currently
+/// [playing]. Explicit play/pause are idempotent; only toggle flips.
+bool playingAfter(MediaCommand command, {required bool playing}) =>
+    switch (command) {
+      MediaCommand.play => true,
+      MediaCommand.pause => false,
+      MediaCommand.toggle => !playing,
+    };
+
+/// Collapses one physical Play/Pause press into one action.
 ///
-/// The player observes keys globally (not through a focus node) so a remote
-/// reveals the overlay without stealing play/pause or arrow-seek from the
-/// controls — so the answer is almost always "no, pass it through".
-///
-/// The exception is the media play/pause key on Windows, where the SMTC session
-/// already delivers the press as a media-session button and acts on it. Letting
-/// the raw key through as well would make media_kit toggle a second time and
-/// the two would cancel out, leaving playback unchanged. Platforms without SMTC
-/// have no such duplicate, so they must keep passing it through — swallowing it
-/// there would break play/pause outright.
-bool shouldSwallowKey(LogicalKeyboardKey key, {required bool hasMediaSession}) =>
-    hasMediaSession && isMediaPlayPauseKey(key);
+/// On Windows a single press can reach the player by up to three routes: the
+/// raw key event (when the Flutter view has keyboard focus), a `WM_APPCOMMAND`
+/// (when focus is on the top-level window instead — common right after a
+/// fullscreen switch), and the SMTC media-session button (when the OS picks
+/// Couch Roach as the current media session). Which of them fire varies with
+/// focus and with what else is playing, so the player listens to all three and
+/// acts on whichever arrives **first**; the echoes inside [window] are dropped.
+/// Acting on every route toggled twice (no visible effect), and acting on only
+/// one route missed presses whenever that route didn't fire.
+class MediaKeyDebouncer {
+  MediaKeyDebouncer({DateTime Function()? clock})
+      : _clock = clock ?? DateTime.now;
+
+  /// Echoes of one press land within a few tens of ms; a deliberate second
+  /// press is well over this.
+  static const window = Duration(milliseconds: 400);
+
+  final DateTime Function() _clock;
+  DateTime? _last;
+
+  /// Whether this press should act (true) or is an echo of one just handled.
+  bool accept() {
+    final now = _clock();
+    final last = _last;
+    if (last != null && now.difference(last) < window) return false;
+    _last = now;
+    return true;
+  }
+}

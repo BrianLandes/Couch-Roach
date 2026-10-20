@@ -203,6 +203,13 @@ Win32Window::MessageHandler(HWND hwnd,
         // Size and position the child window.
         MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
                    rect.bottom - rect.top, TRUE);
+        // Entering/leaving fullscreen restyles and resizes the window without
+        // a WM_ACTIVATE, which can leave keyboard focus on this top-level
+        // window instead of the Flutter view — keys (remote arrows, Play/Pause)
+        // then miss the app. Hand focus back to the view while we're in front.
+        if (GetForegroundWindow() == hwnd && GetFocus() != child_content_) {
+          SetFocus(child_content_);
+        }
       }
       return 0;
     }

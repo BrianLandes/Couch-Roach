@@ -40,6 +40,7 @@ import 'next_episode.dart';
 import 'player_controls_visibility.dart';
 import 'player_input.dart';
 import 'player_progress.dart';
+import 'player_recovery.dart';
 import 'player_sources.dart';
 import 'next_episode_button.dart';
 import 'player_title.dart';
@@ -169,6 +170,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration? _pendingSeek;
   String? _error;
 
+  // Sleep / HDMI-unplug recovery (see PlaybackRecovery): an mpv error after
+  // playback was running reopens the file at the last position instead of
+  // showing the error screen. `_mediaUrl` is what was opened, `_lastPosition`
+  // the last real position tick, and `_tracksToRestore` the audio/subtitle
+  // selection to re-apply once the reopened file is playing.
+  final _recovery = PlaybackRecovery();
+  String? _mediaUrl;
+  Duration _lastPosition = Duration.zero;
+  (AudioTrack, SubtitleTrack)? _tracksToRestore;
+  Timer? _recoveryTimer;
+
   // The library row for the playing file (show/season/episode) — drives
   // prefetching and auto-playing the next episode. Loaded in _open().
   LibraryItem? _currentItem;
@@ -253,6 +265,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// media session so the hardware Play/Pause key controls it (and not a
   /// background Spotify/YouTube). No-op off Windows.
   late final MediaSessionController _mediaSession;
+  final _mediaKeys = MediaKeyDebouncer();
 
   @override
   void initState() {
@@ -268,33 +281,48 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _open();
   }
 
-  /// Any physical key press counts as activity and reveals the overlay. Normally
-  /// returns false so the event still reaches the player controls (this is an
-  /// observer). The exception is the **media Play/Pause key on Windows**: there
-  /// the SMTC session drives play/pause (via [_onMediaButton]), so we swallow the
-  /// raw key here to stop media_kit from *also* toggling — a double-toggle would
-  /// cancel out. Other platforms (no SMTC) keep letting media_kit handle it.
+  /// Any physical key press counts as activity and reveals the overlay. Returns
+  /// false so the event still reaches the player controls (this is an
+  /// observer) — except the **media Play/Pause keys**, which the player acts on
+  /// itself (see [_onMediaCommand]) and swallows so media_kit doesn't toggle a
+  /// second time.
   bool _onHardwareKey(KeyEvent event) {
-    if (mounted && (event is KeyDownEvent || event is KeyRepeatEvent)) {
-      _revealControls();
-    }
-    return shouldSwallowKey(event.logicalKey,
-        hasMediaSession: Platform.isWindows);
+    final isDown = event is KeyDownEvent;
+    if (mounted && (isDown || event is KeyRepeatEvent)) _revealControls();
+    final command = mediaCommandForKey(event.logicalKey);
+    if (command == null) return false;
+    if (isDown) _onMediaCommand(command, via: 'key');
+    return true;
   }
 
-  /// An OS media button (from the hardware key or the Windows media flyout),
-  /// routed through the SMTC session. Reveals the controls and applies the
-  /// explicit action — SMTC sends Play when paused and Pause when playing, off
-  /// the status we keep in sync in [_onPlayingChanged].
+  /// An OS media button, from the Windows SMTC session ('play' / 'pause') or a
+  /// `WM_APPCOMMAND` the runner caught ('toggle').
   void _onMediaButton(String button) {
+    final command = mediaCommandForButton(button);
+    if (command != null) _onMediaCommand(command, via: 'os:$button');
+  }
+
+  /// Apply one Play/Pause press. A single physical press can arrive by several
+  /// routes at once (raw key, SMTC, WM_APPCOMMAND — which ones depends on focus,
+  /// fullscreen, and what else is playing); [MediaKeyDebouncer] acts on the
+  /// first and drops the echoes, so a press never double-toggles and never goes
+  /// missing because one route didn't fire.
+  void _onMediaCommand(MediaCommand command, {required String via}) {
     if (!mounted) return;
-    _revealControls();
-    switch (button) {
-      case 'play':
-        _player.play();
-      case 'pause':
-        _player.pause();
+    final log = getIt<ErrorLogService>();
+    if (!_mediaKeys.accept()) {
+      log.info('media key via $via: echo, ignored',
+          source: 'PlayerScreen.mediaKey');
+      return;
     }
+    _revealControls();
+    final play = playingAfter(command, playing: _player.state.playing);
+    log.info('media key via $via → ${play ? 'play' : 'pause'}',
+        source: 'PlayerScreen.mediaKey');
+    unawaited((play ? _player.play() : _player.pause())
+        .catchError((Object e, StackTrace st) {
+      log.logError(e, stackTrace: st, source: 'PlayerScreen.mediaKey');
+    }));
   }
 
   Future<void> _open() async {
@@ -354,13 +382,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (_isTvEpisode && !_isNetworkSource) {
         unawaited(_loadEpisodeName());
       }
-      _subs.add(_player.stream.error.listen((message) {
-        getIt<ErrorLogService>().logError(
-          message,
-          source: 'PlayerScreen.mpv(${widget.filePath})',
-        );
-        if (mounted) setState(() => _error = message);
-      }));
+      _subs.add(_player.stream.error.listen(_onPlayerError));
 
       // Mirror libmpv's own log into our file log for network/trailer playback.
       // A crash in the yt-dlp/ytdl_hook resolve pipeline is native and leaves
@@ -404,6 +426,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // and mpv fails to demux it. Falls back to the raw URL when resolution
       // isn't possible (relying on ytdl_hook where it does exist, e.g. Linux).
       final mediaUrl = await _resolveMediaUrl(widget.filePath);
+      _mediaUrl = mediaUrl;
 
       // Seek is applied on the first ready position tick (see _onPosition).
       await _player.open(Media(mediaUrl));
@@ -433,6 +456,89 @@ class _PlayerScreenState extends State<PlayerScreen> {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'PlayerScreen.open');
       if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  /// An error from libmpv. Before playback ever started (or on a network
+  /// stream) it's a real failure → the error screen. After playback was
+  /// running it's most likely the audio device / display going away under a
+  /// sleeping PC or an unplugged HDMI cable, so reopen the file where it was
+  /// instead — see [PlaybackRecovery] for the budget and backoff.
+  void _onPlayerError(String message) {
+    final log = getIt<ErrorLogService>();
+    final source = 'PlayerScreen.mpv(${widget.filePath})';
+    switch (_recovery.onError(isNetworkSource: _isNetworkSource)) {
+      case PlaybackFailureAction.recover:
+        // Snapshot what to restore now, before the dead file's teardown resets
+        // the track streams.
+        _tracksToRestore ??= (_selectedAudio, _selectedSubtitle);
+        final play = _player.state.playing;
+        final delay = _recovery.delayFor;
+        log.warn(
+          'Playback interrupted ("$message") — reopening at '
+          '${_lastPosition.inSeconds}s in ${delay.inSeconds}s '
+          '(${play ? 'playing' : 'paused'})',
+          source: 'PlayerScreen.recover',
+        );
+        _recoveryTimer?.cancel();
+        _recoveryTimer =
+            Timer(delay, () => unawaited(_reopenAfterFailure(play: play)));
+      case PlaybackFailureAction.ignore:
+        log.info('mpv error during recovery (ignored): $message',
+            source: source);
+      case PlaybackFailureAction.showError:
+        log.logError(message, source: source);
+        if (mounted) setState(() => _error = message);
+    }
+  }
+
+  /// Reopen the current file at the last known position, keeping it paused if
+  /// it was paused. A missing file, or a reopen that throws, is a real failure.
+  Future<void> _reopenAfterFailure({required bool play}) async {
+    final url = _mediaUrl;
+    if (!mounted || url == null) return;
+    final log = getIt<ErrorLogService>();
+    try {
+      if (!await File(url).exists()) {
+        log.warn('Recovery abandoned: $url is no longer on disk',
+            source: 'PlayerScreen.recover');
+        if (mounted) {
+          setState(() => _error = 'The file is no longer on disk.');
+        }
+        return;
+      }
+      if (!mounted) return;
+      _pendingSeek = _lastPosition > Duration.zero ? _lastPosition : null;
+      await _player.open(Media(url), play: play);
+      _recovery.onReopened();
+      log.info('Recovery: reopened $url', source: 'PlayerScreen.recover');
+    } catch (e, st) {
+      log.logError(e, stackTrace: st, source: 'PlayerScreen.recover');
+      if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  /// After a recovery reopen, put back the audio/subtitle tracks that were
+  /// selected before the failure (mpv starts the reopened file on its
+  /// defaults). A sidecar subtitle is keyed by its path, so it's re-added by
+  /// URI; embedded track ids are stable for the same file.
+  void _restoreTracksAfterRecovery() {
+    final restore = _tracksToRestore;
+    if (restore == null) return;
+    _tracksToRestore = null;
+    final (audio, subtitle) = restore;
+    void onFail(Object e, StackTrace st) => getIt<ErrorLogService>()
+        .logError(e, stackTrace: st, source: 'PlayerScreen.restoreTracks');
+    if (isSelectableTrackId(audio.id)) {
+      unawaited(_player.setAudioTrack(audio).catchError(onFail));
+    }
+    if (isSidecarSubtitleId(subtitle.id)) {
+      unawaited(_player
+          .setSubtitleTrack(SubtitleTrack.uri(subtitle.id,
+              title: subtitle.title, language: subtitle.language))
+          .catchError(onFail));
+    } else if (subtitle.id != 'auto') {
+      unawaited(_player.setSubtitleTrack(subtitle).catchError(onFail));
     }
   }
 
@@ -833,6 +939,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _lastSavedSec = seek.inSeconds;
       _player.seek(seek);
       return;
+    }
+
+    // The file is loaded and playing (or paused) at a real position — this is
+    // what lets a later error count as a transient pipeline loss rather than an
+    // unplayable file, and it ends any recovery in progress.
+    if (_player.state.duration > Duration.zero) {
+      _recovery.onPlaybackConfirmed();
+      if (pos > Duration.zero) _lastPosition = pos;
+      _restoreTracksAfterRecovery();
     }
 
     // Once past the halfway mark, start downloading the next episode (if any)
@@ -1439,6 +1554,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     // Best-effort: remove the trailer's downloaded caption sidecar.
     _trailerDir?.delete(recursive: true).ignore();
+    _recoveryTimer?.cancel();
     for (final s in _subs) {
       s.cancel();
     }

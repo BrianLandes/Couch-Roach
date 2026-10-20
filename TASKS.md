@@ -60,11 +60,32 @@ _Aim for one task here at a time._
 - [ ] Paused video + monitor sleep / HDMI unplug → "this video can't be played" with "Try a
   different source"; going back and replaying works. Distinguish a **transient pipeline loss**
   (recoverable by reopening at the saved position) from a **genuinely unplayable file**.
+- **Implemented (awaiting real-hardware check):** classify by *outcome*, not mpv's error text —
+  pure `PlaybackRecovery` (`player_recovery.dart`): an error before the file ever played (or on a
+  network stream) → error screen as before; an error after playback was running → reopen the same
+  file at the last position tick, **keeping its paused/playing state**, after 1s/3s/6s, at most 3
+  reopens per 2 minutes, then the error screen. Errors while a reopen is pending are ignored; a
+  missing file abandons recovery. Audio + subtitle selection (incl. a sidecar `.en.srt`, re-added
+  by path) is restored on the reopened file. Logged as a `warn` under `PlayerScreen.recover`.
+- Follow-up if it still bites: a reopened-while-asleep file could come back with no audio device;
+  an `ao-reload` on the first resume after a recovery would cover that.
 
 ### Media Play/Pause still intermittent, worse in fullscreen · `p2`
 
 - [ ] Sometimes no effect, sometimes reaches Couch Roach *and* a background app
   (YouTube/Spotify). More likely in fullscreen.
+- **Cause:** a press reaches us by up to three routes — the raw key (Flutter view focused), SMTC
+  `ButtonPressed` (only when Windows picks us as current session), and `WM_APPCOMMAND` (the key lands
+  on the top-level window — common after a fullscreen restyle). We swallowed the raw key and relied
+  on SMTC alone, so a press was lost whenever SMTC routed elsewhere, and in the focus-on-window case
+  the shell forwarded the command to the background app.
+- **Implemented (awaiting real-hardware check):** the player acts on *every* route through one
+  `MediaKeyDebouncer` (first arrival wins, echoes within 400ms dropped; explicit play/pause vs
+  toggle via `playingAfter`), on all platforms. Runner claims `WM_APPCOMMAND` media commands while
+  the session is enabled (returns TRUE → shell never forwards them) and sends them as `'toggle'`.
+  `Win32Window` hands focus back to the Flutter view on `WM_SIZE` when the window is in front, so
+  fullscreen no longer strands keyboard focus. Each press logs its route under
+  `PlayerScreen.mediaKey` (verbose) for diagnosis.
 
 ### Search by person: an actor's or director's name lists their films · `p2`
 
@@ -473,11 +494,6 @@ worth eyeballing); and how long an episode takes.
 **Next step — read the log while a big file stutters.** `hwdec-current` is the tell:
 - `hwdec-current=no` → silent software fallback; force `d3d11va` (or `d3d11va-copy`) from the new dropdown and re-check.
 - `hwdec-current` set but drop counts climbing → decode is fine, so the bottleneck is elsewhere: the **copy-back vs zero-copy** render path (media_kit hands frames through its own texture; `-copy` variants add a GPU→CPU readback that's expensive at 4K), demuxer/cache sizing for large files, or disk/CPU contention from the torrent daemon seeding while playing (see the "pause torrents while watching" backlog item). Also worth trying the "Hardware video rendering" toggle in both positions now that it's understood to be the *rendering* path. [windows]
-
-### Paused video + PC sleep → "cannot play the file" on wake · `p2`
-
-- [ ] Pause a video, let the PC sleep, come back → the player says it can't play the file that was playing; have to back out and replay it to recover.
-- Likely the mpv/media_kit pipeline (or the file handle / GPU context / the localhost stream if it was an archive_play) doesn't survive suspend/resume. Investigate: does the OS `WM_POWERBROADCAST` resume event reach us? On resume, re-open the current media at the saved position instead of leaving the dead handle. Consider listening for the player's error state and auto-recovering (reload at last position) rather than requiring a manual back+replay. Repro with both a local file and an archive/stream source. [windows]
 
 ### Trailer / YouTube playback stopped working (regression) · `p2` — RESOLVED by opening the browser
 

@@ -79,6 +79,15 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         media_session_->OnButtonOnUiThread(static_cast<int>(wparam));
       }
       return 0;
+    case WM_APPCOMMAND:
+      // A media key that reached the window instead of the Flutter view. While
+      // the player is up, claim it so the shell doesn't hand it to a background
+      // media app (see MediaSession::HandleAppCommand).
+      if (media_session_ &&
+          media_session_->HandleAppCommand(GET_APPCOMMAND_LPARAM(lparam))) {
+        return TRUE;
+      }
+      break;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

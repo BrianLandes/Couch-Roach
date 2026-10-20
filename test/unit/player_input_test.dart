@@ -20,43 +20,53 @@ void main() {
     });
   });
 
-  group('shouldSwallowKey', () {
-    test('with a media session, the media key is swallowed', () {
-      // SMTC already delivers the press as a session button and acts on it;
-      // letting the raw key through as well makes media_kit toggle a second
-      // time and the two cancel out.
-      expect(
-        shouldSwallowKey(LogicalKeyboardKey.mediaPlayPause,
-            hasMediaSession: true),
-        isTrue,
-      );
+  group('media commands', () {
+    test('keys map to toggle / play / pause; others to null', () {
+      expect(mediaCommandForKey(LogicalKeyboardKey.mediaPlayPause),
+          MediaCommand.toggle);
+      expect(mediaCommandForKey(LogicalKeyboardKey.mediaPlay),
+          MediaCommand.play);
+      expect(mediaCommandForKey(LogicalKeyboardKey.mediaPause),
+          MediaCommand.pause);
+      expect(mediaCommandForKey(LogicalKeyboardKey.space), isNull);
     });
 
-    test('without a media session, the media key must pass through', () {
-      // There's no duplicate to cancel, so swallowing it would break
-      // play/pause outright on Linux.
-      expect(
-        shouldSwallowKey(LogicalKeyboardKey.mediaPlayPause,
-            hasMediaSession: false),
-        isFalse,
-      );
+    test('OS button names map to commands', () {
+      expect(mediaCommandForButton('play'), MediaCommand.play);
+      expect(mediaCommandForButton('pause'), MediaCommand.pause);
+      expect(mediaCommandForButton('toggle'), MediaCommand.toggle);
+      expect(mediaCommandForButton('next'), isNull);
     });
 
-    test('every other key passes through regardless of platform', () {
-      // The player observes keys globally; it must not steal Space or
-      // arrow-seek from media_kit's own controls.
-      for (final key in [
-        LogicalKeyboardKey.space,
-        LogicalKeyboardKey.arrowLeft,
-        LogicalKeyboardKey.arrowRight,
-        LogicalKeyboardKey.escape,
-        LogicalKeyboardKey.enter,
-      ]) {
-        expect(shouldSwallowKey(key, hasMediaSession: true), isFalse,
-            reason: '$key with a media session');
-        expect(shouldSwallowKey(key, hasMediaSession: false), isFalse,
-            reason: '$key without a media session');
-      }
+    test('only toggle flips; play and pause are idempotent', () {
+      expect(playingAfter(MediaCommand.toggle, playing: true), isFalse);
+      expect(playingAfter(MediaCommand.toggle, playing: false), isTrue);
+      expect(playingAfter(MediaCommand.play, playing: true), isTrue);
+      expect(playingAfter(MediaCommand.pause, playing: false), isFalse);
+    });
+  });
+
+  group('MediaKeyDebouncer', () {
+    late DateTime now;
+    late MediaKeyDebouncer debouncer;
+
+    setUp(() {
+      now = DateTime(2026, 10, 20, 20);
+      debouncer = MediaKeyDebouncer(clock: () => now);
+    });
+
+    test('the first route of a press acts; its echoes are dropped', () {
+      expect(debouncer.accept(), isTrue); // raw key
+      now = now.add(const Duration(milliseconds: 30));
+      expect(debouncer.accept(), isFalse); // SMTC echo
+      now = now.add(const Duration(milliseconds: 30));
+      expect(debouncer.accept(), isFalse); // WM_APPCOMMAND echo
+    });
+
+    test('a deliberate second press after the window acts', () {
+      expect(debouncer.accept(), isTrue);
+      now = now.add(MediaKeyDebouncer.window);
+      expect(debouncer.accept(), isTrue);
     });
   });
 }

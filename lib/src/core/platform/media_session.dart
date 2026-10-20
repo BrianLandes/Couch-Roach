@@ -10,7 +10,8 @@ import '../../injection.dart';
 /// player [enable]s the session and keeps [setPlaying] in sync; owning the OS
 /// media session makes the hardware Play/Pause key control Couch Roach instead of
 /// leaking to background media apps (Spotify/YouTube). The OS routes button
-/// presses back through [onButton] ('play' / 'pause').
+/// presses back through [onButton]: 'play' / 'pause' from SMTC, or 'toggle' from
+/// a media-key `WM_APPCOMMAND` the runner claimed while the session is enabled.
 ///
 /// Windows-only: on other platforms the method channel has no handler, so every
 /// call is a silently-swallowed no-op.
@@ -25,7 +26,8 @@ class MediaSessionController {
 
   bool get _supported => Platform.isWindows;
 
-  /// Called with the OS button name ('play' / 'pause') when the user presses the
+  /// Called with the OS button name ('play' / 'pause' / 'toggle') when the user
+  /// presses the
   /// media key (or the on-screen OS media control). Set by the player.
   void Function(String button)? onButton;
 

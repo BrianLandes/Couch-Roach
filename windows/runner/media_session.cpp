@@ -14,6 +14,7 @@ namespace {
 // Button codes carried through the PostMessage marshal to the UI thread.
 constexpr int kPlay = 0;
 constexpr int kPause = 1;
+constexpr int kToggle = 2;
 
 // Read a string entry from a method call's argument map, or "" if absent.
 std::string StringArg(
@@ -94,19 +95,40 @@ MediaSession::~MediaSession() {
 }
 
 void MediaSession::OnButtonOnUiThread(int button_code) {
-  const char* name = button_code == kPlay ? "play"
-                     : button_code == kPause ? "pause"
-                                             : nullptr;
+  const char* name = button_code == kPlay     ? "play"
+                     : button_code == kPause  ? "pause"
+                     : button_code == kToggle ? "toggle"
+                                              : nullptr;
   if (name == nullptr) return;
   channel_->InvokeMethod(
       "onButton",
       std::make_unique<flutter::EncodableValue>(std::string(name)));
 }
 
+bool MediaSession::HandleAppCommand(int command) {
+  if (!active_) return false;
+  switch (command) {
+    case APPCOMMAND_MEDIA_PLAY_PAUSE:
+      OnButtonOnUiThread(kToggle);
+      return true;
+    case APPCOMMAND_MEDIA_PLAY:
+      OnButtonOnUiThread(kPlay);
+      return true;
+    case APPCOMMAND_MEDIA_PAUSE:
+      OnButtonOnUiThread(kPause);
+      return true;
+    default:
+      return false;
+  }
+}
+
 void MediaSession::HandleMethodCall(
     const flutter::MethodCall<flutter::EncodableValue>& call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   const std::string& method = call.method_name();
+  // Tracked even without SMTC: WM_APPCOMMAND claiming doesn't need it.
+  if (method == "enable") active_ = true;
+  if (method == "disable") active_ = false;
   if (!available_) {
     result->Success();  // no SMTC — succeed as a no-op
     return;

@@ -35,6 +35,15 @@ class MediaSession {
   // the button to Dart.
   void OnButtonOnUiThread(int button_code);
 
+  // Handles a WM_APPCOMMAND (UI thread). A media key whose WM_KEYDOWN lands on
+  // the top-level window rather than the Flutter view (focus can sit there
+  // after a fullscreen switch) never reaches the framework; DefWindowProc turns
+  // it into WM_APPCOMMAND and, unhandled, the shell forwards it to whichever
+  // app it considers current — a background Spotify/YouTube. While a video is
+  // up we claim it instead: forward it to Dart and return true so the window
+  // proc reports it handled and the shell never sees it.
+  bool HandleAppCommand(int command);
+
  private:
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
@@ -42,6 +51,8 @@ class MediaSession {
 
   HWND hwnd_;
   bool available_ = false;
+  // Between "enable" and "disable" — i.e. while the player is on screen.
+  bool active_ = false;
   winrt::Windows::Media::SystemMediaTransportControls smtc_{nullptr};
   winrt::event_token button_token_{};
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
