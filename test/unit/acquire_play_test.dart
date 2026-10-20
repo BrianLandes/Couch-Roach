@@ -12,14 +12,13 @@ import 'package:couch_roach/src/services/discovery/tmdb_client.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// A torrent in the fake daemon. [drop] is what dropEpisode reports; [has]
-/// says whether selectEpisode finds the episode.
+/// A torrent in the fake daemon. [drop] is what dropEpisode reports;
+/// selectEpisode always finds the episode.
 class _FakeTask implements TorrentTask {
-  _FakeTask(this.hash, {this.drop, this.has = true});
+  _FakeTask(this.hash, {this.drop});
   @override
   final String hash;
   final EpisodeDrop? drop;
-  final bool has;
   final List<(int, int)> dropped = [];
   final List<(int, int)> selected = [];
 
@@ -37,7 +36,7 @@ class _FakeTask implements TorrentTask {
     Duration wait = const Duration(minutes: 10),
   }) async {
     selected.add((season, episode));
-    return has ? '/lib/pack/S${season}E$episode.mkv' : null;
+    return '/lib/pack/S${season}E$episode.mkv';
   }
 
   @override
