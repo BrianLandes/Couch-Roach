@@ -22,6 +22,7 @@ import 'src/services/acquisition/jackett_process.dart';
 import 'src/services/acquisition/qbittorrent_process.dart';
 import 'src/services/cleanup/completed_torrent_reaper.dart';
 import 'src/services/transcode/downscale_service.dart';
+import 'src/services/transcode/trickplay_service.dart';
 import 'src/services/cleanup/watched_reaper.dart';
 
 void main() {
@@ -166,6 +167,18 @@ void main() {
       Timer.periodic(
         const Duration(minutes: 5),
         (_) => unawaited(downscaler.sweep()),
+      );
+
+      // Build seek-bar preview thumbnails for library videos that lack them —
+      // newest first, keyframe-only decode, and only while nothing is playing
+      // (it kills its own ffmpeg the moment a video starts).
+      final trickplay = getIt<TrickplayService>();
+      // First pass shortly after launch, once the startup scan has settled.
+      unawaited(Future<void>.delayed(
+          const Duration(minutes: 2), () => trickplay.sweep()));
+      Timer.periodic(
+        const Duration(minutes: 10),
+        (_) => unawaited(trickplay.sweep()),
       );
 
       // Clear finished torrents from the client (keeping their files) so it

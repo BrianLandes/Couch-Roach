@@ -3,7 +3,13 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart'
-    show PointerScrollEvent, PointerSignalEvent;
+    show
+        PointerCancelEvent,
+        PointerDownEvent,
+        PointerEvent,
+        PointerScrollEvent,
+        PointerSignalEvent,
+        PointerUpEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -31,6 +37,7 @@ import '../../services/acquisition/acquisition.dart';
 import '../../services/discovery/tmdb_client.dart';
 import '../../services/subtitles/subtitle_service.dart';
 import '../../services/subtitles/subtitle_skip_check.dart';
+import '../../services/transcode/trickplay_service.dart';
 import '../../theme/theme.dart';
 import '../../widgets/fullscreen_toggle_button.dart';
 import '../acquire/acquire_play.dart';
@@ -46,6 +53,8 @@ import 'player_recovery.dart';
 import 'player_sources.dart';
 import 'next_episode_button.dart';
 import 'player_title.dart';
+import 'seek_preview.dart';
+import 'seek_preview_layout.dart';
 import 'subtitle_label.dart';
 
 /// Everything the player needs to open a title. Passed via go_router `extra`
@@ -182,6 +191,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration _lastPosition = Duration.zero;
   (AudioTrack, SubtitleTrack)? _tracksToRestore;
   Timer? _recoveryTimer;
+
+  // Seek-bar hover previews (see TrickplayService). `_previewSheets` is null
+  // until/unless this file's preview sheets have been built; `_previewFraction`
+  // is where along the bar the pointer is (null when not over it) — a notifier
+  // so hovering repaints only the preview, not the whole player.
+  TrickplaySheets? _previewSheets;
+  final _previewFraction = ValueNotifier<double?>(null);
+  bool _seekDragging = false;
+  Size? _playerSize;
 
   // The library row for the playing file (show/season/episode) — drives
   // prefetching and auto-playing the next episode. Loaded in _open().
@@ -429,6 +447,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // isn't possible (relying on ytdl_hook where it does exist, e.g. Linux).
       final mediaUrl = await _resolveMediaUrl(widget.filePath);
       _mediaUrl = mediaUrl;
+      if (!_isNetworkSource) unawaited(_loadSeekPreviews());
 
       // Seek is applied on the first ready position tick (see _onPosition).
       await _player.open(Media(mediaUrl));
@@ -1545,6 +1564,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Best-effort: remove the trailer's downloaded caption sidecar.
     _trailerDir?.delete(recursive: true).ignore();
     _recoveryTimer?.cancel();
+    _previewFraction.dispose();
     for (final s in _subs) {
       s.cancel();
     }
@@ -1846,6 +1866,63 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  /// Pick up this file's seek-bar preview sheets, if they've been built.
+  Future<void> _loadSeekPreviews() async {
+    final sheets = await getIt<TrickplayService>().sheetsFor(widget.filePath);
+    if (mounted && sheets != null) setState(() => _previewSheets = sheets);
+  }
+
+  /// Track the pointer against the seek bar for the hover preview. Observes
+  /// only (a Listener), so media_kit's own seek-bar handling is untouched; a
+  /// press that starts on the bar keeps scrubbing the preview while dragged.
+  void _onPreviewPointer(PointerEvent e) {
+    final size = _playerSize;
+    if (_previewSheets == null || size == null) return;
+    if (e is PointerDownEvent) {
+      _seekDragging = seekBarFraction(e.localPosition, size) != null;
+    } else if (e is PointerUpEvent || e is PointerCancelEvent) {
+      _seekDragging = false;
+    }
+    _previewFraction.value =
+        seekBarFraction(e.localPosition, size, dragging: _seekDragging);
+  }
+
+  /// The preview overlay: the thumbnail for the hovered spot, floated above
+  /// the bar. Hidden with the controls (the bar isn't there to hover then).
+  Widget _seekPreviewOverlay() {
+    final sheets = _previewSheets!;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: ValueListenableBuilder<double?>(
+          valueListenable: _previewFraction,
+          builder: (context, fraction, _) {
+            final size = _playerSize;
+            final duration = _player.state.duration;
+            if (fraction == null ||
+                size == null ||
+                duration <= Duration.zero ||
+                !(_controls.visible || _seekDragging)) {
+              return const SizedBox.shrink();
+            }
+            return Stack(
+              children: [
+                Positioned(
+                  left: seekPreviewLeft(
+                    fraction: fraction,
+                    playerWidth: size.width,
+                    previewWidth: SeekPreview.widthFor(sheets),
+                  ),
+                  bottom: kPlayerSeekBarTopFromBottom + AppSpacing.sm,
+                  child: SeekPreview(sheets: sheets, at: duration * fraction),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   /// Mouse wheel over the video nudges the volume (media_kit's own wheel handler
   /// is off — it came bundled with a drag-to-change-volume gesture).
   void _onPointerSignal(PointerSignalEvent event) {
@@ -1909,23 +1986,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       // pixel — now disabled, see _controlsTheme.) The Listener
                       // re-adds wheel-to-volume without claiming any gesture.
                       Positioned.fill(
-                        child: Listener(
-                          onPointerSignal: _onPointerSignal,
-                          child: GestureDetector(
-                            onSecondaryTapDown: (d) => _subtitleMenuController
-                                .open(position: d.localPosition),
-                            onDoubleTap: _toggleFullscreen,
-                            child: MaterialDesktopVideoControlsTheme(
-                              normal: _controlsTheme(),
-                              fullscreen: _controlsTheme(),
-                              child: Video(
-                                controller: _controller,
-                                controls: MaterialDesktopVideoControls,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            _playerSize = constraints.biggest;
+                            return MouseRegion(
+                              opaque: false,
+                              onExit: (_) => _previewFraction.value = null,
+                              child: Listener(
+                                onPointerSignal: _onPointerSignal,
+                                onPointerHover: _onPreviewPointer,
+                                onPointerMove: _onPreviewPointer,
+                                onPointerDown: _onPreviewPointer,
+                                onPointerUp: _onPreviewPointer,
+                                onPointerCancel: _onPreviewPointer,
+                                child: GestureDetector(
+                                  onSecondaryTapDown: (d) =>
+                                      _subtitleMenuController.open(
+                                          position: d.localPosition),
+                                  onDoubleTap: _toggleFullscreen,
+                                  child: MaterialDesktopVideoControlsTheme(
+                                    normal: _controlsTheme(),
+                                    fullscreen: _controlsTheme(),
+                                    child: Video(
+                                      controller: _controller,
+                                      controls: MaterialDesktopVideoControls,
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ),
+                      if (_previewSheets != null) _seekPreviewOverlay(),
                       // A zero-size anchor pinned top-left; the menu opens at the
                       // pointer offset (measured from here). Keeping the video
                       // OUT of the anchor's child is what makes a click anywhere

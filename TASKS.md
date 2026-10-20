@@ -20,6 +20,32 @@ drop the rest._
 
 _Aim for one task here at a time._
 
+### Seek-bar frame previews (hover / drag thumbnails) · `p3`
+
+- [ ] Hovering or dragging the player's seek bar shows a small frame from that point, like
+  YouTube / Netflix.
+- **Implemented (awaiting real-machine check):** "trickplay" sheets, built once per file.
+  - `trickplay.dart` (pure): bundled ffmpeg decodes **keyframes only** (`-skip_frame nokey`),
+    one 192×108 letterboxed tile per 10s, packed 10×10 into JPEG sheets (`sheet_000.jpg`…);
+    manifest written last = done. Cache key = FNV of path + size + mtime, so a downscale or a
+    still-downloading file never serves stale/partial thumbnails.
+  - `TrickplayService`: `<app-support>/trickplay/<key>/`; sweeps newest library files first
+    (2 min after launch, then every 10 min), skips files our torrents haven't finished and
+    files modified in the last 5 min, writes into `<key>.partial` and renames on success;
+    **never runs while a video plays** and kills its ffmpeg the moment one starts. Prunes
+    cache dirs no library file maps to after a full pass. Failures aren't retried until the
+    file changes or the app restarts.
+  - Player: an observe-only Listener maps the pointer onto media_kit's seek bar (geometry in
+    pure `seek_preview_layout.dart`, mirroring media_kit's default theme metrics) and floats
+    `SeekPreview` (crop of the cached sheet + timestamp) above it; a press that starts on the
+    bar keeps scrubbing the preview while dragged. Hovering repaints only the overlay
+    (ValueNotifier).
+  - Tests: trickplay pure logic, seek-bar geometry, service cache lookup, SeekPreview widget.
+- **Trade-offs:** first run works through the whole existing library (one file at a time, two
+  ffmpeg threads, only while idle) — add a Settings toggle if that proves too busy. Files with
+  no previews yet (just downloaded, still downloading) simply show none. If media_kit's seek-bar
+  metrics are ever overridden in `_controlsTheme`, update `seek_preview_layout.dart` with them.
+
 ### Episode downloads: season packs, stuck progress, retry reusing a bad pack · `p2`
 
 - [ ] (1) Downloading one episode sometimes pulls the whole season, and the other episodes then sit
