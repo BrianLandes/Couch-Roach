@@ -100,3 +100,19 @@ class PlaybackRecovery {
     return _delays[i];
   }
 }
+
+/// Whether an mpv error is about the **audio output** going away — e.g.
+/// "Could not open/initialize audio device -> no sound." when the PC sleeps or
+/// the HDMI cable (which carries the audio device) is pulled.
+///
+/// Unlike other errors this one is **not fatal** in mpv: the file stays open
+/// and video carries on, silently. Reopening the file doesn't help — the device
+/// is still missing, so each reopen fails the same way — which is how a paused
+/// video used to end on the error screen. The player instead keeps the file and
+/// re-tries the audio output until the device is back. Pure + tested.
+bool isAudioOutputError(String message) =>
+    _audioOutputError.hasMatch(message);
+
+final _audioOutputError = RegExp(
+    r'audio (device|output)|no sound|\bao\b.*(fail|init)',
+    caseSensitive: false);

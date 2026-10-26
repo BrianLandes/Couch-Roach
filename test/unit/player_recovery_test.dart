@@ -82,4 +82,22 @@ void main() {
     expect(recovery.onError(isNetworkSource: false),
         PlaybackFailureAction.recover);
   });
+
+  group('isAudioOutputError', () {
+    test('recognises a vanished audio device', () {
+      // The exact message seen after sleep / HDMI unplug.
+      expect(
+          isAudioOutputError(
+              'Could not open/initialize audio device -> no sound.'),
+          isTrue);
+      expect(isAudioOutputError('Failed to initialize audio output'), isTrue);
+    });
+
+    test('leaves real playback failures alone', () {
+      expect(isAudioOutputError('Failed to recognize file format.'), isFalse);
+      expect(isAudioOutputError('Loading failed'), isFalse);
+      expect(isAudioOutputError('No video or audio streams selected.'),
+          isFalse);
+    });
+  });
 }

@@ -191,6 +191,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration _lastPosition = Duration.zero;
   (AudioTrack, SubtitleTrack)? _tracksToRestore;
   Timer? _recoveryTimer;
+  // Running while the audio device is missing (see _onAudioOutputLost).
+  Timer? _audioRetryTimer;
 
   // Seek-bar hover previews (see TrickplayService). `_previewSheets` is null
   // until/unless this file's preview sheets have been built; `_previewFraction`
@@ -488,6 +490,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _onPlayerError(String message) {
     final log = getIt<ErrorLogService>();
     final source = 'PlayerScreen.mpv(${widget.filePath})';
+    // A vanished audio device isn't a playback failure (see
+    // isAudioOutputError) — keep the file, wait for the device.
+    if (isAudioOutputError(message)) {
+      _onAudioOutputLost(message);
+      return;
+    }
     switch (_recovery.onError(isNetworkSource: _isNetworkSource)) {
       case PlaybackFailureAction.recover:
         // Snapshot what to restore now, before the dead file's teardown resets
@@ -510,6 +518,51 @@ class _PlayerScreenState extends State<PlayerScreen> {
       case PlaybackFailureAction.showError:
         log.logError(message, source: source);
         if (mounted) setState(() => _error = message);
+    }
+  }
+
+  /// The audio device went away (sleep / HDMI unplugged). mpv keeps the file
+  /// and the video; only sound is gone. Re-try the audio output every few
+  /// seconds until a device is back — and right away when the user presses
+  /// play — rather than showing an error for a video that still works.
+  void _onAudioOutputLost(String message) {
+    final log = getIt<ErrorLogService>();
+    if (_audioRetryTimer?.isActive ?? false) {
+      log.info('audio output still unavailable: $message',
+          source: 'PlayerScreen.audio');
+      return;
+    }
+    log.warn(
+        'audio output lost ("$message") — keeping the video, retrying the '
+        'audio device every ${_audioRetryInterval.inSeconds}s',
+        source: 'PlayerScreen.audio');
+    _audioRetryTimer =
+        Timer.periodic(_audioRetryInterval, (_) => _retryAudioOutput());
+  }
+
+  static const _audioRetryInterval = Duration(seconds: 5);
+
+  /// One attempt to get sound back: done if mpv has an audio output again,
+  /// otherwise ask it to re-open one (`ao-reload`). A failed reload just
+  /// reports the audio error again, which [_onAudioOutputLost] absorbs.
+  Future<void> _retryAudioOutput() async {
+    final platform = _player.platform;
+    if (!mounted || platform is! NativePlayer) {
+      _audioRetryTimer?.cancel();
+      return;
+    }
+    try {
+      final ao = await platform.getProperty('current-ao');
+      if (ao.trim().isNotEmpty) {
+        _audioRetryTimer?.cancel();
+        getIt<ErrorLogService>().warn('audio output back ($ao)',
+            source: 'PlayerScreen.audio');
+        return;
+      }
+      await platform.command(['ao-reload']);
+    } catch (e) {
+      getIt<ErrorLogService>()
+          .info('audio retry failed: $e', source: 'PlayerScreen.audio');
     }
   }
 
@@ -1564,6 +1617,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Best-effort: remove the trailer's downloaded caption sidecar.
     _trailerDir?.delete(recursive: true).ignore();
     _recoveryTimer?.cancel();
+    _audioRetryTimer?.cancel();
     _previewFraction.dispose();
     for (final s in _subs) {
       s.cancel();
@@ -1605,6 +1659,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Keep the OS media session's status in step so its play/pause button and
     // status readout match the player (Windows; no-op elsewhere).
     unawaited(_mediaSession.setPlaying(playing));
+    // Pressing play after the audio device vanished: try for sound now rather
+    // than at the next retry tick.
+    if (playing && (_audioRetryTimer?.isActive ?? false)) {
+      unawaited(_retryAudioOutput());
+    }
     _applyControls(() => _controls.onPlayingChanged(playing));
   }
 

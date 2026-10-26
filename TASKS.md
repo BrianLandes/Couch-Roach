@@ -144,8 +144,13 @@ _Aim for one task here at a time._
   reopens per 2 minutes, then the error screen. Errors while a reopen is pending are ignored; a
   missing file abandons recovery. Audio + subtitle selection (incl. a sidecar `.en.srt`, re-added
   by path) is restored on the reopened file. Logged as a `warn` under `PlayerScreen.recover`.
-- Follow-up if it still bites: a reopened-while-asleep file could come back with no audio device;
-  an `ao-reload` on the first resume after a recovery would cover that.
+- **Still failed on hardware** with "couldn't play episode — could not open/initialize audio
+  device -> no sound". That mpv error is *non-fatal* (the file stays open, video plays silently),
+  but it went through the reopen path; with the HDMI audio device still gone every reopen failed
+  the same way, and after 3 tries the error screen showed. **Fix:** `isAudioOutputError` routes
+  audio-device errors around recovery entirely — no error screen, no reopen; the player keeps the
+  file and retries the audio output (`ao-reload`, checking `current-ao`) every 5s and immediately
+  on Play until the device returns. Logged under `PlayerScreen.audio`.
 
 ### Media Play/Pause still intermittent, worse in fullscreen · `p2`
 
