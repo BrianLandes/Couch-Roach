@@ -208,6 +208,36 @@ void main() {
     expect(await repo.getAll(), isEmpty);
   });
 
+  group('a single-episode torrent', () {
+    final epTag = acquisitionTag(acquisitionDedupeKey(
+        tmdbId: 42, title: 'Show', season: 1, episode: 3));
+
+    test('registers its one video under the tagged episode, whatever its name',
+        () async {
+      // Releases often name the inner file without a marker; the tag (and
+      // the release title the resolver verified) already says which episode.
+      final daemon = _FakeDaemon(
+        [status(hash: 'h1', savePath: '/d', tags: [epTag])],
+        {
+          'h1': [file('show-720p.mkv', 1.0), file('show.nfo', 1.0)]
+        },
+      );
+      expect(await registrarFor(daemon).sweep(), 1);
+      final row = (await repo.localEpisodes(42)).single;
+      expect((row.season, row.episode), (1, 3));
+    });
+
+    test('does not guess among several unmarked videos', () async {
+      final daemon = _FakeDaemon(
+        [status(hash: 'h1', savePath: '/d', tags: [epTag])],
+        {
+          'h1': [file('a.mkv', 1.0), file('b.mkv', 1.0)]
+        },
+      );
+      expect(await registrarFor(daemon).sweep(), 0);
+    });
+  });
+
   test('the season in the filename wins over the one in the key', () async {
     // A "season 1" pack that actually contains a special/other season file:
     // what got downloaded is what we record.

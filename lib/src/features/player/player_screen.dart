@@ -332,7 +332,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _onMediaCommand(MediaCommand command, {required String via}) {
     if (!mounted) return;
     final log = getIt<ErrorLogService>();
-    if (!_mediaKeys.accept()) {
+    if (!_mediaKeys.accept(fromKey: via == 'key')) {
       log.info('media key via $via: echo, ignored',
           source: 'PlayerScreen.mediaKey');
       return;
@@ -1253,6 +1253,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _nextLocalItem = localNext;
         _nextAirDate = airDate;
       });
+      // Keep watching: the next episode usually finishes downloading *during*
+      // this one (the halfway prefetch). Looking only once at open left the
+      // button relying on the torrent still being in the client — and once the
+      // completed-torrent cleanup cleared it, the button fell back to
+      // "Download Next Episode" for a file that was already on disk.
+      _subs.add(_library.watchLocalEpisodes(tmdbId).listen((rows) {
+        LibraryItem? found;
+        for (final e in rows) {
+          if (e.season == nextSeason && e.episode == nextEp) {
+            found = e;
+            break;
+          }
+        }
+        if (mounted && found?.id != _nextLocalItem?.id) {
+          setState(() => _nextLocalItem = found);
+        }
+      }));
     } catch (e, st) {
       getIt<ErrorLogService>()
           .logError(e, stackTrace: st, source: 'PlayerScreen.resolveNext');

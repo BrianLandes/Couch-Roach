@@ -63,11 +63,24 @@ class DownloadedEpisodeRegistrar {
 
   Future<int> _sweepTorrent(TorrentStatus t) async {
     if (t.savePath.isEmpty) return 0;
-    final tmdbId = _tmdbIdOf(t);
-    if (tmdbId == null) return 0;
+    final key = _keyOf(t);
+    final tmdbId = key?.tmdbId;
+    if (key == null || tmdbId == null) return 0;
 
     final files = await _daemon.torrentFiles(t.hash);
     if (files.isEmpty) return 0;
+    // A single-episode torrent (its tag names the episode) with one video:
+    // that video *is* the episode, whatever its file is called. Without this
+    // a release whose inner file has no SxxExx (common) was never registered,
+    // so the player's "Next Episode" button never saw it land.
+    final videoCount = files
+        .where((f) => kVideoExtensions
+            .contains(p.extension(f['name'] as String? ?? '').toLowerCase()))
+        .length;
+    final taggedEpisode = (key.season != null && key.episode != null &&
+            videoCount == 1)
+        ? (key.season!, key.episode!)
+        : null;
 
     // Reuse the canonical name an existing row for this show already carries,
     // so a registered episode isn't nameless until the TMDB match lands.
@@ -81,7 +94,9 @@ class DownloadedEpisodeRegistrar {
       if (!kVideoExtensions.contains(p.extension(name).toLowerCase())) continue;
 
       final info = FilenameMediaInfo.parse(p.basename(name));
-      if (!info.hasEpisode) continue;
+      final season = info.hasEpisode ? info.season : taggedEpisode?.$1;
+      final episode = info.hasEpisode ? info.episode : taggedEpisode?.$2;
+      if (season == null || episode == null) continue;
 
       // File names are listed relative to the torrent's save path.
       final path = p.join(t.savePath, name);
@@ -92,8 +107,8 @@ class DownloadedEpisodeRegistrar {
         filePath: path,
         title: p.basenameWithoutExtension(name),
         mediaType: 'tv',
-        season: info.season,
-        episode: info.episode,
+        season: season,
+        episode: episode,
         tmdbId: tmdbId,
         tmdbName: tmdbName,
         managed: true, // app-acquired → belongs to the cleanup lifecycle
@@ -103,12 +118,12 @@ class DownloadedEpisodeRegistrar {
     return registered;
   }
 
-  /// The TMDB id this torrent was queued for, from the acquisition tag we
+  /// The identity this torrent was queued for, from the acquisition tag we
   /// stamped at add time. Null for anything not ours or title-keyed.
-  int? _tmdbIdOf(TorrentStatus t) {
+  ({int? tmdbId, int? season, int? episode})? _keyOf(TorrentStatus t) {
     for (final tag in t.tags) {
-      final id = parseAcquisitionKey(tag).tmdbId;
-      if (id != null) return id;
+      final key = parseAcquisitionKey(tag);
+      if (key.tmdbId != null) return key;
     }
     return null;
   }

@@ -20,6 +20,19 @@ drop the rest._
 
 _Aim for one task here at a time._
 
+### Player "Next Episode" button stopped updating mid-playback · `p2`
+
+- [ ] While watching, the halfway prefetch downloads the next episode but the button doesn't flip
+  to "Play Next Episode".
+- **Causes found:** the player checked the library for the next episode **once, at open**;
+  afterwards the button only knew about it through the torrent, and the completed-torrent
+  cleanup removes finished torrents — so it fell back to "Download Next Episode" for a file on
+  disk. And the episode registrar skipped a finished single-episode file whose name has no
+  `SxxExx`, so such an episode never reached the library at all.
+- **Implemented (awaiting check):** the player watches `watchLocalEpisodes` live for the next
+  episode; the registrar registers the lone video of an episode-tagged torrent under the tagged
+  S/E. (Pack episodes are still read per file and need a parseable name.)
+
 ### Seek-bar frame previews (hover / drag thumbnails) · `p3`
 
 - [ ] Hovering or dragging the player's seek bar shows a small frame from that point, like
@@ -168,6 +181,12 @@ _Aim for one task here at a time._
   `Win32Window` hands focus back to the Flutter view on `WM_SIZE` when the window is in front, so
   fullscreen no longer strands keyboard focus. Each press logs its route under
   `PlayerScreen.mediaKey` (verbose) for diagnosis.
+- **Reported worse after that change.** Likely cause: the raw key toggles and updates the SMTC
+  status, then SMTC delivers its (slower) echo of the *same* press — computed from the new
+  status, so as the opposite command — after the 400ms window, undoing it. **Fix:** after a
+  raw-key action OS-route buttons are treated as echoes for 1.5s (`MediaKeyDebouncer.accept
+  (fromKey:)`); OS-only presses keep the short window. If it still misbehaves, the verbose
+  `PlayerScreen.mediaKey` lines show each route + whether it acted or was dropped.
 
 ### Search by person: an actor's or director's name lists their films · `p2`
 

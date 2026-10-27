@@ -55,18 +55,42 @@ void main() {
       debouncer = MediaKeyDebouncer(clock: () => now);
     });
 
-    test('the first route of a press acts; its echoes are dropped', () {
-      expect(debouncer.accept(), isTrue); // raw key
-      now = now.add(const Duration(milliseconds: 30));
-      expect(debouncer.accept(), isFalse); // SMTC echo
-      now = now.add(const Duration(milliseconds: 30));
-      expect(debouncer.accept(), isFalse); // WM_APPCOMMAND echo
+    void wait(int ms) => now = now.add(Duration(milliseconds: ms));
+
+    test('the first route of a press acts; its quick echoes are dropped', () {
+      expect(debouncer.accept(fromKey: true), isTrue); // raw key
+      wait(30);
+      expect(debouncer.accept(fromKey: false), isFalse); // SMTC echo
+      wait(30);
+      expect(debouncer.accept(fromKey: false), isFalse); // WM_APPCOMMAND echo
     });
 
-    test('a deliberate second press after the window acts', () {
-      expect(debouncer.accept(), isTrue);
-      now = now.add(MediaKeyDebouncer.window);
-      expect(debouncer.accept(), isTrue);
+    test('a slow OS echo after a raw key is still dropped', () {
+      // SMTC delivering 700ms late would arrive as the opposite command and
+      // undo the press — the "works less often" bug.
+      expect(debouncer.accept(fromKey: true), isTrue);
+      wait(700);
+      expect(debouncer.accept(fromKey: false), isFalse);
+    });
+
+    test('an OS-only press (window not focused) uses the short window', () {
+      expect(debouncer.accept(fromKey: false), isTrue);
+      wait(30);
+      expect(debouncer.accept(fromKey: true), isFalse); // raw echo
+      wait(MediaKeyDebouncer.window.inMilliseconds);
+      expect(debouncer.accept(fromKey: false), isTrue); // next real press
+    });
+
+    test('a deliberate second key press after the short window acts', () {
+      expect(debouncer.accept(fromKey: true), isTrue);
+      wait(MediaKeyDebouncer.window.inMilliseconds);
+      expect(debouncer.accept(fromKey: true), isTrue);
+    });
+
+    test('OS presses work again once the echo window has passed', () {
+      expect(debouncer.accept(fromKey: true), isTrue);
+      wait(MediaKeyDebouncer.osEchoWindow.inMilliseconds);
+      expect(debouncer.accept(fromKey: false), isTrue);
     });
   });
 
