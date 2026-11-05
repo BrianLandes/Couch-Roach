@@ -179,6 +179,12 @@ _Aim for one task here at a time._
   audio-device errors around recovery entirely — no error screen, no reopen; the player keeps the
   file and retries the audio output (`ao-reload`, checking `current-ao`) every 5s and immediately
   on Play until the device returns. Logged under `PlayerScreen.audio`.
+- **Next report:** video now resumes, but **no sound until leaving the player and resuming**.
+  The retry stopped as soon as `current-ao` was non-empty — after a sleep it can still name the
+  old, dead output. **Fix:** `ao-reload` every 5s for up to 10 min without trusting that check;
+  and reopen the file in place (keeping position + tracks) — what leaving/resuming does — on the
+  next Play after a loss, or at once if the loss is reported while already playing (once per
+  loss, re-armed on pause, so a still-missing device can't loop).
 
 ### Media Play/Pause still intermittent, worse in fullscreen · `p2`
 

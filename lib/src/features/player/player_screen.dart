@@ -191,7 +191,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration _lastPosition = Duration.zero;
   (AudioTrack, SubtitleTrack)? _tracksToRestore;
   Timer? _recoveryTimer;
-  // Running while the audio device is missing (see _onAudioOutputLost).
+  // Re-trying the audio output after the device went missing (see
+  // _onAudioOutputLost); bounded, so it can't run for the whole session.
   Timer? _audioRetryTimer;
 
   // Seek-bar hover previews (see TrickplayService). `_previewSheets` is null
@@ -523,48 +524,85 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   /// The audio device went away (sleep / HDMI unplugged). mpv keeps the file
-  /// and the video; only sound is gone. Re-try the audio output every few
-  /// seconds until a device is back — and right away when the user presses
-  /// play — rather than showing an error for a video that still works.
+  /// and the video; only sound is gone. Two ways back, rather than an error for
+  /// a video that still works:
+  ///
+  /// * in the background, `ao-reload` every few seconds for a while;
+  /// * the next time the user presses **play**, reopen the file in place
+  ///   ([_reloadForAudio]) — the same thing as leaving the player and resuming,
+  ///   which is what reliably brought the sound back on real hardware.
   void _onAudioOutputLost(String message) {
     final log = getIt<ErrorLogService>();
-    if (_audioRetryTimer?.isActive ?? false) {
+    final wasLost = _audioLost;
+    _audioLost = true;
+    // Lost while already playing (mpv often only finds out on resume): don't
+    // wait for another Play press — reopen now, unless we just did and the
+    // device is simply still gone.
+    if (_player.state.playing && !_autoAudioReopenUsed) {
+      _autoAudioReopenUsed = true;
+      unawaited(_reloadForAudio());
+      return;
+    }
+    if (wasLost) {
       log.info('audio output still unavailable: $message',
           source: 'PlayerScreen.audio');
       return;
     }
     log.warn(
-        'audio output lost ("$message") — keeping the video, retrying the '
-        'audio device every ${_audioRetryInterval.inSeconds}s',
+        'audio output lost ("$message") — keeping the video; ao-reload every '
+        '${_audioRetryInterval.inSeconds}s, and a reopen on the next Play',
         source: 'PlayerScreen.audio');
-    _audioRetryTimer =
-        Timer.periodic(_audioRetryInterval, (_) => _retryAudioOutput());
+    _audioRetryTimer?.cancel();
+    final until = DateTime.now().add(_audioRetryFor);
+    _audioRetryTimer = Timer.periodic(_audioRetryInterval, (t) {
+      if (!mounted || DateTime.now().isAfter(until)) {
+        t.cancel();
+        return;
+      }
+      unawaited(_reloadAudioOutput());
+    });
   }
 
   static const _audioRetryInterval = Duration(seconds: 5);
+  static const _audioRetryFor = Duration(minutes: 10);
 
-  /// One attempt to get sound back: done if mpv has an audio output again,
-  /// otherwise ask it to re-open one (`ao-reload`). A failed reload just
-  /// reports the audio error again, which [_onAudioOutputLost] absorbs.
-  Future<void> _retryAudioOutput() async {
+  /// Set by a lost audio device; cleared once Play has reopened the file.
+  bool _audioLost = false;
+
+  /// One automatic reopen per loss while playing; after that only a Play press
+  /// reopens, so a device that's still missing can't make the video hiccup
+  /// over and over. Re-armed when the user pauses.
+  bool _autoAudioReopenUsed = false;
+
+  /// Ask mpv to re-open its audio output. There's no reliable "is sound back"
+  /// signal — after a sleep `current-ao` can still name the old, dead output —
+  /// so this just keeps asking; a failed reload reports the audio error again,
+  /// which [_onAudioOutputLost] absorbs.
+  Future<void> _reloadAudioOutput() async {
     final platform = _player.platform;
-    if (!mounted || platform is! NativePlayer) {
-      _audioRetryTimer?.cancel();
-      return;
-    }
+    if (!mounted || platform is! NativePlayer) return;
     try {
-      final ao = await platform.getProperty('current-ao');
-      if (ao.trim().isNotEmpty) {
-        _audioRetryTimer?.cancel();
-        getIt<ErrorLogService>().warn('audio output back ($ao)',
-            source: 'PlayerScreen.audio');
-        return;
-      }
       await platform.command(['ao-reload']);
     } catch (e) {
       getIt<ErrorLogService>()
-          .info('audio retry failed: $e', source: 'PlayerScreen.audio');
+          .info('ao-reload failed: $e', source: 'PlayerScreen.audio');
     }
+  }
+
+  /// Play pressed after the audio device was lost: reopen the file at the
+  /// current position (playing), keeping the selected audio/subtitle tracks.
+  /// If the device is still missing, mpv reports it again and the next Play
+  /// tries again.
+  Future<void> _reloadForAudio() async {
+    _audioLost = false;
+    _audioRetryTimer?.cancel();
+    final pos = _player.state.position;
+    if (pos > Duration.zero) _lastPosition = pos;
+    _tracksToRestore ??= (_selectedAudio, _selectedSubtitle);
+    getIt<ErrorLogService>().warn(
+        'reopening at ${_lastPosition.inSeconds}s to restore audio',
+        source: 'PlayerScreen.audio');
+    await _reopenAfterFailure(play: true);
   }
 
   /// Reopen the current file at the last known position, keeping it paused if
@@ -1677,11 +1715,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Keep the OS media session's status in step so its play/pause button and
     // status readout match the player (Windows; no-op elsewhere).
     unawaited(_mediaSession.setPlaying(playing));
-    // Pressing play after the audio device vanished: try for sound now rather
-    // than at the next retry tick.
-    if (playing && (_audioRetryTimer?.isActive ?? false)) {
-      unawaited(_retryAudioOutput());
-    }
+    // Pressing play after the audio device vanished: reopen in place so the
+    // sound comes back (an ao-reload alone often doesn't after a sleep).
+    if (playing && _audioLost) unawaited(_reloadForAudio());
+    if (!playing) _autoAudioReopenUsed = false;
     _applyControls(() => _controls.onPlayingChanged(playing));
   }
 
