@@ -20,6 +20,21 @@ drop the rest._
 
 _Aim for one task here at a time._
 
+### Landing tiles missing poster art · `p2`
+
+- [ ] Many landing-page tiles render without a poster even when another tile of the same show has
+  one.
+- **Causes found:** (1) rows that arrive already carrying a TMDB id — acquired episodes and
+  everything the downloaded-episode registrar writes — never get art from the startup matcher
+  (it only takes rows with *no* id); the only fill was a one-shot `matchItem` at acquire time,
+  lost on any TMDB hiccup and never called by the registrar. (2) `upsert`'s conflict update wrote
+  the incoming file's null poster/name over an existing match whenever an acquire re-registered a
+  known file (e.g. playing it again) — actively wiping art.
+- **Implemented (awaiting check):** `upsert` only ever adds name/poster. New
+  `LibraryMatchService.backfillPosters` (repo: `titlesMissingPosters` / `posterFor` /
+  `fillPoster`): per title, copy a sibling row's poster (no network), else fetch by id once. Runs
+  after the startup match and whenever the registrar adds rows. Tested.
+
 ### Player "Next Episode" button stopped updating mid-playback · `p2`
 
 - [ ] While watching, the halfway prefetch downloads the next episode but the button doesn't flip

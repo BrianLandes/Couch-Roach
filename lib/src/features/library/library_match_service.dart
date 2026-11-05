@@ -30,6 +30,53 @@ class LibraryMatchService {
     }
   }
 
+  /// Give every row that knows its TMDB id but has no poster its art.
+  ///
+  /// Such rows are common: an acquired episode is stamped with its id up front,
+  /// and the downloaded-episode registrar writes pack episodes the same way. The
+  /// startup matcher skips them (it only takes rows with *no* id), and the
+  /// one-shot [matchItem] at acquire time is easily lost to a TMDB hiccup — the
+  /// registrar never called it at all. Their landing-page tiles then rendered
+  /// blank, even beside another tile of the same show that had art.
+  ///
+  /// Per title: copy a poster another row already has (no network), else fetch
+  /// the title by id once. Returns how many rows got a poster.
+  Future<int> backfillPosters() async {
+    var filled = 0;
+    try {
+      for (final t in await _library.titlesMissingPosters()) {
+        var poster =
+            await _library.posterFor(mediaType: t.mediaType, tmdbId: t.tmdbId);
+        String? name;
+        if (poster == null && _config.hasTmdbKey) {
+          if (t.mediaType == 'tv') {
+            final d = await _tmdb.tvDetails(t.tmdbId);
+            poster = d?.posterPath;
+            name = d?.name;
+          } else {
+            final d = await _tmdb.movieDetails(t.tmdbId);
+            poster = d?.posterPath;
+            name = d?.title;
+          }
+        }
+        if (poster == null) continue;
+        filled += await _library.fillPoster(
+            mediaType: t.mediaType,
+            tmdbId: t.tmdbId,
+            posterPath: poster,
+            name: name);
+      }
+      if (filled > 0) {
+        _log.info('back-filled posters on $filled row(s)',
+            source: 'LibraryMatchService.backfillPosters');
+      }
+    } catch (e, st) {
+      _log.logError(e,
+          stackTrace: st, source: 'LibraryMatchService.backfillPosters');
+    }
+    return filled;
+  }
+
   /// Match a single row **now** — used right after a title is registered
   /// mid-session (e.g. an acquired episode) so its poster + canonical name
   /// resolve without waiting for the next startup pass, and its Continue

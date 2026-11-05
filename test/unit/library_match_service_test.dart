@@ -426,4 +426,69 @@ void main() {
           serviceFor(tmdbRouter()).matchItem(999999), completes);
     });
   });
+
+  group('backfillPosters', () {
+    Future<void> row(String path, {required int tmdbId, String? poster}) async {
+      await library.upsert(ScannedFile(
+          filePath: path,
+          title: 'ep',
+          mediaType: 'tv',
+          season: 1,
+          episode: 1,
+          tmdbId: tmdbId));
+      if (poster != null) {
+        final id = (await library.findByPath(path))!.id;
+        await library.setTmdbMatch(
+            id: id, tmdbId: tmdbId, name: 'Show', posterPath: poster);
+      }
+    }
+
+    test("copies a sibling row's poster without asking TMDB", () async {
+      var requests = 0;
+      final service = serviceFor(MockClient((_) async {
+        requests++;
+        return http.Response('{}', 404);
+      }));
+      await row('/tv/e1.mkv', tmdbId: 7, poster: '/art.jpg');
+      await row('/tv/e2.mkv', tmdbId: 7); // registrar-written: id, no art
+
+      expect(await service.backfillPosters(), 1);
+      expect((await library.findByPath('/tv/e2.mkv'))!.tmdbPosterPath,
+          '/art.jpg');
+      expect(requests, 0);
+    });
+
+    test('fetches by id once per title when no row has art', () async {
+      var requests = 0;
+      final service = serviceFor(MockClient((req) async {
+        requests++;
+        return http.Response(
+            jsonEncode({'id': 8, 'name': 'Other', 'poster_path': '/o.jpg'}),
+            200);
+      }));
+      await row('/tv/a1.mkv', tmdbId: 8);
+      await row('/tv/a2.mkv', tmdbId: 8);
+
+      expect(await service.backfillPosters(), 2);
+      expect(requests, 1);
+      for (final path in ['/tv/a1.mkv', '/tv/a2.mkv']) {
+        final r = (await library.findByPath(path))!;
+        expect(r.tmdbPosterPath, '/o.jpg');
+        expect(r.tmdbName, 'Other');
+      }
+    });
+
+    test('without a TMDB key it still copies siblings, fetches nothing',
+        () async {
+      final service = serviceFor(
+          MockClient((_) async => throw StateError('no network expected')),
+          configured: false);
+      await row('/tv/b1.mkv', tmdbId: 9, poster: '/b.jpg');
+      await row('/tv/b2.mkv', tmdbId: 9);
+      await row('/tv/c1.mkv', tmdbId: 10);
+
+      expect(await service.backfillPosters(), 1);
+      expect((await library.findByPath('/tv/c1.mkv'))!.tmdbPosterPath, isNull);
+    });
+  });
 }

@@ -116,6 +116,23 @@ abstract class LibraryRepository {
     String? mediaType,
   });
 
+  /// The distinct titles — (mediaType, tmdbId) — that have at least one row
+  /// with a TMDB id but **no poster**, missing-file rows included (they still
+  /// show on the Recent lane). See `LibraryMatchService.backfillPosters`.
+  Future<List<({String mediaType, int tmdbId})>> titlesMissingPosters();
+
+  /// A poster any row of this title already has, or null.
+  Future<String?> posterFor({required String mediaType, required int tmdbId});
+
+  /// Give every poster-less row of this title [posterPath] (and [name] where the
+  /// row has none). Returns how many rows changed.
+  Future<int> fillPoster({
+    required String mediaType,
+    required int tmdbId,
+    required String posterPath,
+    String? name,
+  });
+
   /// Pin/unpin a single title (a movie / loose file) as "keep" — exempt from
   /// auto-cleanup even after a full watch (see DECISIONS: auto-cleanup). A whole
   /// matched *show* is pinned instead via `SavedTitlesRepository.setKeep`, which
@@ -164,9 +181,15 @@ class DriftLibraryRepository implements LibraryRepository {
         episode: Value(f.episode),
         missing: const Value(false),
         tmdbId: f.tmdbId == null ? const Value.absent() : Value(f.tmdbId),
-        tmdbName: f.tmdbId == null ? const Value.absent() : Value(f.tmdbName),
-        tmdbPosterPath:
-            f.tmdbId == null ? const Value.absent() : Value(f.tmdbPosterPath),
+        // Name/poster only ever *add* information: an acquire re-registering a
+        // known file stamps the id but carries no poster, and writing its
+        // nulls wiped art the row already had — leaving blank landing tiles.
+        tmdbName: f.tmdbId == null || f.tmdbName == null
+            ? const Value.absent()
+            : Value(f.tmdbName),
+        tmdbPosterPath: f.tmdbId == null || f.tmdbPosterPath == null
+            ? const Value.absent()
+            : Value(f.tmdbPosterPath),
         managed: f.managed ? const Value(true) : const Value.absent(),
       );
 
@@ -375,6 +398,53 @@ class DriftLibraryRepository implements LibraryRepository {
             mediaType == null ? const Value.absent() : Value(mediaType),
       ),
     );
+  }
+
+  @override
+  Future<List<({String mediaType, int tmdbId})>> titlesMissingPosters() async {
+    final rows = await (_db.select(_db.libraryItems)
+          ..where((t) => t.tmdbId.isNotNull() & t.tmdbPosterPath.isNull()))
+        .get();
+    return {
+      for (final r in rows) (mediaType: r.mediaType, tmdbId: r.tmdbId!),
+    }.toList();
+  }
+
+  @override
+  Future<String?> posterFor(
+      {required String mediaType, required int tmdbId}) async {
+    final row = await (_db.select(_db.libraryItems)
+          ..where((t) =>
+              t.tmdbId.equals(tmdbId) &
+              t.mediaType.equals(mediaType) &
+              t.tmdbPosterPath.isNotNull())
+          ..limit(1))
+        .getSingleOrNull();
+    return row?.tmdbPosterPath;
+  }
+
+  @override
+  Future<int> fillPoster({
+    required String mediaType,
+    required int tmdbId,
+    required String posterPath,
+    String? name,
+  }) async {
+    final changed = await (_db.update(_db.libraryItems)
+          ..where((t) =>
+              t.tmdbId.equals(tmdbId) &
+              t.mediaType.equals(mediaType) &
+              t.tmdbPosterPath.isNull()))
+        .write(LibraryItemsCompanion(tmdbPosterPath: Value(posterPath)));
+    if (name != null) {
+      await (_db.update(_db.libraryItems)
+            ..where((t) =>
+                t.tmdbId.equals(tmdbId) &
+                t.mediaType.equals(mediaType) &
+                t.tmdbName.isNull()))
+          .write(LibraryItemsCompanion(tmdbName: Value(name)));
+    }
+    return changed;
   }
 
   @override

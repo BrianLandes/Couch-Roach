@@ -134,6 +134,7 @@ void main() {
       unawaited(getIt<LibraryService>()
           .rescan()
           .then((_) => getIt<LibraryMatchService>().matchUnmatched())
+          .then((_) => getIt<LibraryMatchService>().backfillPosters())
           .then((_) => getIt<WatchedReaper>().sweep()));
 
       // Re-sweep periodically so a long-running session still reclaims space.
@@ -156,7 +157,10 @@ void main() {
       final episodeRegistrar = getIt<DownloadedEpisodeRegistrar>();
       Timer.periodic(
         const Duration(seconds: 10),
-        (_) => unawaited(episodeRegistrar.sweep()),
+        // Freshly registered episodes carry an id but no poster yet.
+        (_) => unawaited(episodeRegistrar.sweep().then((n) async {
+          if (n > 0) await getIt<LibraryMatchService>().backfillPosters();
+        })),
       );
 
       // Downscale anything that landed above the resolution cap — the 4K-only

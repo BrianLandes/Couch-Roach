@@ -305,6 +305,75 @@ void main() {
     expect(row.tmdbName, 'Show');
   });
 
+  test('an acquire re-registering a file keeps the poster it already has',
+      () async {
+    const acquired = ScannedFile(
+      filePath: '/tv/show.S02E05.mkv',
+      title: 'Show — S02E05',
+      mediaType: 'tv',
+      season: 2,
+      episode: 5,
+      tmdbId: 42,
+      tmdbName: 'Show',
+    );
+    await repo.upsert(acquired);
+    final id = (await repo.getAll()).single.id;
+    await repo.setTmdbMatch(
+        id: id, tmdbId: 42, name: 'Show', posterPath: '/art.jpg');
+
+    // Playing it again goes through the acquire path: id, but no poster.
+    await repo.upsert(acquired);
+
+    expect((await repo.getAll()).single.tmdbPosterPath, '/art.jpg');
+  });
+
+  group('poster back-fill queries', () {
+    Future<int> add(String path, int tmdbId,
+        {String mediaType = 'tv', String? poster}) async {
+      await repo.upsert(ScannedFile(
+          filePath: path, title: 'x', mediaType: mediaType, tmdbId: tmdbId));
+      final id = (await repo.findByPath(path))!.id;
+      if (poster != null) {
+        await repo.setTmdbMatch(id: id, tmdbId: tmdbId, posterPath: poster);
+      }
+      return id;
+    }
+
+    test('titlesMissingPosters lists each poster-less title once', () async {
+      await add('/a1', 1);
+      await add('/a2', 1);
+      await add('/b1', 2, poster: '/b.jpg');
+      await add('/c1', 3, mediaType: 'movie');
+      // Missing-file rows count too: they still show on the Recent lane.
+      await repo.markMissing(await add('/d1', 4));
+
+      expect(
+          (await repo.titlesMissingPosters()).toSet(),
+          {
+            (mediaType: 'tv', tmdbId: 1),
+            (mediaType: 'movie', tmdbId: 3),
+            (mediaType: 'tv', tmdbId: 4),
+          });
+    });
+
+    test('posterFor and fillPoster work per title and type', () async {
+      await add('/a1', 1, poster: '/a.jpg');
+      await add('/a2', 1);
+      await add('/m1', 1, mediaType: 'movie'); // same id, other type
+
+      expect(await repo.posterFor(mediaType: 'tv', tmdbId: 1), '/a.jpg');
+      expect(await repo.posterFor(mediaType: 'movie', tmdbId: 1), isNull);
+
+      expect(
+          await repo.fillPoster(
+              mediaType: 'tv', tmdbId: 1, posterPath: '/a.jpg', name: 'Show'),
+          1);
+      expect((await repo.findByPath('/a2'))!.tmdbPosterPath, '/a.jpg');
+      expect((await repo.findByPath('/a2'))!.tmdbName, 'Show');
+      expect((await repo.findByPath('/m1'))!.tmdbPosterPath, isNull);
+    });
+  });
+
   group('watchLocalEpisodes', () {
     // The reason this exists: a show detail page left open while a season
     // downloads has to flip each episode row to "Play" as its file lands, so
