@@ -1,5 +1,6 @@
 import 'package:couch_roach/src/features/player/player_input.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -104,6 +105,68 @@ void main() {
       expect(volumeAfterScroll(98, -120), 100);
       expect(volumeAfterScroll(3, 120), 0);
       expect(volumeAfterScroll(40, 0), 40);
+    });
+  });
+
+  group('playerKeyboardShortcuts', () {
+    late List<String> calls;
+    late Map<ShortcutActivator, VoidCallback> map;
+
+    setUp(() {
+      calls = [];
+      map = playerKeyboardShortcuts(
+        playOrPause: () => calls.add('toggle'),
+        seekBy: (d) => calls.add('seek ${d.inSeconds}'),
+        nudgeVolume: (v) => calls.add('volume $v'),
+        toggleFullscreen: () => calls.add('fullscreen'),
+        leaveFullscreen: () => calls.add('leave'),
+      );
+    });
+
+    // SingleActivator has no value equality, so match on its trigger key.
+    VoidCallback? on(LogicalKeyboardKey key) {
+      for (final e in map.entries) {
+        final a = e.key;
+        if (a is SingleActivator && a.trigger == key) return e.value;
+      }
+      return null;
+    }
+
+    test('leaves the media Play/Pause keys to the debounced handler', () {
+      // A binding here toggled a second time per press, undoing it.
+      for (final key in [
+        LogicalKeyboardKey.mediaPlayPause,
+        LogicalKeyboardKey.mediaPlay,
+        LogicalKeyboardKey.mediaPause,
+      ]) {
+        expect(
+            map.keys.whereType<SingleActivator>().any((a) => a.trigger == key),
+            isFalse,
+            reason: '$key must not be bound');
+      }
+    });
+
+    test('keeps the usual YouTube-style keys', () {
+      on(LogicalKeyboardKey.space)!();
+      on(LogicalKeyboardKey.keyJ)!();
+      on(LogicalKeyboardKey.keyI)!();
+      on(LogicalKeyboardKey.arrowLeft)!();
+      on(LogicalKeyboardKey.arrowRight)!();
+      on(LogicalKeyboardKey.arrowUp)!();
+      on(LogicalKeyboardKey.arrowDown)!();
+      on(LogicalKeyboardKey.keyF)!();
+      on(LogicalKeyboardKey.escape)!();
+      expect(calls, [
+        'toggle',
+        'seek -10',
+        'seek 10',
+        'seek -2',
+        'seek 2',
+        'volume 5.0',
+        'volume -5.0',
+        'fullscreen',
+        'leave',
+      ]);
     });
   });
 }

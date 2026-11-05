@@ -306,8 +306,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// Any physical key press counts as activity and reveals the overlay. Returns
   /// false so the event still reaches the player controls (this is an
   /// observer) — except the **media Play/Pause keys**, which the player acts on
-  /// itself (see [_onMediaCommand]) and swallows so media_kit doesn't toggle a
-  /// second time.
+  /// itself (see [_onMediaCommand]). Returning true there only stops the engine
+  /// re-dispatching the key; it does NOT keep it from media_kit's shortcuts —
+  /// those are kept off the media keys by [playerKeyboardShortcuts].
   bool _onHardwareKey(KeyEvent event) {
     final isDown = event is KeyDownEvent;
     if (mounted && (isDown || event is KeyRepeatEvent)) _revealControls();
@@ -1913,6 +1914,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // pan recognizer, swallowed the click-to-pause tap. The wheel half is
       // re-added by us without the drag (see [_onPointerSignal]).
       modifyVolumeOnScroll: false,
+      // Replaces media_kit's default shortcuts — chiefly to take the media
+      // Play/Pause keys out (see playerKeyboardShortcuts).
+      keyboardShortcuts: playerKeyboardShortcuts(
+        playOrPause: () => unawaited(_player.playOrPause()),
+        seekBy: _seekBy,
+        nudgeVolume: (delta) => unawaited(_player.setVolume(
+            (_player.state.volume + delta).clamp(0.0, 100.0))),
+        toggleFullscreen: _toggleFullscreen,
+        leaveFullscreen: () => unawaited(leaveFullscreen()),
+      ),
       // Hide the mouse pointer together with the controls when they fade out, so
       // a fullscreen TV appliance shows nothing over the video while playing.
       hideMouseOnControlsRemoval: true,
@@ -1997,6 +2008,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
       ),
     );
+  }
+
+  /// Seek by [offset] from the current position, clamped to the file. For the
+  /// keyboard shortcuts; best-effort, a failure is logged.
+  void _seekBy(Duration offset) {
+    final duration = _player.state.duration;
+    var target = _player.state.position + offset;
+    if (target < Duration.zero) target = Duration.zero;
+    if (duration > Duration.zero && target > duration) target = duration;
+    unawaited(_player.seek(target).catchError((Object e, StackTrace st) {
+      getIt<ErrorLogService>()
+          .logError(e, stackTrace: st, source: 'PlayerScreen.seekBy');
+    }));
   }
 
   /// Mouse wheel over the video nudges the volume (media_kit's own wheel handler

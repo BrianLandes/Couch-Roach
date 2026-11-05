@@ -59,6 +59,13 @@ Future<void> toggleFullscreen() async {
   }
 }
 
+/// Leave OS-window fullscreen if the window is in it (Escape in the player);
+/// a no-op otherwise.
+Future<void> leaveFullscreen() async {
+  if (!_isDesktop) return;
+  if (await windowManager.isFullScreen()) await toggleFullscreen();
+}
+
 /// Force Windows to re-composite and re-activate the window after leaving
 /// fullscreen. A brief minimize→restore is the reliable repair (a plain focus()
 /// doesn't rebuild the hit-test regions). No-op on other platforms.

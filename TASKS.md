@@ -187,6 +187,13 @@ _Aim for one task here at a time._
   raw-key action OS-route buttons are treated as echoes for 1.5s (`MediaKeyDebouncer.accept
   (fromKey:)`); OS-only presses keep the short window. If it still misbehaves, the verbose
   `PlayerScreen.mediaKey` lines show each route + whether it acted or was dropped.
+- **Then "only works on a double press".** The logs showed every single press acting once
+  (`os:toggle → pause`) yet the next press still saying "→ pause": media_kit's own default
+  shortcut (`mediaPlayPause → playOrPause`) was toggling it straight back. A `HardwareKeyboard`
+  handler returning true does **not** stop the focus system delivering the key to
+  `CallbackShortcuts` (the earlier assumption was wrong) — which also explains the original
+  intermittency. **Fix:** the controls theme gets our own `playerKeyboardShortcuts` (media_kit's
+  set minus the media keys; F/Esc on our window_manager fullscreen via new `leaveFullscreen`).
 
 ### Search by person: an actor's or director's name lists their films · `p2`
 

@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 /// Whether [key] is one of the OS media play/pause keys.
 ///
@@ -93,3 +94,41 @@ class MediaKeyDebouncer {
     return true;
   }
 }
+
+/// The player's keyboard shortcuts, handed to media_kit's controls in place of
+/// its defaults. Same keys as media_kit's (YouTube-style), with two changes:
+///
+/// * **No media Play/Pause keys.** The player handles those once, debounced
+///   across every route a press arrives by (see [MediaKeyDebouncer]). Left in
+///   media_kit's map they toggled a *second* time on every press — a
+///   `HardwareKeyboard` handler returning true does not stop the focus system
+///   from also delivering the key to these shortcuts — so each press undid
+///   itself and only a double press appeared to work.
+/// * **F / Escape drive the app's own (window_manager) fullscreen**, not
+///   media_kit's competing one.
+///
+/// Track next/previous are dropped too: the player has no playlist. Pure +
+/// tested.
+Map<ShortcutActivator, VoidCallback> playerKeyboardShortcuts({
+  required VoidCallback playOrPause,
+  required void Function(Duration offset) seekBy,
+  required void Function(double delta) nudgeVolume,
+  required VoidCallback toggleFullscreen,
+  required VoidCallback leaveFullscreen,
+}) =>
+    {
+      const SingleActivator(LogicalKeyboardKey.space): playOrPause,
+      const SingleActivator(LogicalKeyboardKey.keyJ): () =>
+          seekBy(const Duration(seconds: -10)),
+      const SingleActivator(LogicalKeyboardKey.keyI): () =>
+          seekBy(const Duration(seconds: 10)),
+      const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+          seekBy(const Duration(seconds: -2)),
+      const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+          seekBy(const Duration(seconds: 2)),
+      const SingleActivator(LogicalKeyboardKey.arrowUp): () => nudgeVolume(5),
+      const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
+          nudgeVolume(-5),
+      const SingleActivator(LogicalKeyboardKey.keyF): toggleFullscreen,
+      const SingleActivator(LogicalKeyboardKey.escape): leaveFullscreen,
+    };
